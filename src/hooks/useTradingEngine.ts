@@ -102,13 +102,15 @@ export function useTradingEngine() {
             
             console.log('Processing row:', row);
             
-            // Try to extract real data from CSV
-            const timestamp = row.ts_utc || row.timestamp || row.time || Date.now() + index * 1000;
+            // Extract timestamp
+            const timestamp = row.timestamp || Date.now() + index * 1000;
             
-            // Handle different event types from your CSV
-            if (row.event_type === 'TRADE') {
-              const price = parseFloat(row.trade_price || 0);
-              const volume = parseFloat(row.trade_size || row.volume || 1);
+            // Handle different event types from your CSV format
+            if (row.event_type === 'trade') {
+              // Extract trade data
+              const price = parseFloat(row.last_trade_price || row.trade_price || 0);
+              const volume = parseFloat(row.last_trade_size || row.trade_size || 1);
+              const side = row.last_trade_side === 'B' ? 'BUY' : 'SELL';
               
               if (price > 0) {
                 events.push({
@@ -116,42 +118,43 @@ export function useTradingEngine() {
                   eventType: 'TRADE',
                   tradePrice: price,
                   tradeSize: volume,
-                  aggressor: row.aggressor === 'BUY' ? 'BUY' : 'SELL'
+                  aggressor: side
                 });
               }
-            } else if (row.event_type === 'BBO') {
-              const bidPrice = parseFloat(row.bid_price || 0);
-              const askPrice = parseFloat(row.ask_price || 0);
-              const bidSize = parseFloat(row.bid_size || 0);
-              const askSize = parseFloat(row.ask_size || 0);
+            }
+            
+            // Always create orderbook events from the level data
+            const bidPrices: number[] = [];
+            const askPrices: number[] = [];
+            const bidSizes: number[] = [];
+            const askSizes: number[] = [];
+            
+            // Extract up to 10 levels of data
+            for (let i = 1; i <= 10; i++) {
+              const bidPrice = parseFloat(row[`bid_price_L${i}`] || 0);
+              const askPrice = parseFloat(row[`ask_price_L${i}`] || 0);
+              const bidSize = parseFloat(row[`bid_size_L${i}`] || 0);
+              const askSize = parseFloat(row[`ask_size_L${i}`] || 0);
               
-              if (bidPrice > 0 || askPrice > 0) {
-                events.push({
-                  timestamp: new Date(timestamp).getTime(),
-                  eventType: 'BBO',
-                  bidPrice: bidPrice || undefined,
-                  askPrice: askPrice || undefined,
-                  bidSize: bidSize || undefined,
-                  askSize: askSize || undefined
-                });
+              if (bidPrice > 0) {
+                bidPrices.push(bidPrice);
+                bidSizes.push(bidSize);
               }
-            } else if (row.event_type === 'ORDERBOOK') {
-              // Parse the arrays from strings
-              const bidPrices = row.book_bid_prices ? JSON.parse(row.book_bid_prices) : [];
-              const askPrices = row.book_ask_prices ? JSON.parse(row.book_ask_prices) : [];
-              const bidSizes = row.book_bid_sizes ? JSON.parse(row.book_bid_sizes) : [];
-              const askSizes = row.book_ask_sizes ? JSON.parse(row.book_ask_sizes) : [];
-              
-              if (bidPrices.length > 0 || askPrices.length > 0) {
-                events.push({
-                  timestamp: new Date(timestamp).getTime(),
-                  eventType: 'ORDERBOOK',
-                  bookBidPrices: bidPrices,
-                  bookAskPrices: askPrices,
-                  bookBidSizes: bidSizes,
-                  bookAskSizes: askSizes
-                });
+              if (askPrice > 0) {
+                askPrices.push(askPrice);
+                askSizes.push(askSize);
               }
+            }
+            
+            if (bidPrices.length > 0 || askPrices.length > 0) {
+              events.push({
+                timestamp: new Date(timestamp).getTime(),
+                eventType: 'ORDERBOOK',
+                bookBidPrices: bidPrices,
+                bookAskPrices: askPrices,
+                bookBidSizes: bidSizes,
+                bookAskSizes: askSizes
+              });
             }
           });
           
