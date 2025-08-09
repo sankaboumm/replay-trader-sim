@@ -75,6 +75,7 @@ export function useTradingEngine() {
     realized: 0,
     total: 0
   });
+  const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
@@ -351,6 +352,25 @@ export function useTradingEngine() {
     setPosition(prev => {
       const newQuantity = prev.quantity + (side === 'BUY' ? quantity : -quantity);
       
+      // Calculate realized PnL for position changes
+      let realizedPnL = 0;
+      if (prev.quantity !== 0) {
+        if ((prev.quantity > 0 && side === 'SELL') || (prev.quantity < 0 && side === 'BUY')) {
+          // Closing or reducing position - calculate realized PnL
+          const closeQuantity = Math.min(quantity, Math.abs(prev.quantity));
+          if (prev.quantity > 0) {
+            // Was long, selling
+            realizedPnL = closeQuantity * (fillPrice - prev.averagePrice);
+          } else {
+            // Was short, buying
+            realizedPnL = closeQuantity * (prev.averagePrice - fillPrice);
+          }
+        }
+      }
+      
+      // Update total realized PnL
+      setRealizedPnLTotal(prevTotal => prevTotal + realizedPnL);
+      
       let newAveragePrice = prev.averagePrice;
       if (newQuantity !== 0) {
         const totalCost = (prev.quantity * prev.averagePrice) + (quantity * fillPrice * (side === 'BUY' ? 1 : -1));
@@ -385,14 +405,13 @@ export function useTradingEngine() {
   // Update PnL
   useEffect(() => {
     const unrealized = position.quantity * (currentPrice - position.averagePrice);
-    const realized = 0; // Calculate from filled orders
     
     setPnl({
       unrealized,
-      realized,
-      total: unrealized + realized
+      realized: realizedPnLTotal,
+      total: unrealized + realizedPnLTotal
     });
-  }, [position, currentPrice]);
+  }, [position, currentPrice, realizedPnLTotal]);
 
   // Playback timer
   useEffect(() => {
