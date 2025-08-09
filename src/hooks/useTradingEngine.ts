@@ -413,6 +413,91 @@ export function useTradingEngine() {
     });
   }, [position, currentPrice, realizedPnLTotal]);
 
+  // Check for limit order execution when price changes
+  useEffect(() => {
+    if (currentPrice <= 0) return;
+
+    setOrders(prevOrders => {
+      const updatedOrders = [...prevOrders];
+      const executedOrders: Order[] = [];
+
+      for (let i = updatedOrders.length - 1; i >= 0; i--) {
+        const order = updatedOrders[i];
+        let shouldExecute = false;
+
+        if (order.side === 'BUY' && currentPrice <= order.price) {
+          // Buy limit order executes when price hits or goes below limit price
+          shouldExecute = true;
+        } else if (order.side === 'SELL' && currentPrice >= order.price) {
+          // Sell limit order executes when price hits or goes above limit price
+          shouldExecute = true;
+        }
+
+        if (shouldExecute) {
+          // Execute the order at the limit price
+          const fillPrice = order.price;
+          const quantity = order.quantity - order.filled;
+
+          // Update position
+          setPosition(prev => {
+            const newQuantity = prev.quantity + (order.side === 'BUY' ? quantity : -quantity);
+            
+            // Calculate realized PnL for position changes
+            let realizedPnL = 0;
+            if (prev.quantity !== 0) {
+              if ((prev.quantity > 0 && order.side === 'SELL') || (prev.quantity < 0 && order.side === 'BUY')) {
+                // Closing or reducing position - calculate realized PnL
+                const closeQuantity = Math.min(quantity, Math.abs(prev.quantity));
+                if (prev.quantity > 0) {
+                  // Was long, selling
+                  realizedPnL = closeQuantity * (fillPrice - prev.averagePrice);
+                } else {
+                  // Was short, buying
+                  realizedPnL = closeQuantity * (prev.averagePrice - fillPrice);
+                }
+              }
+            }
+            
+            // Update total realized PnL
+            if (realizedPnL !== 0) {
+              setRealizedPnLTotal(prevTotal => prevTotal + realizedPnL);
+            }
+            
+            let newAveragePrice = prev.averagePrice;
+            if (newQuantity !== 0) {
+              const totalCost = (prev.quantity * prev.averagePrice) + (quantity * fillPrice * (order.side === 'BUY' ? 1 : -1));
+              newAveragePrice = Math.abs(totalCost / newQuantity);
+            }
+            
+            return {
+              ...prev,
+              quantity: newQuantity,
+              averagePrice: newAveragePrice,
+              marketPrice: fillPrice
+            };
+          });
+
+          // Add to time and sales
+          const trade: Trade = {
+            id: `limit-trade-${Date.now()}-${i}`,
+            timestamp: Date.now(),
+            price: fillPrice,
+            size: quantity,
+            aggressor: order.side
+          };
+          
+          setTimeAndSales(prev => [trade, ...prev]);
+
+          // Remove the executed order
+          executedOrders.push(order);
+          updatedOrders.splice(i, 1);
+        }
+      }
+
+      return updatedOrders;
+    });
+  }, [currentPrice]);
+
   // Playback timer
   useEffect(() => {
     if (isPlaying && currentEventIndex < marketData.length) {
