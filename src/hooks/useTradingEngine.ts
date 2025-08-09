@@ -452,22 +452,32 @@ export function useTradingEngine() {
                   // Was long, selling
                   realizedPnL = closeQuantity * (fillPrice - prev.averagePrice);
                 } else {
-                  // Was short, buying
+                  // Was short, buying to cover
                   realizedPnL = closeQuantity * (prev.averagePrice - fillPrice);
                 }
+                
+                // Update total realized PnL
+                setRealizedPnLTotal(prevTotal => prevTotal + realizedPnL);
               }
             }
             
-            // Update total realized PnL
-            if (realizedPnL !== 0) {
-              setRealizedPnLTotal(prevTotal => prevTotal + realizedPnL);
-            }
-            
             let newAveragePrice = prev.averagePrice;
-            if (newQuantity !== 0) {
+            
+            // If we're closing the entire position, reset average price
+            if (newQuantity === 0) {
+              newAveragePrice = 0;
+            } else if ((prev.quantity > 0 && order.side === 'BUY') || (prev.quantity < 0 && order.side === 'SELL')) {
+              // Adding to existing position - update average price
               const totalCost = (prev.quantity * prev.averagePrice) + (quantity * fillPrice * (order.side === 'BUY' ? 1 : -1));
               newAveragePrice = Math.abs(totalCost / newQuantity);
+            } else if (newQuantity !== 0 && Math.sign(newQuantity) !== Math.sign(prev.quantity)) {
+              // Reversing position - new average price is the fill price
+              newAveragePrice = fillPrice;
             }
+            
+            console.log(`Limit order executed: ${order.side} ${quantity} at ${fillPrice}`);
+            console.log(`Position: ${prev.quantity} -> ${newQuantity}, Avg: ${prev.averagePrice} -> ${newAveragePrice}`);
+            console.log(`Realized PnL: ${realizedPnL}, Total realized: ${realizedPnLTotal + realizedPnL}`);
             
             return {
               ...prev,
