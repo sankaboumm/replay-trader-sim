@@ -167,17 +167,25 @@ export function useTradingEngine() {
           setCurrentEventIndex(0);
           setTimeAndSales([]);
           
-          // Set initial price from first BBO or orderbook event
-          const firstBBO = events.find(e => e.eventType === 'BBO' && (e.bidPrice || e.askPrice));
-          const firstOrderbook = events.find(e => e.eventType === 'ORDERBOOK' && (e.bookBidPrices?.length || e.bookAskPrices?.length));
+          // Set initial price from first valid price in data
+          let initialPrice = 19300; // fallback
           
-          let initialPrice = 23097; // fallback
-          if (firstBBO) {
-            initialPrice = firstBBO.askPrice || firstBBO.bidPrice || initialPrice;
-          } else if (firstOrderbook) {
-            const prices = [...(firstOrderbook.bookBidPrices || []), ...(firstOrderbook.bookAskPrices || [])];
-            if (prices.length > 0) {
-              initialPrice = prices[0];
+          // Find first valid trade price
+          const firstTrade = events.find(e => e.eventType === 'TRADE' && e.tradePrice && e.tradePrice > 0);
+          if (firstTrade && firstTrade.tradePrice) {
+            initialPrice = firstTrade.tradePrice;
+          } else {
+            // Find first valid orderbook price
+            const firstOrderbook = events.find(e => e.eventType === 'ORDERBOOK' && 
+              ((e.bookBidPrices && e.bookBidPrices.length > 0) || 
+               (e.bookAskPrices && e.bookAskPrices.length > 0)));
+            
+            if (firstOrderbook) {
+              if (firstOrderbook.bookBidPrices && firstOrderbook.bookBidPrices.length > 0) {
+                initialPrice = firstOrderbook.bookBidPrices[0];
+              } else if (firstOrderbook.bookAskPrices && firstOrderbook.bookAskPrices.length > 0) {
+                initialPrice = firstOrderbook.bookAskPrices[0];
+              }
             }
           }
           

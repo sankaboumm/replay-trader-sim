@@ -28,7 +28,7 @@ interface DOMladderProps {
 }
 
 const TICK_SIZE = 0.25;
-const VISIBLE_LEVELS = 20;
+const VISIBLE_LEVELS = 40;
 
 function formatPrice(price: number): string {
   return price.toFixed(2).replace('.', ',');
