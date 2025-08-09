@@ -52,16 +52,30 @@ export default {
 					DEFAULT: 'hsl(var(--card))',
 					foreground: 'hsl(var(--card-foreground))'
 				},
-				sidebar: {
-					DEFAULT: 'hsl(var(--sidebar-background))',
-					foreground: 'hsl(var(--sidebar-foreground))',
-					primary: 'hsl(var(--sidebar-primary))',
-					'primary-foreground': 'hsl(var(--sidebar-primary-foreground))',
-					accent: 'hsl(var(--sidebar-accent))',
-					'accent-foreground': 'hsl(var(--sidebar-accent-foreground))',
-					border: 'hsl(var(--sidebar-border))',
-					ring: 'hsl(var(--sidebar-ring))'
+				trading: {
+					buy: 'hsl(var(--trading-buy))',
+					'buy-hover': 'hsl(var(--trading-buy-hover))',
+					'buy-muted': 'hsl(var(--trading-buy-muted))',
+					sell: 'hsl(var(--trading-sell))',
+					'sell-hover': 'hsl(var(--trading-sell-hover))',
+					'sell-muted': 'hsl(var(--trading-sell-muted))',
+					neutral: 'hsl(var(--trading-neutral))',
+					profit: 'hsl(var(--trading-profit))',
+					loss: 'hsl(var(--trading-loss))'
+				},
+				ladder: {
+					header: 'hsl(var(--ladder-header))',
+					row: 'hsl(var(--ladder-row))',
+					'row-hover': 'hsl(var(--ladder-row-hover))',
+					bid: 'hsl(var(--ladder-bid))',
+					ask: 'hsl(var(--ladder-ask))',
+					price: 'hsl(var(--ladder-price))',
+					last: 'hsl(var(--ladder-last))'
 				}
+			},
+			fontFamily: {
+				mono: ['var(--font-mono)'],
+				trading: ['var(--font-trading)']
 			},
 			borderRadius: {
 				lg: 'var(--radius)',
