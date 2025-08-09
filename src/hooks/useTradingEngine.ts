@@ -369,12 +369,21 @@ export function useTradingEngine() {
       const nextEvent = marketData[currentEventIndex + 1];
       
       if (nextEvent) {
-        const delay = (nextEvent.timestamp - currentEvent.timestamp) / playbackSpeed;
+        // Calculate delay between events in milliseconds
+        const timeDiff = nextEvent.timestamp - currentEvent.timestamp;
+        const baseDelay = Math.min(timeDiff, 1000); // Cap at 1 second max
+        const adjustedDelay = baseDelay / playbackSpeed;
+        
+        // Set minimum delay based on playback speed to avoid too fast playback
+        const minDelay = playbackSpeed >= 10 ? 50 : playbackSpeed >= 5 ? 100 : 200;
+        const finalDelay = Math.max(minDelay, adjustedDelay);
+        
+        console.log('Playback timing:', { timeDiff, baseDelay, adjustedDelay, finalDelay, speed: playbackSpeed });
         
         playbackTimerRef.current = setTimeout(() => {
           processEvent(currentEvent);
           setCurrentEventIndex(prev => prev + 1);
-        }, Math.max(10, delay)); // Minimum 10ms delay
+        }, finalDelay);
       } else {
         processEvent(currentEvent);
         setIsPlaying(false);
