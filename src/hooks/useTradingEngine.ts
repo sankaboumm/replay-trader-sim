@@ -81,15 +81,19 @@ export function useTradingEngine() {
 
   // Load market data from file
   const loadMarketData = useCallback((file: File) => {
+    console.log('Loading file:', file.name, 'Type:', file.type, 'Size:', file.size);
     const reader = new FileReader();
     
     reader.onload = (event) => {
       const text = event.target?.result as string;
+      console.log('File loaded, content preview:', text.substring(0, 200));
       
       // For demo purposes, we'll parse CSV and simulate parquet-like data
       Papa.parse(text, {
         header: true,
         complete: (results) => {
+          console.log('CSV parsed:', results.data.length, 'rows');
+          console.log('First row:', results.data[0]);
           const events: MarketEvent[] = [];
           
           results.data.forEach((row: any, index) => {
@@ -130,6 +134,7 @@ export function useTradingEngine() {
           // Sort by timestamp
           events.sort((a, b) => a.timestamp - b.timestamp);
           
+          console.log('Generated', events.length, 'market events');
           setMarketData(events);
           setCurrentEventIndex(0);
           setTimeAndSales([]);
