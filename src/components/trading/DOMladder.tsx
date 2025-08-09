@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback } from 'react';
+import { memo, useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 interface OrderBookLevel {
@@ -28,7 +28,8 @@ interface DOMladderProps {
 }
 
 const TICK_SIZE = 0.25;
-const VISIBLE_LEVELS = 40;
+const INITIAL_LEVELS = 100;
+const EXTEND_THRESHOLD = 10;
 
 function formatPrice(price: number): string {
   return price.toFixed(2).replace('.', ',');
@@ -48,18 +49,30 @@ export const DOMladder = memo(function DOMladder({
   disabled = false
 }: DOMladderProps) {
   
-  // Generate price ladder around current price
+  const [priceRange, setPriceRange] = useState<{ start: number; end: number } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  
+  // Initialize price range once we have a current price
+  useEffect(() => {
+    if (currentPrice > 0 && !priceRange) {
+      const roundedPrice = Math.round(currentPrice / TICK_SIZE) * TICK_SIZE;
+      setPriceRange({
+        start: roundedPrice - (INITIAL_LEVELS * TICK_SIZE / 2),
+        end: roundedPrice + (INITIAL_LEVELS * TICK_SIZE / 2)
+      });
+    }
+  }, [currentPrice, priceRange]);
+  
+  // Generate fixed price ladder
   const priceLadder = useMemo(() => {
-    if (currentPrice <= 0) return [];
+    if (!priceRange) return [];
     
     const levels: OrderBookLevel[] = [];
-    const halfLevels = Math.floor(VISIBLE_LEVELS / 2);
+    const totalLevels = Math.round((priceRange.end - priceRange.start) / TICK_SIZE);
     
-    // Round current price to nearest tick
-    const roundedPrice = Math.round(currentPrice / TICK_SIZE) * TICK_SIZE;
-    
-    for (let i = halfLevels; i >= -halfLevels; i--) {
-      const price = roundedPrice + (i * TICK_SIZE);
+    for (let i = 0; i <= totalLevels; i++) {
+      const price = priceRange.start + (i * TICK_SIZE);
       
       // Find matching orderbook level
       const bookLevel = orderBook.find(level => 
@@ -75,8 +88,48 @@ export const DOMladder = memo(function DOMladder({
       });
     }
     
-    return levels;
-  }, [currentPrice, orderBook]);
+    // Sort by price descending (highest first)
+    return levels.sort((a, b) => b.price - a.price);
+  }, [priceRange, orderBook]);
+  
+  // Handle infinite scroll
+  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLDivElement;
+    const { scrollTop, scrollHeight, clientHeight } = target;
+    setScrollTop(scrollTop);
+    
+    if (!priceRange) return;
+    
+    // Extend range upward when scrolling near top
+    if (scrollTop < EXTEND_THRESHOLD * 24 && priceRange) {
+      setPriceRange(prev => prev ? {
+        start: prev.start - (INITIAL_LEVELS * TICK_SIZE / 4),
+        end: prev.end
+      } : null);
+    }
+    
+    // Extend range downward when scrolling near bottom
+    if (scrollHeight - scrollTop - clientHeight < EXTEND_THRESHOLD * 24 && priceRange) {
+      setPriceRange(prev => prev ? {
+        start: prev.start,
+        end: prev.end + (INITIAL_LEVELS * TICK_SIZE / 4)
+      } : null);
+    }
+  }, [priceRange]);
+  
+  // Auto-scroll to current price when price changes
+  useEffect(() => {
+    if (currentPrice > 0 && priceRange && scrollRef.current) {
+      const priceIndex = priceLadder.findIndex(level => 
+        Math.abs(level.price - currentPrice) < TICK_SIZE / 2
+      );
+      
+      if (priceIndex >= 0) {
+        const targetScroll = priceIndex * 24 - (scrollRef.current.clientHeight / 2);
+        scrollRef.current.scrollTo({ top: targetScroll, behavior: 'smooth' });
+      }
+    }
+  }, [currentPrice, priceRange, priceLadder]);
 
   // Get orders for a specific price level
   const getOrdersAtPrice = useCallback((price: number, side: 'BUY' | 'SELL') => {
@@ -134,7 +187,11 @@ export const DOMladder = memo(function DOMladder({
       </div>
 
       {/* Ladder Rows */}
-      <div className="flex-1 overflow-y-auto trading-scroll">
+      <div 
+        ref={scrollRef}
+        className="flex-1 overflow-y-auto trading-scroll"
+        onScroll={handleScroll}
+      >
         {priceLadder.map((level, index) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < TICK_SIZE / 2;
           const buyOrders = getOrdersAtPrice(level.price, 'BUY');
