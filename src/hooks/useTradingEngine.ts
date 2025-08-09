@@ -272,36 +272,53 @@ export function useTradingEngine() {
         if (event.bookBidPrices && event.bookAskPrices) {
           const newBook: OrderBookLevel[] = [];
           
-          // Add bid levels
-          event.bookBidPrices.forEach((price, i) => {
-            newBook.push({
-              price,
-              bidSize: event.bookBidSizes?.[i] || 0,
-              askSize: 0
-            });
-          });
+          // Create a clean orderbook from the event data
+          const maxLevels = Math.min(event.bookBidPrices.length, event.bookAskPrices.length);
           
-          // Add ask levels
-          event.bookAskPrices.forEach((price, i) => {
-            const existingLevel = newBook.find(level => Math.abs(level.price - price) < 0.125);
-            if (existingLevel) {
-              existingLevel.askSize = event.bookAskSizes?.[i] || 0;
-            } else {
+          for (let i = 0; i < maxLevels; i++) {
+            const bidPrice = event.bookBidPrices[i];
+            const askPrice = event.bookAskPrices[i];
+            const bidSize = event.bookBidSizes?.[i] || 0;
+            const askSize = event.bookAskSizes?.[i] || 0;
+            
+            // Add bid level
+            if (bidPrice > 0 && bidSize > 0) {
               newBook.push({
-                price,
-                bidSize: 0,
-                askSize: event.bookAskSizes?.[i] || 0
+                price: bidPrice,
+                bidSize: bidSize,
+                askSize: 0
               });
             }
-          });
+            
+            // Add ask level (check if price already exists)
+            if (askPrice > 0 && askSize > 0) {
+              const existingLevel = newBook.find(level => Math.abs(level.price - askPrice) < 0.125);
+              if (existingLevel) {
+                existingLevel.askSize = askSize;
+              } else {
+                newBook.push({
+                  price: askPrice,
+                  bidSize: 0,
+                  askSize: askSize
+                });
+              }
+            }
+          }
           
+          // Sort by price (descending for proper display)
+          newBook.sort((a, b) => b.price - a.price);
+          
+          // Replace the entire orderbook instead of accumulating
           setOrderBook(newBook);
           
           // Update current price with best bid/ask to avoid gaps
-          const bestBid = Math.max(...event.bookBidPrices);
-          const bestAsk = Math.min(...event.bookAskPrices);
-          const midPrice = (bestBid + bestAsk) / 2;
-          setCurrentPrice(midPrice);
+          const bestBid = Math.max(...event.bookBidPrices.filter(p => p > 0));
+          const bestAsk = Math.min(...event.bookAskPrices.filter(p => p > 0));
+          
+          if (bestBid > 0 && bestAsk > 0) {
+            const midPrice = (bestBid + bestAsk) / 2;
+            setCurrentPrice(midPrice);
+          }
         }
         break;
     }
