@@ -102,8 +102,9 @@ export function useTradingEngine() {
             
             console.log('Processing row:', row);
             
-            // Extract timestamp
-            const timestamp = row.timestamp || Date.now() + index * 1000;
+            // Extract timestamp - convert to milliseconds if needed
+            const timestampStr = row.timestamp || Date.now() + index * 1000;
+            const timestamp = new Date(timestampStr).getTime();
             
             // Handle different event types from your CSV format
             if (row.event_type === 'trade') {
@@ -287,6 +288,12 @@ export function useTradingEngine() {
           });
           
           setOrderBook(newBook);
+          
+          // Update current price with best bid/ask to avoid gaps
+          const bestBid = Math.max(...event.bookBidPrices);
+          const bestAsk = Math.min(...event.bookAskPrices);
+          const midPrice = (bestBid + bestAsk) / 2;
+          setCurrentPrice(midPrice);
         }
         break;
     }
