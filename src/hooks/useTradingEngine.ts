@@ -97,37 +97,39 @@ export function useTradingEngine() {
           const events: MarketEvent[] = [];
           
           results.data.forEach((row: any, index) => {
-            // Simulate different event types
-            if (index % 10 === 0) {
-              // ORDERBOOK event
+            // Skip empty rows
+            if (!row || Object.keys(row).length === 0) return;
+            
+            console.log('Processing row:', row);
+            
+            // Try to extract real data from CSV
+            // Common column names for market data
+            const timestamp = row.timestamp || row.time || row.Time || row.TIMESTAMP || Date.now() + index * 1000;
+            const price = parseFloat(row.price || row.Price || row.PRICE || row.close || row.Close || row.CLOSE || 0);
+            const volume = parseFloat(row.volume || row.Volume || row.VOLUME || row.size || row.Size || row.qty || 1);
+            const side = row.side || row.Side || row.SIDE || row.aggressor || (Math.random() > 0.5 ? 'BUY' : 'SELL');
+            
+            if (price > 0) {
+              // TRADE event with real data
               events.push({
-                timestamp: Date.now() + index * 1000,
-                eventType: 'ORDERBOOK',
-                bookBidPrices: [15183.25, 15183.0, 15182.75],
-                bookBidSizes: [10, 15, 8],
-                bookAskPrices: [15183.5, 15183.75, 15184.0],
-                bookAskSizes: [12, 9, 20]
-              });
-            } else if (index % 5 === 0) {
-              // BBO event
-              events.push({
-                timestamp: Date.now() + index * 1000,
-                eventType: 'BBO',
-                bidPrice: 15183.25,
-                bidSize: 10,
-                askPrice: 15183.5,
-                askSize: 12
-              });
-            } else {
-              // TRADE event
-              const price = 15183 + (Math.random() - 0.5) * 2;
-              events.push({
-                timestamp: Date.now() + index * 1000,
+                timestamp: typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp,
                 eventType: 'TRADE',
                 tradePrice: price,
-                tradeSize: Math.floor(Math.random() * 20) + 1,
-                aggressor: Math.random() > 0.5 ? 'BUY' : 'SELL'
+                tradeSize: volume || Math.floor(Math.random() * 20) + 1,
+                aggressor: side === 'BUY' || side === 'buy' || side === 1 ? 'BUY' : 'SELL'
               });
+              
+              // Generate orderbook around the trade price
+              if (index % 5 === 0) {
+                events.push({
+                  timestamp: typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp,
+                  eventType: 'ORDERBOOK',
+                  bookBidPrices: [price - 0.25, price - 0.5, price - 0.75],
+                  bookBidSizes: [10, 15, 8],
+                  bookAskPrices: [price + 0.25, price + 0.5, price + 0.75],
+                  bookAskSizes: [12, 9, 20]
+                });
+              }
             }
           });
           
@@ -138,7 +140,12 @@ export function useTradingEngine() {
           setMarketData(events);
           setCurrentEventIndex(0);
           setTimeAndSales([]);
-          setCurrentPrice(15183);
+          
+          // Set initial price from first trade event
+          const firstTrade = events.find(e => e.eventType === 'TRADE' && e.tradePrice);
+          const initialPrice = firstTrade?.tradePrice || 15183;
+          console.log('Setting initial price to:', initialPrice);
+          setCurrentPrice(initialPrice);
         }
       });
     };
