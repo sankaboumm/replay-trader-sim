@@ -103,31 +103,53 @@ export function useTradingEngine() {
             console.log('Processing row:', row);
             
             // Try to extract real data from CSV
-            // Common column names for market data
-            const timestamp = row.timestamp || row.time || row.Time || row.TIMESTAMP || Date.now() + index * 1000;
-            const price = parseFloat(row.price || row.Price || row.PRICE || row.close || row.Close || row.CLOSE || 0);
-            const volume = parseFloat(row.volume || row.Volume || row.VOLUME || row.size || row.Size || row.qty || 1);
-            const side = row.side || row.Side || row.SIDE || row.aggressor || (Math.random() > 0.5 ? 'BUY' : 'SELL');
+            const timestamp = row.ts_utc || row.timestamp || row.time || Date.now() + index * 1000;
             
-            if (price > 0) {
-              // TRADE event with real data
-              events.push({
-                timestamp: typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp,
-                eventType: 'TRADE',
-                tradePrice: price,
-                tradeSize: volume || Math.floor(Math.random() * 20) + 1,
-                aggressor: side === 'BUY' || side === 'buy' || side === 1 ? 'BUY' : 'SELL'
-              });
+            // Handle different event types from your CSV
+            if (row.event_type === 'TRADE') {
+              const price = parseFloat(row.trade_price || 0);
+              const volume = parseFloat(row.trade_size || row.volume || 1);
               
-              // Generate orderbook around the trade price
-              if (index % 5 === 0) {
+              if (price > 0) {
                 events.push({
-                  timestamp: typeof timestamp === 'string' ? new Date(timestamp).getTime() : timestamp,
+                  timestamp: new Date(timestamp).getTime(),
+                  eventType: 'TRADE',
+                  tradePrice: price,
+                  tradeSize: volume,
+                  aggressor: row.aggressor === 'BUY' ? 'BUY' : 'SELL'
+                });
+              }
+            } else if (row.event_type === 'BBO') {
+              const bidPrice = parseFloat(row.bid_price || 0);
+              const askPrice = parseFloat(row.ask_price || 0);
+              const bidSize = parseFloat(row.bid_size || 0);
+              const askSize = parseFloat(row.ask_size || 0);
+              
+              if (bidPrice > 0 || askPrice > 0) {
+                events.push({
+                  timestamp: new Date(timestamp).getTime(),
+                  eventType: 'BBO',
+                  bidPrice: bidPrice || undefined,
+                  askPrice: askPrice || undefined,
+                  bidSize: bidSize || undefined,
+                  askSize: askSize || undefined
+                });
+              }
+            } else if (row.event_type === 'ORDERBOOK') {
+              // Parse the arrays from strings
+              const bidPrices = row.book_bid_prices ? JSON.parse(row.book_bid_prices) : [];
+              const askPrices = row.book_ask_prices ? JSON.parse(row.book_ask_prices) : [];
+              const bidSizes = row.book_bid_sizes ? JSON.parse(row.book_bid_sizes) : [];
+              const askSizes = row.book_ask_sizes ? JSON.parse(row.book_ask_sizes) : [];
+              
+              if (bidPrices.length > 0 || askPrices.length > 0) {
+                events.push({
+                  timestamp: new Date(timestamp).getTime(),
                   eventType: 'ORDERBOOK',
-                  bookBidPrices: [price - 0.25, price - 0.5, price - 0.75],
-                  bookBidSizes: [10, 15, 8],
-                  bookAskPrices: [price + 0.25, price + 0.5, price + 0.75],
-                  bookAskSizes: [12, 9, 20]
+                  bookBidPrices: bidPrices,
+                  bookAskPrices: askPrices,
+                  bookBidSizes: bidSizes,
+                  bookAskSizes: askSizes
                 });
               }
             }
@@ -141,9 +163,20 @@ export function useTradingEngine() {
           setCurrentEventIndex(0);
           setTimeAndSales([]);
           
-          // Set initial price from first trade event
-          const firstTrade = events.find(e => e.eventType === 'TRADE' && e.tradePrice);
-          const initialPrice = firstTrade?.tradePrice || 15183;
+          // Set initial price from first BBO or orderbook event
+          const firstBBO = events.find(e => e.eventType === 'BBO' && (e.bidPrice || e.askPrice));
+          const firstOrderbook = events.find(e => e.eventType === 'ORDERBOOK' && (e.bookBidPrices?.length || e.bookAskPrices?.length));
+          
+          let initialPrice = 23097; // fallback
+          if (firstBBO) {
+            initialPrice = firstBBO.askPrice || firstBBO.bidPrice || initialPrice;
+          } else if (firstOrderbook) {
+            const prices = [...(firstOrderbook.bookBidPrices || []), ...(firstOrderbook.bookAskPrices || [])];
+            if (prices.length > 0) {
+              initialPrice = prices[0];
+            }
+          }
+          
           console.log('Setting initial price to:', initialPrice);
           setCurrentPrice(initialPrice);
         }
