@@ -117,8 +117,8 @@ export const DOMladder = memo(function DOMladder({
     }
   }, [priceRange]);
   
-  // Auto-scroll to current price when price changes
-  useEffect(() => {
+  // Center on current price when space is pressed
+  const centerOnCurrentPrice = useCallback(() => {
     if (currentPrice > 0 && priceRange && scrollRef.current) {
       const priceIndex = priceLadder.findIndex(level => 
         Math.abs(level.price - currentPrice) < TICK_SIZE / 2
@@ -130,6 +130,19 @@ export const DOMladder = memo(function DOMladder({
       }
     }
   }, [currentPrice, priceRange, priceLadder]);
+
+  // Handle keyboard events
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        centerOnCurrentPrice();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [centerOnCurrentPrice]);
 
   // Get orders for a specific price level
   const getOrdersAtPrice = useCallback((price: number, side: 'BUY' | 'SELL') => {
