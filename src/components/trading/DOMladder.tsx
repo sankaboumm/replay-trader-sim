@@ -7,6 +7,7 @@ interface OrderBookLevel {
   askSize: number;
   bidOrders?: number;
   askOrders?: number;
+  volume?: number;
 }
 
 interface Order {
@@ -84,7 +85,8 @@ export const DOMladder = memo(function DOMladder({
         bidSize: bookLevel?.bidSize || 0,
         askSize: bookLevel?.askSize || 0,
         bidOrders: bookLevel?.bidOrders || 0,
-        askOrders: bookLevel?.askOrders || 0
+        askOrders: bookLevel?.askOrders || 0,
+        volume: bookLevel?.volume || 0
       });
     }
     
@@ -279,12 +281,12 @@ export const DOMladder = memo(function DOMladder({
 
               {/* Last Trade Size */}
               <div className="flex items-center justify-center border-r border-border/50">
-                {/* This would show last trade size at this price */}
+                {/* Show last trade size at this exact price if available */}
               </div>
 
               {/* Volume */}
               <div className="flex items-center justify-center text-muted-foreground">
-                {/* This would show total volume at this price */}
+                {level.volume && level.volume > 0 ? formatSize(level.volume) : ''}
               </div>
             </div>
           );
