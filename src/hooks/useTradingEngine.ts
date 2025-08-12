@@ -103,60 +103,130 @@ export function useTradingEngine() {
             
             console.log('Processing row:', row);
             
-            // Extract timestamp - convert to milliseconds if needed
-            const timestampStr = row.timestamp || Date.now() + index * 1000;
-            const timestamp = new Date(timestampStr).getTime();
+            // Extract timestamp - handle both formats
+            let timestamp: number;
+            if (row.ts_exch_utc) {
+              timestamp = new Date(row.ts_exch_utc).getTime();
+            } else if (row.timestamp) {
+              timestamp = new Date(row.timestamp).getTime();
+            } else {
+              timestamp = Date.now() + index * 1000;
+            }
             
-            // Handle different event types from your CSV format
-            if (row.event_type === 'trade') {
-              // Extract trade data
-              const price = parseFloat(row.last_trade_price || row.trade_price || 0);
-              const volume = parseFloat(row.last_trade_size || row.trade_size || 1);
-              const side = row.last_trade_side === 'B' ? 'BUY' : 'SELL';
+            // Handle trade events
+            if (row.event_type === 'TRADE' && row.trade_price && parseFloat(row.trade_price) > 0) {
+              const price = parseFloat(row.trade_price);
+              const size = parseFloat(row.trade_size || 1);
+              const aggressor = row.aggressor === 'S' ? 'SELL' : 'BUY';
               
-              if (price > 0) {
+              events.push({
+                timestamp,
+                eventType: 'TRADE',
+                tradePrice: price,
+                tradeSize: size,
+                aggressor
+              });
+            }
+            
+            // Handle BBO (Best Bid/Offer) events
+            if (row.event_type === 'BBO') {
+              const bidPrice = parseFloat(row.bid_price || 0);
+              const askPrice = parseFloat(row.ask_price || 0);
+              const bidSize = parseFloat(row.bid_size || 0);
+              const askSize = parseFloat(row.ask_size || 0);
+              
+              if (bidPrice > 0 || askPrice > 0) {
                 events.push({
-                  timestamp: new Date(timestamp).getTime(),
-                  eventType: 'TRADE',
-                  tradePrice: price,
-                  tradeSize: volume,
-                  aggressor: side
+                  timestamp,
+                  eventType: 'BBO',
+                  bidPrice: bidPrice > 0 ? bidPrice : undefined,
+                  askPrice: askPrice > 0 ? askPrice : undefined,
+                  bidSize: bidSize > 0 ? bidSize : undefined,
+                  askSize: askSize > 0 ? askSize : undefined
                 });
               }
             }
             
-            // Always create orderbook events from the level data
-            const bidPrices: number[] = [];
-            const askPrices: number[] = [];
-            const bidSizes: number[] = [];
-            const askSizes: number[] = [];
-            
-            // Extract up to 10 levels of data
-            for (let i = 1; i <= 10; i++) {
-              const bidPrice = parseFloat(row[`bid_price_L${i}`] || 0);
-              const askPrice = parseFloat(row[`ask_price_L${i}`] || 0);
-              const bidSize = parseFloat(row[`bid_size_L${i}`] || 0);
-              const askSize = parseFloat(row[`ask_size_L${i}`] || 0);
+            // Handle orderbook events
+            if (row.event_type === 'ORDERBOOK') {
+              const bidPrices: number[] = [];
+              const askPrices: number[] = [];
+              const bidSizes: number[] = [];
+              const askSizes: number[] = [];
               
-              if (bidPrice > 0) {
-                bidPrices.push(bidPrice);
-                bidSizes.push(bidSize);
+              // Parse the JSON arrays from the CSV
+              try {
+                if (row.book_bid_prices && row.book_bid_prices !== '[]') {
+                  const parsedBidPrices = JSON.parse(row.book_bid_prices);
+                  const parsedBidSizes = JSON.parse(row.book_bid_sizes || '[]');
+                  parsedBidPrices.forEach((price: number, i: number) => {
+                    if (price > 0) {
+                      bidPrices.push(price);
+                      bidSizes.push(parsedBidSizes[i] || 0);
+                    }
+                  });
+                }
+                
+                if (row.book_ask_prices && row.book_ask_prices !== '[]') {
+                  const parsedAskPrices = JSON.parse(row.book_ask_prices);
+                  const parsedAskSizes = JSON.parse(row.book_ask_sizes || '[]');
+                  parsedAskPrices.forEach((price: number, i: number) => {
+                    if (price > 0) {
+                      askPrices.push(price);
+                      askSizes.push(parsedAskSizes[i] || 0);
+                    }
+                  });
+                }
+              } catch (e) {
+                console.warn('Failed to parse orderbook data:', e);
               }
-              if (askPrice > 0) {
-                askPrices.push(askPrice);
-                askSizes.push(askSize);
+              
+              if (bidPrices.length > 0 || askPrices.length > 0) {
+                events.push({
+                  timestamp,
+                  eventType: 'ORDERBOOK',
+                  bookBidPrices: bidPrices,
+                  bookAskPrices: askPrices,
+                  bookBidSizes: bidSizes,
+                  bookAskSizes: askSizes
+                });
               }
             }
             
-            if (bidPrices.length > 0 || askPrices.length > 0) {
-              events.push({
-                timestamp: new Date(timestamp).getTime(),
-                eventType: 'ORDERBOOK',
-                bookBidPrices: bidPrices,
-                bookAskPrices: askPrices,
-                bookBidSizes: bidSizes,
-                bookAskSizes: askSizes
-              });
+            // Fallback: try to extract level-based data (original format)
+            if (!row.event_type) {
+              const bidPrices: number[] = [];
+              const askPrices: number[] = [];
+              const bidSizes: number[] = [];
+              const askSizes: number[] = [];
+              
+              // Extract up to 10 levels of data
+              for (let i = 1; i <= 10; i++) {
+                const bidPrice = parseFloat(row[`bid_price_L${i}`] || 0);
+                const askPrice = parseFloat(row[`ask_price_L${i}`] || 0);
+                const bidSize = parseFloat(row[`bid_size_L${i}`] || 0);
+                const askSize = parseFloat(row[`ask_size_L${i}`] || 0);
+                
+                if (bidPrice > 0) {
+                  bidPrices.push(bidPrice);
+                  bidSizes.push(bidSize);
+                }
+                if (askPrice > 0) {
+                  askPrices.push(askPrice);
+                  askSizes.push(askSize);
+                }
+              }
+              
+              if (bidPrices.length > 0 || askPrices.length > 0) {
+                events.push({
+                  timestamp,
+                  eventType: 'ORDERBOOK',
+                  bookBidPrices: bidPrices,
+                  bookAskPrices: askPrices,
+                  bookBidSizes: bidSizes,
+                  bookAskSizes: askSizes
+                });
+              }
             }
           });
           
