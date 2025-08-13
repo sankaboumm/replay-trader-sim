@@ -33,7 +33,7 @@ const INITIAL_LEVELS = 100;
 const EXTEND_THRESHOLD = 10;
 
 function formatPrice(price: number): string {
-  return price.toFixed(2).replace('.', ',');
+  return price.toFixed(0);
 }
 
 function formatSize(size: number): string {

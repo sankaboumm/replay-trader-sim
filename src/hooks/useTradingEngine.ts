@@ -152,8 +152,8 @@ export function useTradingEngine() {
   };
 
   const roundToGrid = (price: number): number => {
-    // Round to nearest 0.25 (half up)
-    return Math.round(price * 4) / 4;
+    // Round to nearest 5.0 (tick size)
+    return Math.round(price / 5) * 5;
   };
 
   // Load market data from file
@@ -457,7 +457,7 @@ export function useTradingEngine() {
           // Update current price (last)
           setCurrentPrice(event.tradePrice);
           
-          // Update volume by price on grid (rounded to 0.25)
+          // Update volume by price on grid (rounded to 5.0)
           const gridPrice = roundToGrid(event.tradePrice);
           setVolumeByPrice(prev => {
             const newMap = new Map(prev);
@@ -509,7 +509,7 @@ export function useTradingEngine() {
             // Update or add bid level
             if (event.bidPrice && event.bidPrice > 0) {
               const gridBidPrice = roundToGrid(event.bidPrice);
-              const bidIndex = newBook.findIndex(level => Math.abs(level.price - gridBidPrice) < 0.125);
+              const bidIndex = newBook.findIndex(level => Math.abs(level.price - gridBidPrice) < 2.5);
               
               if (bidIndex >= 0) {
                 newBook[bidIndex] = { 
@@ -529,7 +529,7 @@ export function useTradingEngine() {
             // Update or add ask level
             if (event.askPrice && event.askPrice > 0) {
               const gridAskPrice = roundToGrid(event.askPrice);
-              const askIndex = newBook.findIndex(level => Math.abs(level.price - gridAskPrice) < 0.125);
+              const askIndex = newBook.findIndex(level => Math.abs(level.price - gridAskPrice) < 2.5);
               
               if (askIndex >= 0) {
                 newBook[askIndex] = { 
