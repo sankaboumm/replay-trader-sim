@@ -136,26 +136,39 @@ export function useTradingEngine() {
     if (!value || value === '[]' || value === '') return [];
     
     try {
-      // Try JSON first
-      if (value.startsWith('[') && value.endsWith(']')) {
-        return JSON.parse(value).map((v: any) => parseFloat(v)).filter((v: number) => !isNaN(v));
+      // Remove brackets and handle numpy-style arrays with spaces
+      let cleanValue = value.toString().trim();
+      if (cleanValue.startsWith('[') && cleanValue.endsWith(']')) {
+        cleanValue = cleanValue.slice(1, -1);
       }
       
-      // Try pipe or semicolon separated
-      const separators = ['|', ';', ','];
+      // Try different separators: spaces (numpy style), commas, pipes, semicolons
+      const separators = [/\s+/, ',', '|', ';'];
       for (const sep of separators) {
-        if (value.includes(sep)) {
-          return value.split(sep)
-            .map(v => parseFloat(v.trim()))
-            .filter(v => !isNaN(v));
+        const parts = cleanValue.split(sep).map(v => v.trim()).filter(v => v !== '');
+        if (parts.length > 1) {
+          const parsed = parts.map(v => parseFloat(v)).filter(v => !isNaN(v));
+          if (parsed.length > 0) {
+            console.log(`✅ Successfully parsed array with ${sep} separator:`, parsed.slice(0, 3), '...');
+            return parsed;
+          }
+        }
+      }
+      
+      // Try JSON parsing as fallback
+      if (value.startsWith('[') && value.endsWith(']')) {
+        const jsonParsed = JSON.parse(value).map((v: any) => parseFloat(v)).filter((v: number) => !isNaN(v));
+        if (jsonParsed.length > 0) {
+          console.log('✅ Successfully parsed as JSON array:', jsonParsed.slice(0, 3), '...');
+          return jsonParsed;
         }
       }
       
       // Single value
-      const single = parseFloat(value);
+      const single = parseFloat(cleanValue);
       return isNaN(single) ? [] : [single];
     } catch (e) {
-      console.warn('Failed to parse array field:', value, e);
+      console.warn('Failed to parse array field:', value.slice(0, 100), e);
       return [];
     }
   };
