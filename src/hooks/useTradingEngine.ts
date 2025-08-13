@@ -182,181 +182,146 @@ export function useTradingEngine() {
           console.log('Processing chunk with', results.data.length, 'rows');
         },
         complete: (results) => {
-          console.log('CSV parsing complete!');
-          console.log('Total rows parsed:', results.data.length);
-          console.log('Errors during parsing:', results.errors?.length || 0);
-          console.log('First row sample:', results.data[0]);
-          
-          if (results.errors?.length > 0) {
-            console.error('CSV parsing errors:', results.errors.slice(0, 5)); // Show first 5 errors
-          }
-          
-          if (!results.data || results.data.length === 0) {
-            console.error('❌ No data found in CSV file!');
-            return;
-          }
-          
-          console.log('✅ Starting data processing...');
-          const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
-          const processedRows = new Set<string>(); // For deduplication
-          
-          console.log('✅ About to start forEach loop...');
-          
-          results.data.forEach((row: any, index) => {
-            // Progress tracking for large files
-            if (index % 1000 === 0) {
-              console.log(`Processing row ${index}/${results.data.length} (${Math.round(index/results.data.length*100)}%)`);
+          try {
+            console.log('CSV parsing complete!');
+            console.log('Total rows parsed:', results.data.length);
+            console.log('Errors during parsing:', results.errors?.length || 0);
+            console.log('First row sample:', results.data[0]);
+            
+            if (results.errors?.length > 0) {
+              console.error('CSV parsing errors:', results.errors.slice(0, 5)); // Show first 5 errors
             }
             
-            // Skip empty rows
-            if (!row || Object.keys(row).length === 0) {
+            if (!results.data || results.data.length === 0) {
+              console.error('❌ No data found in CSV file!');
               return;
             }
             
-            // Deduplication check
-            const rowKey = JSON.stringify(row);
-            if (processedRows.has(rowKey)) {
-              console.log('Skipping duplicate row:', index);
-              return;
-            }
-            processedRows.add(rowKey);
+            console.log('✅ Starting data processing...');
+            const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
+            const processedRows = new Set<string>(); // For deduplication
             
-            // Log first few rows for debugging
-            if (index < 5 || index % 5000 === 0) {
-              console.log(`Processing row ${index}:`, row);
-            }
+            console.log('✅ About to start forEach loop...');
             
-            // Extract and validate timestamp
-            const timestamp = parseTimestamp(row);
-            const eventType = normalizeEventType(row.event_type);
-            
-            // Define sort order for intra-timestamp ordering: ORDERBOOK → BBO → TRADE
-            let sortOrder = 0;
-            if (eventType === 'ORDERBOOK') sortOrder = 0;
-            else if (eventType === 'BBO') sortOrder = 1;
-            else if (eventType === 'TRADE') sortOrder = 2;
-            
-            // Handle TRADE events
-            if (eventType === 'TRADE') {
-              const price = parseFloat(row.trade_price);
-              const size = parseFloat(row.trade_size);
-              const aggressor = normalizeAggressor(row.aggressor);
+            results.data.forEach((row: any, index) => {
+              // Progress tracking for large files
+              if (index % 1000 === 0) {
+                console.log(`Processing row ${index}/${results.data.length} (${Math.round(index/results.data.length*100)}%)`);
+              }
               
-              // Validation: must have valid price, size, and aggressor
-              if (isNaN(price) || price <= 0 || isNaN(size) || size <= 0 || !aggressor) {
-                console.log('Skipping invalid TRADE:', { price, size, aggressor });
+              // Skip empty rows
+              if (!row || Object.keys(row).length === 0) {
                 return;
               }
               
-              rawEvents.push({
-                timestamp,
-                sortOrder,
-                eventType: 'TRADE',
-                tradePrice: price,
-                tradeSize: size,
-                aggressor
-              });
-            }
-            
-            // Handle BBO events
-            else if (eventType === 'BBO') {
-              const bidPrice = parseFloat(row.bid_price);
-              const askPrice = parseFloat(row.ask_price);
-              const bidSize = parseFloat(row.bid_size);
-              const askSize = parseFloat(row.ask_size);
-              
-              // Validation: must have at least bid or ask
-              const hasBid = !isNaN(bidPrice) && bidPrice > 0;
-              const hasAsk = !isNaN(askPrice) && askPrice > 0;
-              
-              if (!hasBid && !hasAsk) {
-                console.log('Skipping incomplete BBO');
+              // Deduplication check
+              const rowKey = JSON.stringify(row);
+              if (processedRows.has(rowKey)) {
+                console.log('Skipping duplicate row:', index);
                 return;
               }
+              processedRows.add(rowKey);
               
-              rawEvents.push({
-                timestamp,
-                sortOrder,
-                eventType: 'BBO',
-                bidPrice: hasBid ? bidPrice : undefined,
-                askPrice: hasAsk ? askPrice : undefined,
-                bidSize: hasBid && !isNaN(bidSize) ? bidSize : undefined,
-                askSize: hasAsk && !isNaN(askSize) ? askSize : undefined
-              });
-            }
-            
-            // Handle ORDERBOOK events
-            else if (eventType === 'ORDERBOOK') {
-              const bidPrices = parseArrayField(row.book_bid_prices);
-              const bidSizes = parseArrayField(row.book_bid_sizes);
-              const bidOrders = parseArrayField(row.book_bid_orders);
-              const askPrices = parseArrayField(row.book_ask_prices);
-              const askSizes = parseArrayField(row.book_ask_sizes);
-              const askOrders = parseArrayField(row.book_ask_orders);
-              
-              // Validation: arrays must have consistent lengths
-              const bidValid = bidPrices.length === bidSizes.length && 
-                              (bidOrders.length === 0 || bidOrders.length === bidPrices.length);
-              const askValid = askPrices.length === askSizes.length && 
-                              (askOrders.length === 0 || askOrders.length === askPrices.length);
-              
-              if (!bidValid || !askValid) {
-                console.log('Skipping ORDERBOOK with inconsistent arrays:', {
-                  bidPrices: bidPrices.length,
-                  bidSizes: bidSizes.length,
-                  bidOrders: bidOrders.length,
-                  askPrices: askPrices.length,
-                  askSizes: askSizes.length,
-                  askOrders: askOrders.length
-                });
-                return;
+              // Log first few rows for debugging
+              if (index < 5 || index % 5000 === 0) {
+                console.log(`Processing row ${index}:`, row);
               }
               
-              // Must have at least some data
-              if (bidPrices.length === 0 && askPrices.length === 0) {
-                console.log('Skipping empty ORDERBOOK');
-                return;
-              }
+              // Extract and validate timestamp
+              const timestamp = parseTimestamp(row);
+              const eventType = normalizeEventType(row.event_type);
               
-              rawEvents.push({
-                timestamp,
-                sortOrder,
-                eventType: 'ORDERBOOK',
-                bookBidPrices: bidPrices,
-                bookAskPrices: askPrices,
-                bookBidSizes: bidSizes,
-                bookAskSizes: askSizes
-              });
-            }
-            
-            // Fallback: legacy format with level-based columns
-            else if (!eventType && (row.bid_price_L1 || row.ask_price_L1)) {
-              const bidPrices: number[] = [];
-              const askPrices: number[] = [];
-              const bidSizes: number[] = [];
-              const askSizes: number[] = [];
+              // Define sort order for intra-timestamp ordering: ORDERBOOK → BBO → TRADE
+              let sortOrder = 0;
+              if (eventType === 'ORDERBOOK') sortOrder = 0;
+              else if (eventType === 'BBO') sortOrder = 1;
+              else if (eventType === 'TRADE') sortOrder = 2;
               
-              // Extract up to 10 levels
-              for (let i = 1; i <= 10; i++) {
-                const bidPrice = parseFloat(row[`bid_price_L${i}`]);
-                const askPrice = parseFloat(row[`ask_price_L${i}`]);
-                const bidSize = parseFloat(row[`bid_size_L${i}`]);
-                const askSize = parseFloat(row[`ask_size_L${i}`]);
+              // Handle TRADE events
+              if (eventType === 'TRADE') {
+                const price = parseFloat(row.trade_price);
+                const size = parseFloat(row.trade_size);
+                const aggressor = normalizeAggressor(row.aggressor);
                 
-                if (!isNaN(bidPrice) && bidPrice > 0) {
-                  bidPrices.push(bidPrice);
-                  bidSizes.push(isNaN(bidSize) ? 0 : bidSize);
+                // Validation: must have valid price, size, and aggressor
+                if (isNaN(price) || price <= 0 || isNaN(size) || size <= 0 || !aggressor) {
+                  console.log('Skipping invalid TRADE:', { price, size, aggressor });
+                  return;
                 }
-                if (!isNaN(askPrice) && askPrice > 0) {
-                  askPrices.push(askPrice);
-                  askSizes.push(isNaN(askSize) ? 0 : askSize);
-                }
-              }
-              
-              if (bidPrices.length > 0 || askPrices.length > 0) {
+                
                 rawEvents.push({
                   timestamp,
-                  sortOrder: 0, // Treat as ORDERBOOK
+                  sortOrder,
+                  eventType: 'TRADE',
+                  tradePrice: price,
+                  tradeSize: size,
+                  aggressor
+                });
+              }
+              
+              // Handle BBO events
+              else if (eventType === 'BBO') {
+                const bidPrice = parseFloat(row.bid_price);
+                const askPrice = parseFloat(row.ask_price);
+                const bidSize = parseFloat(row.bid_size);
+                const askSize = parseFloat(row.ask_size);
+                
+                // Validation: must have at least bid or ask
+                const hasBid = !isNaN(bidPrice) && bidPrice > 0;
+                const hasAsk = !isNaN(askPrice) && askPrice > 0;
+                
+                if (!hasBid && !hasAsk) {
+                  console.log('Skipping incomplete BBO');
+                  return;
+                }
+                
+                rawEvents.push({
+                  timestamp,
+                  sortOrder,
+                  eventType: 'BBO',
+                  bidPrice: hasBid ? bidPrice : undefined,
+                  askPrice: hasAsk ? askPrice : undefined,
+                  bidSize: hasBid && !isNaN(bidSize) ? bidSize : undefined,
+                  askSize: hasAsk && !isNaN(askSize) ? askSize : undefined
+                });
+              }
+              
+              // Handle ORDERBOOK events
+              else if (eventType === 'ORDERBOOK') {
+                const bidPrices = parseArrayField(row.book_bid_prices);
+                const bidSizes = parseArrayField(row.book_bid_sizes);
+                const bidOrders = parseArrayField(row.book_bid_orders);
+                const askPrices = parseArrayField(row.book_ask_prices);
+                const askSizes = parseArrayField(row.book_ask_sizes);
+                const askOrders = parseArrayField(row.book_ask_orders);
+                
+                // Validation: arrays must have consistent lengths
+                const bidValid = bidPrices.length === bidSizes.length && 
+                                (bidOrders.length === 0 || bidOrders.length === bidPrices.length);
+                const askValid = askPrices.length === askSizes.length && 
+                                (askOrders.length === 0 || askOrders.length === askPrices.length);
+                
+                if (!bidValid || !askValid) {
+                  console.log('Skipping ORDERBOOK with inconsistent arrays:', {
+                    bidPrices: bidPrices.length,
+                    bidSizes: bidSizes.length,
+                    bidOrders: bidOrders.length,
+                    askPrices: askPrices.length,
+                    askSizes: askSizes.length,
+                    askOrders: askOrders.length
+                  });
+                  return;
+                }
+                
+                // Must have at least some data
+                if (bidPrices.length === 0 && askPrices.length === 0) {
+                  console.log('Skipping empty ORDERBOOK');
+                  return;
+                }
+                
+                rawEvents.push({
+                  timestamp,
+                  sortOrder,
                   eventType: 'ORDERBOOK',
                   bookBidPrices: bidPrices,
                   bookAskPrices: askPrices,
@@ -364,62 +329,109 @@ export function useTradingEngine() {
                   bookAskSizes: askSizes
                 });
               }
-            }
-          });
-          
-          // Sort by timestamp, then by sortOrder for intra-timestamp ordering
-          rawEvents.sort((a, b) => {
-            if (a.timestamp !== b.timestamp) {
-              return a.timestamp - b.timestamp;
-            }
-            return a.sortOrder - b.sortOrder;
-          });
-          
-          // Remove sortOrder property and create final events array
-          const events: MarketEvent[] = rawEvents.map(({ sortOrder, ...event }) => event);
-          
-          console.log('Generated', events.length, 'market events after validation and sorting');
-          console.log('Event types:', events.reduce((acc, e) => {
-            acc[e.eventType] = (acc[e.eventType] || 0) + 1;
-            return acc;
-          }, {} as Record<string, number>));
-          
-          setMarketData(events);
-          setCurrentEventIndex(0);
-          setTimeAndSales([]);
-          
-          // Set initial price from first valid price in data
-          let initialPrice = 19300; // fallback
-          
-          // Find first valid trade price
-          const firstTrade = events.find(e => e.eventType === 'TRADE' && e.tradePrice && e.tradePrice > 0);
-          if (firstTrade && firstTrade.tradePrice) {
-            initialPrice = firstTrade.tradePrice;
-          } else {
-            // Find first valid orderbook or BBO price
-            const firstPriceEvent = events.find(e => 
-              (e.eventType === 'ORDERBOOK' && 
-               ((e.bookBidPrices && e.bookBidPrices.length > 0) || 
-                (e.bookAskPrices && e.bookAskPrices.length > 0))) ||
-              (e.eventType === 'BBO' && (e.bidPrice || e.askPrice))
-            );
-            
-            if (firstPriceEvent) {
-              if (firstPriceEvent.eventType === 'ORDERBOOK') {
-                const orderbook = firstPriceEvent;
-                if (orderbook.bookBidPrices && orderbook.bookBidPrices.length > 0) {
-                  initialPrice = orderbook.bookBidPrices[0];
-                } else if (orderbook.bookAskPrices && orderbook.bookAskPrices.length > 0) {
-                  initialPrice = orderbook.bookAskPrices[0];
+              
+              // Fallback: legacy format with level-based columns
+              else if (!eventType && (row.bid_price_L1 || row.ask_price_L1)) {
+                const bidPrices: number[] = [];
+                const askPrices: number[] = [];
+                const bidSizes: number[] = [];
+                const askSizes: number[] = [];
+                
+                // Extract up to 10 levels
+                for (let i = 1; i <= 10; i++) {
+                  const bidPrice = parseFloat(row[`bid_price_L${i}`]);
+                  const askPrice = parseFloat(row[`ask_price_L${i}`]);
+                  const bidSize = parseFloat(row[`bid_size_L${i}`]);
+                  const askSize = parseFloat(row[`ask_size_L${i}`]);
+                  
+                  if (!isNaN(bidPrice) && bidPrice > 0) {
+                    bidPrices.push(bidPrice);
+                    bidSizes.push(isNaN(bidSize) ? 0 : bidSize);
+                  }
+                  if (!isNaN(askPrice) && askPrice > 0) {
+                    askPrices.push(askPrice);
+                    askSizes.push(isNaN(askSize) ? 0 : askSize);
+                  }
                 }
-              } else if (firstPriceEvent.eventType === 'BBO') {
-                initialPrice = firstPriceEvent.bidPrice || firstPriceEvent.askPrice || initialPrice;
+                
+                if (bidPrices.length > 0 || askPrices.length > 0) {
+                  rawEvents.push({
+                    timestamp,
+                    sortOrder: 0, // Treat as ORDERBOOK
+                    eventType: 'ORDERBOOK',
+                    bookBidPrices: bidPrices,
+                    bookAskPrices: askPrices,
+                    bookBidSizes: bidSizes,
+                    bookAskSizes: askSizes
+                  });
+                }
+              }
+            });
+            
+            console.log('✅ forEach loop completed');
+            
+            // Sort by timestamp, then by sortOrder for intra-timestamp ordering
+            rawEvents.sort((a, b) => {
+              if (a.timestamp !== b.timestamp) {
+                return a.timestamp - b.timestamp;
+              }
+              return a.sortOrder - b.sortOrder;
+            });
+            
+            console.log('✅ Sorting completed');
+            
+            // Remove sortOrder property and create final events array
+            const events: MarketEvent[] = rawEvents.map(({ sortOrder, ...event }) => event);
+            
+            console.log('Generated', events.length, 'market events after validation and sorting');
+            console.log('Event types:', events.reduce((acc, e) => {
+              acc[e.eventType] = (acc[e.eventType] || 0) + 1;
+              return acc;
+            }, {} as Record<string, number>));
+            
+            setMarketData(events);
+            setCurrentEventIndex(0);
+            setTimeAndSales([]);
+            
+            // Set initial price from first valid price in data
+            let initialPrice = 19300; // fallback
+            
+            // Find first valid trade price
+            const firstTrade = events.find(e => e.eventType === 'TRADE' && e.tradePrice && e.tradePrice > 0);
+            if (firstTrade && firstTrade.tradePrice) {
+              initialPrice = firstTrade.tradePrice;
+            } else {
+              // Find first valid orderbook or BBO price
+              const firstPriceEvent = events.find(e => 
+                (e.eventType === 'ORDERBOOK' && 
+                 ((e.bookBidPrices && e.bookBidPrices.length > 0) || 
+                  (e.bookAskPrices && e.bookAskPrices.length > 0))) ||
+                (e.eventType === 'BBO' && (e.bidPrice || e.askPrice))
+              );
+              
+              if (firstPriceEvent) {
+                if (firstPriceEvent.eventType === 'ORDERBOOK') {
+                  const orderbook = firstPriceEvent;
+                  if (orderbook.bookBidPrices && orderbook.bookBidPrices.length > 0) {
+                    initialPrice = orderbook.bookBidPrices[0];
+                  } else if (orderbook.bookAskPrices && orderbook.bookAskPrices.length > 0) {
+                    initialPrice = orderbook.bookAskPrices[0];
+                  }
+                } else if (firstPriceEvent.eventType === 'BBO') {
+                  initialPrice = firstPriceEvent.bidPrice || firstPriceEvent.askPrice || initialPrice;
+                }
               }
             }
+            
+            console.log('Setting initial price to:', initialPrice);
+            setCurrentPrice(initialPrice);
+            console.log('✅ Import completed successfully!');
+            
+          } catch (error) {
+            console.error('🔥 Error in CSV complete handler:', error);
+            console.error('🔥 Error stack:', error.stack);
+            throw error;
           }
-          
-          console.log('Setting initial price to:', initialPrice);
-          setCurrentPrice(initialPrice);
         }
       });
     };
