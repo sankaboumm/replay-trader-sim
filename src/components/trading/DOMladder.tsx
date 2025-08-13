@@ -10,6 +10,12 @@ interface OrderBookLevel {
   volume?: number;
 }
 
+interface OrderBookData {
+  book_bid_sizes: number[];
+  book_ask_sizes: number[];
+  prices: number[];
+}
+
 interface Order {
   id: string;
   side: 'BUY' | 'SELL';
@@ -20,6 +26,7 @@ interface Order {
 
 interface DOMladderProps {
   orderBook: OrderBookLevel[];
+  orderBookData?: OrderBookData;
   currentPrice: number;
   orders: Order[];
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
@@ -42,6 +49,7 @@ function formatSize(size: number): string {
 
 export const DOMladder = memo(function DOMladder({
   orderBook,
+  orderBookData,
   currentPrice,
   orders,
   onLimitOrder,
@@ -80,10 +88,25 @@ export const DOMladder = memo(function DOMladder({
         Math.abs(level.price - price) < TICK_SIZE / 2
       );
       
+      // Find index in orderBookData arrays if available
+      let bidSize = bookLevel?.bidSize || 0;
+      let askSize = bookLevel?.askSize || 0;
+      
+      if (orderBookData) {
+        const priceIndex = orderBookData.prices?.findIndex(p => 
+          Math.abs(p - price) < TICK_SIZE / 2
+        );
+        
+        if (priceIndex >= 0) {
+          bidSize = orderBookData.book_bid_sizes[priceIndex] || 0;
+          askSize = orderBookData.book_ask_sizes[priceIndex] || 0;
+        }
+      }
+      
       levels.push({
         price,
-        bidSize: bookLevel?.bidSize || 0,
-        askSize: bookLevel?.askSize || 0,
+        bidSize,
+        askSize,
         bidOrders: bookLevel?.bidOrders || 0,
         askOrders: bookLevel?.askOrders || 0,
         volume: bookLevel?.volume || 0
@@ -92,7 +115,7 @@ export const DOMladder = memo(function DOMladder({
     
     // Sort by price descending (highest first)
     return levels.sort((a, b) => b.price - a.price);
-  }, [priceRange, orderBook]);
+  }, [priceRange, orderBook, orderBookData]);
   
   // Handle infinite scroll
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
