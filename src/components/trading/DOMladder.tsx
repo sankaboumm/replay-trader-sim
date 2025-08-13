@@ -28,7 +28,7 @@ interface DOMladderProps {
   disabled?: boolean;
 }
 
-const TICK_SIZE = 0.25;
+const TICK_SIZE = 5.0;
 const INITIAL_LEVELS = 100;
 const EXTEND_THRESHOLD = 10;
 
@@ -155,6 +155,22 @@ export const DOMladder = memo(function DOMladder({
     );
   }, [orders]);
 
+  // Calculate average buy and sell prices
+  const averagePrices = useMemo(() => {
+    const filledBuyOrders = orders.filter(o => o.side === 'BUY' && o.filled > 0);
+    const filledSellOrders = orders.filter(o => o.side === 'SELL' && o.filled > 0);
+    
+    const avgBuyPrice = filledBuyOrders.length > 0 
+      ? filledBuyOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) / filledBuyOrders.reduce((sum, o) => sum + o.filled, 0)
+      : null;
+      
+    const avgSellPrice = filledSellOrders.length > 0
+      ? filledSellOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) / filledSellOrders.reduce((sum, o) => sum + o.filled, 0)
+      : null;
+      
+    return { avgBuyPrice, avgSellPrice };
+  }, [orders]);
+
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
     
@@ -209,6 +225,8 @@ export const DOMladder = memo(function DOMladder({
       >
         {priceLadder.map((level, index) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < TICK_SIZE / 2;
+          const isAvgBuyPrice = averagePrices.avgBuyPrice && Math.abs(level.price - averagePrices.avgBuyPrice) < TICK_SIZE / 2;
+          const isAvgSellPrice = averagePrices.avgSellPrice && Math.abs(level.price - averagePrices.avgSellPrice) < TICK_SIZE / 2;
           const buyOrders = getOrdersAtPrice(level.price, 'BUY');
           const sellOrders = getOrdersAtPrice(level.price, 'SELL');
           const totalBuyQuantity = buyOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
@@ -220,6 +238,7 @@ export const DOMladder = memo(function DOMladder({
               className={cn(
                 "grid grid-cols-7 text-xs border-b border-border/50 h-6",
                 isLastPrice && "bg-ladder-last/20",
+                (isAvgBuyPrice || isAvgSellPrice) && "bg-trading-average/20",
                 "hover:bg-ladder-row-hover transition-colors"
               )}
             >
