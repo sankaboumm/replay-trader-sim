@@ -97,11 +97,8 @@ export const TimeAndSales = memo(function TimeAndSales({
                 </div>
 
                 {/* Size */}
-                <div className="px-2 text-center font-mono border-r border-border/50 flex items-center justify-center gap-1">
-                  <span>{trade.size}</span>
-                  {trade.aggregatedCount && trade.aggregatedCount > 1 && (
-                    <span className="text-xs bg-muted px-1 rounded text-muted-foreground">×{trade.aggregatedCount}</span>
-                  )}
+                <div className="px-2 text-center font-mono border-r border-border/50">
+                  {trade.size}
                 </div>
 
                 {/* Side */}
