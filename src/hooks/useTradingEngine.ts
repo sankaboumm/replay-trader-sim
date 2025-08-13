@@ -23,6 +23,7 @@ interface Trade {
   price: number;
   size: number;
   aggressor: 'BUY' | 'SELL';
+  aggregatedCount?: number;
 }
 
 interface OrderBookLevel {
@@ -64,6 +65,11 @@ export function useTradingEngine() {
   const [currentPrice, setCurrentPrice] = useState(0);
   const [orderBook, setOrderBook] = useState<OrderBookLevel[]>([]);
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
+  const [aggregationBuffer, setAggregationBuffer] = useState<{
+    trades: Trade[];
+    lastTimestamp: number;
+    key: { price: number; aggressor: 'BUY' | 'SELL' };
+  } | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [position, setPosition] = useState<Position>({
     symbol: 'DEMO',
@@ -82,6 +88,7 @@ export function useTradingEngine() {
   // Constants for P&L calculation
   const TICK_SIZE = 0.25;
   const TICK_VALUE = 5.0; // Each tick of 0.25 is worth 5$
+  const AGGREGATION_WINDOW_MS = 5;
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
@@ -443,6 +450,25 @@ export function useTradingEngine() {
   }, []);
 
   // Process market event
+  // Flush aggregation buffer to Time & Sales
+  const flushAggregationBuffer = useCallback(() => {
+    setAggregationBuffer(prev => {
+      if (!prev || prev.trades.length === 0) return null;
+      
+      const aggregatedTrade: Trade = {
+        id: `agg-${Date.now()}-${Math.random()}`,
+        timestamp: prev.trades[prev.trades.length - 1].timestamp, // Last trade timestamp
+        price: prev.key.price,
+        size: prev.trades.reduce((sum, trade) => sum + trade.size, 0),
+        aggressor: prev.key.aggressor,
+        aggregatedCount: prev.trades.length
+      };
+      
+      setTimeAndSales(prevTAS => [aggregatedTrade, ...prevTAS.slice(0, 99)]);
+      return null;
+    });
+  }, []);
+
   const processEvent = useCallback((event: MarketEvent) => {
     switch (event.eventType) {
       case 'TRADE':
@@ -455,8 +481,46 @@ export function useTradingEngine() {
             aggressor: event.aggressor
           };
           
-          // Add to Time & Sales (top of list)
-          setTimeAndSales(prev => [trade, ...prev.slice(0, 99)]);
+          // Handle aggregation for Time & Sales
+          setAggregationBuffer(prev => {
+            const currentKey = { price: event.tradePrice!, aggressor: event.aggressor! };
+            
+            // Check if we should aggregate
+            const shouldAggregate = prev && 
+              prev.key.price === currentKey.price &&
+              prev.key.aggressor === currentKey.aggressor &&
+              (event.timestamp - prev.lastTimestamp) <= AGGREGATION_WINDOW_MS;
+            
+            if (shouldAggregate) {
+              // Add to current buffer
+              return {
+                trades: [...prev.trades, trade],
+                lastTimestamp: event.timestamp,
+                key: currentKey
+              };
+            } else {
+              // Flush previous buffer if exists
+              if (prev && prev.trades.length > 0) {
+                const aggregatedTrade: Trade = {
+                  id: `agg-${Date.now()}-${Math.random()}`,
+                  timestamp: prev.trades[prev.trades.length - 1].timestamp,
+                  price: prev.key.price,
+                  size: prev.trades.reduce((sum, t) => sum + t.size, 0),
+                  aggressor: prev.key.aggressor,
+                  aggregatedCount: prev.trades.length
+                };
+                
+                setTimeAndSales(prevTAS => [aggregatedTrade, ...prevTAS.slice(0, 99)]);
+              }
+              
+              // Start new buffer
+              return {
+                trades: [trade],
+                lastTimestamp: event.timestamp,
+                key: currentKey
+              };
+            }
+          });
           
           // Update current price (last)
           setCurrentPrice(event.tradePrice);
@@ -631,8 +695,14 @@ export function useTradingEngine() {
 
   // Playback control
   const togglePlayback = useCallback(() => {
-    setIsPlaying(prev => !prev);
-  }, []);
+    setIsPlaying(prev => {
+      // If stopping playback, flush aggregation buffer
+      if (prev) {
+        flushAggregationBuffer();
+      }
+      return !prev;
+    });
+  }, [flushAggregationBuffer]);
 
   // Place limit order
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
@@ -843,6 +913,7 @@ export function useTradingEngine() {
         }, finalDelay);
       } else {
         processEvent(currentEvent);
+        flushAggregationBuffer(); // Flush buffer at end of playback
         setIsPlaying(false);
       }
     }
