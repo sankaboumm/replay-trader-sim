@@ -26,7 +26,10 @@ export function TradingInterface() {
     setPlaybackSpeed,
     placeLimitOrder,
     placeMarketOrder,
-    cancelOrdersAtPrice
+    cancelOrdersAtPrice,
+    sizeByPrice,
+    tickSize,
+    midPrice
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -122,6 +125,9 @@ export function TradingInterface() {
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
+            sizeByPrice={sizeByPrice}
+            tickSize={tickSize}
+            midPrice={midPrice}
           />
         </div>
 

@@ -1,9 +1,9 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
+import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 
 interface MarketEvent {
   timestamp: number;
-  eventType: 'TRADE' | 'BBO' | 'ORDERBOOK';
+  eventType: 'TRADE' | 'BBO' | 'ORDERBOOK_FULL';
   tradePrice?: number;
   tradeSize?: number;
   aggressor?: 'BUY' | 'SELL';
@@ -13,8 +13,10 @@ interface MarketEvent {
   askSize?: number;
   bookBidPrices?: number[];
   bookBidSizes?: number[];
+  bookBidOrders?: number[];
   bookAskPrices?: number[];
   bookAskSizes?: number[];
+  bookAskOrders?: number[];
 }
 
 interface Trade {
@@ -84,6 +86,13 @@ export function useTradingEngine() {
   });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
+  
+  // New state for frame-based DOM
+  const [currentFrameIndex, setCurrentFrameIndex] = useState(0);
+  const [frames, setFrames] = useState<MarketEvent[]>([]); // ORDERBOOK_FULL snapshots only
+  const [tickSize, setTickSize] = useState(0.25);
+  const [midPrice, setMidPrice] = useState(0);
+  const [sizeByPrice, setSizeByPrice] = useState<Map<number, number>>(new Map()); // Volume in current frame window
   
   // Constants for P&L calculation
   const TICK_SIZE = 0.25;
@@ -239,11 +248,11 @@ export function useTradingEngine() {
               const timestamp = parseTimestamp(row);
               const eventType = normalizeEventType(row.event_type);
               
-              // Define sort order for intra-timestamp ordering: ORDERBOOK → BBO → TRADE
-              let sortOrder = 0;
-              if (eventType === 'ORDERBOOK') sortOrder = 0;
-              else if (eventType === 'BBO') sortOrder = 1;
-              else if (eventType === 'TRADE') sortOrder = 2;
+               // Define sort order for intra-timestamp ordering: ORDERBOOK_FULL → BBO → TRADE
+               let sortOrder = 0;
+               if (eventType === 'ORDERBOOK_FULL') sortOrder = 0;
+               else if (eventType === 'BBO') sortOrder = 1;
+               else if (eventType === 'TRADE') sortOrder = 2;
               
               // Handle TRADE events
               if (eventType === 'TRADE') {
@@ -294,8 +303,8 @@ export function useTradingEngine() {
                 });
               }
               
-              // Handle ORDERBOOK events
-              else if (eventType === 'ORDERBOOK') {
+               // Handle ORDERBOOK_FULL events
+               else if (eventType === 'ORDERBOOK_FULL') {
                 const bidPrices = parseArrayField(row.book_bid_prices);
                 const bidSizes = parseArrayField(row.book_bid_sizes);
                 const bidOrders = parseArrayField(row.book_bid_orders);
@@ -327,15 +336,17 @@ export function useTradingEngine() {
                   return;
                 }
                 
-                rawEvents.push({
-                  timestamp,
-                  sortOrder,
-                  eventType: 'ORDERBOOK',
-                  bookBidPrices: bidPrices,
-                  bookAskPrices: askPrices,
-                  bookBidSizes: bidSizes,
-                  bookAskSizes: askSizes
-                });
+                 rawEvents.push({
+                   timestamp,
+                   sortOrder,
+                   eventType: 'ORDERBOOK_FULL',
+                   bookBidPrices: bidPrices,
+                   bookAskPrices: askPrices,
+                   bookBidSizes: bidSizes,
+                   bookAskSizes: askSizes,
+                   bookBidOrders: bidOrders,
+                   bookAskOrders: askOrders
+                 });
               }
               
               // Fallback: legacy format with level-based columns
@@ -363,15 +374,15 @@ export function useTradingEngine() {
                 }
                 
                 if (bidPrices.length > 0 || askPrices.length > 0) {
-                  rawEvents.push({
-                    timestamp,
-                    sortOrder: 0, // Treat as ORDERBOOK
-                    eventType: 'ORDERBOOK',
-                    bookBidPrices: bidPrices,
-                    bookAskPrices: askPrices,
-                    bookBidSizes: bidSizes,
-                    bookAskSizes: askSizes
-                  });
+                   rawEvents.push({
+                     timestamp,
+                     sortOrder: 0, // Treat as ORDERBOOK_FULL
+                     eventType: 'ORDERBOOK_FULL',
+                     bookBidPrices: bidPrices,
+                     bookAskPrices: askPrices,
+                     bookBidSizes: bidSizes,
+                     bookAskSizes: askSizes
+                   });
                 }
               }
             });
@@ -401,6 +412,38 @@ export function useTradingEngine() {
             setCurrentEventIndex(0);
             setTimeAndSales([]);
             
+            // Extract ORDERBOOK_FULL frames for frame-based DOM
+            const orderbookFrames = events.filter(e => e.eventType === 'ORDERBOOK_FULL');
+            setFrames(orderbookFrames);
+            setCurrentFrameIndex(0);
+            
+            // Infer tick size from first ORDERBOOK_FULL
+            if (orderbookFrames.length > 0) {
+              const firstFrame = orderbookFrames[0];
+              if (firstFrame.bookBidPrices && firstFrame.bookBidPrices.length >= 2) {
+                const inferredTick = Math.abs(firstFrame.bookBidPrices[1] - firstFrame.bookBidPrices[0]);
+                if (inferredTick > 0) {
+                  setTickSize(inferredTick);
+                }
+              } else if (firstFrame.bookAskPrices && firstFrame.bookAskPrices.length >= 2) {
+                const inferredTick = Math.abs(firstFrame.bookAskPrices[1] - firstFrame.bookAskPrices[0]);
+                if (inferredTick > 0) {
+                  setTickSize(inferredTick);
+                }
+              }
+            }
+            
+            // Pre-calculate cumulative volume by price
+            const cumulativeVolume = new Map<number, number>();
+            events.forEach(event => {
+              if (event.eventType === 'TRADE' && event.tradePrice && event.tradeSize) {
+                const price = event.tradePrice;
+                const currentVol = cumulativeVolume.get(price) || 0;
+                cumulativeVolume.set(price, currentVol + event.tradeSize);
+              }
+            });
+            setVolumeByPrice(cumulativeVolume);
+            
             // Set initial price from first valid price in data
             let initialPrice = 19300; // fallback
             
@@ -409,16 +452,16 @@ export function useTradingEngine() {
             if (firstTrade && firstTrade.tradePrice) {
               initialPrice = firstTrade.tradePrice;
             } else {
-              // Find first valid orderbook or BBO price
-              const firstPriceEvent = events.find(e => 
-                (e.eventType === 'ORDERBOOK' && 
-                 ((e.bookBidPrices && e.bookBidPrices.length > 0) || 
-                  (e.bookAskPrices && e.bookAskPrices.length > 0))) ||
-                (e.eventType === 'BBO' && (e.bidPrice || e.askPrice))
-              );
-              
-              if (firstPriceEvent) {
-                if (firstPriceEvent.eventType === 'ORDERBOOK') {
+               // Find first valid orderbook or BBO price
+               const firstPriceEvent = events.find(e => 
+                 (e.eventType === 'ORDERBOOK_FULL' && 
+                  ((e.bookBidPrices && e.bookBidPrices.length > 0) || 
+                   (e.bookAskPrices && e.bookAskPrices.length > 0))) ||
+                 (e.eventType === 'BBO' && (e.bidPrice || e.askPrice))
+               );
+               
+               if (firstPriceEvent) {
+                 if (firstPriceEvent.eventType === 'ORDERBOOK_FULL') {
                   const orderbook = firstPriceEvent;
                   if (orderbook.bookBidPrices && orderbook.bookBidPrices.length > 0) {
                     initialPrice = orderbook.bookBidPrices[0];
@@ -433,6 +476,21 @@ export function useTradingEngine() {
             
             console.log('Setting initial price to:', initialPrice);
             setCurrentPrice(initialPrice);
+            
+            // Calculate initial mid price if we have the first frame
+            if (orderbookFrames.length > 0) {
+              const firstFrame = orderbookFrames[0];
+              const bestBid = firstFrame.bookBidPrices?.[0] || 0;
+              const bestAsk = firstFrame.bookAskPrices?.[0] || 0;
+              if (bestBid > 0 && bestAsk > 0) {
+                setMidPrice((bestBid + bestAsk) / 2);
+              } else {
+                setMidPrice(initialPrice);
+              }
+            } else {
+              setMidPrice(initialPrice);
+            }
+            
             console.log('Setting marketData with', events.length, 'events...');
             setMarketData(events);
             console.log('✅ Import completed successfully! MarketData should now have', events.length, 'events');
@@ -622,7 +680,7 @@ export function useTradingEngine() {
         }
         break;
         
-      case 'ORDERBOOK':
+      case 'ORDERBOOK_FULL':
         // ORDERBOOK replaces the complete L2 depth (snapshot)
         if (event.bookBidPrices || event.bookAskPrices) {
           const newBook: OrderBookLevel[] = [];
@@ -887,6 +945,58 @@ export function useTradingEngine() {
     });
   }, [currentPrice]);
 
+  // Frame processing for DOM updates
+  useEffect(() => {
+    if (frames.length === 0) return;
+
+    // Update current frame based on event playback
+    let newFrameIndex = 0;
+    if (currentEventIndex > 0 && currentEventIndex < marketData.length) {
+      const currentTimestamp = marketData[currentEventIndex].timestamp;
+      
+      // Find the latest frame that occurred before or at current timestamp
+      for (let i = frames.length - 1; i >= 0; i--) {
+        if (frames[i].timestamp <= currentTimestamp) {
+          newFrameIndex = i;
+          break;
+        }
+      }
+    }
+    
+    if (newFrameIndex !== currentFrameIndex) {
+      setCurrentFrameIndex(newFrameIndex);
+      
+      // Update mid price and DOM from current frame
+      const currentFrame = frames[newFrameIndex];
+      const bestBid = currentFrame.bookBidPrices?.[0] || 0;
+      const bestAsk = currentFrame.bookAskPrices?.[0] || 0;
+      if (bestBid > 0 && bestAsk > 0) {
+        setMidPrice((bestBid + bestAsk) / 2);
+      }
+      
+      // Calculate Size (volume in current frame window)
+      const currentFrameTimestamp = currentFrame.timestamp;
+      const prevFrameTimestamp = newFrameIndex > 0 ? frames[newFrameIndex - 1].timestamp : 0;
+      
+      const frameWindowTrades = marketData.filter(event => 
+        event.eventType === 'TRADE' && 
+        event.timestamp > prevFrameTimestamp && 
+        event.timestamp <= currentFrameTimestamp &&
+        event.tradePrice && event.tradeSize
+      );
+      
+      const frameSizeMap = new Map<number, number>();
+      frameWindowTrades.forEach(trade => {
+        if (trade.tradePrice && trade.tradeSize) {
+          const currentSize = frameSizeMap.get(trade.tradePrice) || 0;
+          frameSizeMap.set(trade.tradePrice, currentSize + trade.tradeSize);
+        }
+      });
+      
+      setSizeByPrice(frameSizeMap);
+    }
+  }, [currentEventIndex, marketData, frames, currentFrameIndex]);
+
   // Playback timer
   useEffect(() => {
     if (isPlaying && currentEventIndex < marketData.length) {
@@ -925,6 +1035,53 @@ export function useTradingEngine() {
     };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent]);
 
+  // Build DOM ladder for current frame
+  const domLadder = useMemo(() => {
+    if (frames.length === 0 || currentFrameIndex >= frames.length) return [];
+    
+    const currentFrame = frames[currentFrameIndex];
+    const center = midPrice;
+    const ladder: OrderBookLevel[] = [];
+    
+    // Generate 41 price levels (20 above, center, 20 below)
+    for (let i = -20; i <= 20; i++) {
+      const price = Math.round((center + (i * tickSize)) / tickSize) * tickSize;
+      
+      // Find bid/ask sizes for this price from current frame
+      let bidSize = 0;
+      let askSize = 0;
+      let bidOrders = 0;
+      let askOrders = 0;
+      
+      if (currentFrame.bookBidPrices && currentFrame.bookBidSizes) {
+        const bidIndex = currentFrame.bookBidPrices.findIndex(p => Math.abs(p - price) < tickSize / 2);
+        if (bidIndex >= 0) {
+          bidSize = currentFrame.bookBidSizes[bidIndex] || 0;
+          bidOrders = currentFrame.bookBidOrders?.[bidIndex] || 0;
+        }
+      }
+      
+      if (currentFrame.bookAskPrices && currentFrame.bookAskSizes) {
+        const askIndex = currentFrame.bookAskPrices.findIndex(p => Math.abs(p - price) < tickSize / 2);
+        if (askIndex >= 0) {
+          askSize = currentFrame.bookAskSizes[askIndex] || 0;
+          askOrders = currentFrame.bookAskOrders?.[askIndex] || 0;
+        }
+      }
+      
+      ladder.push({
+        price,
+        bidSize,
+        askSize,
+        bidOrders,
+        askOrders,
+        volume: volumeByPrice.get(price) || 0
+      });
+    }
+    
+    return ladder.sort((a, b) => b.price - a.price); // Highest price first
+  }, [frames, currentFrameIndex, midPrice, tickSize, volumeByPrice]);
+
   return {
     marketData,
     position,
@@ -933,13 +1090,19 @@ export function useTradingEngine() {
     isPlaying,
     playbackSpeed,
     currentPrice,
-    orderBook,
+    orderBook: domLadder, // Use frame-based DOM ladder
     orders,
     loadMarketData,
     togglePlayback,
     setPlaybackSpeed,
     placeLimitOrder,
     placeMarketOrder,
-    cancelOrdersAtPrice
+    cancelOrdersAtPrice,
+    // New frame-based properties
+    frames,
+    currentFrameIndex,
+    sizeByPrice,
+    tickSize,
+    midPrice
   };
 }
