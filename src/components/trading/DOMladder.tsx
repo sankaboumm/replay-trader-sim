@@ -53,11 +53,19 @@ export const DOMladder = memo(function DOMladder({
 }: DOMladderProps) {
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const priceScrollRef = useRef<HTMLDivElement>(null);
   const [hasInitialCentered, setHasInitialCentered] = useState(false);
   
   // Use orderBook directly (already contains 41 levels sorted correctly)
   const priceLadder = orderBook;
   
+  // Sync scroll between main content and price column
+  const handleMainScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    if (priceScrollRef.current) {
+      priceScrollRef.current.scrollTop = e.currentTarget.scrollTop;
+    }
+  }, []);
+
   // Center view on current price (manual only)
   const centerOnCurrentPrice = useCallback(() => {
     if (!currentPrice || !scrollRef.current) return;
@@ -81,7 +89,13 @@ export const DOMladder = memo(function DOMladder({
     
     // Calculate scroll position to center this row
     const targetScrollTop = (currentPriceIndex * rowHeight) - (container.clientHeight / 2);
-    container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+    const scrollTop = Math.max(0, targetScrollTop);
+    container.scrollTo({ top: scrollTop, behavior: 'smooth' });
+    
+    // Sync price column
+    if (priceScrollRef.current) {
+      priceScrollRef.current.scrollTo({ top: scrollTop, behavior: 'smooth' });
+    }
   }, [currentPrice, priceLadder, tickSize]);
 
   // Initial centering on mid price when DOM loads
@@ -106,7 +120,13 @@ export const DOMladder = memo(function DOMladder({
       
       // Calculate scroll position to center this row
       const targetScrollTop = (midPriceIndex * rowHeight) - (container.clientHeight / 2);
-      container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+      const scrollTop = Math.max(0, targetScrollTop);
+      container.scrollTo({ top: scrollTop, behavior: 'smooth' });
+      
+      // Sync price column
+      if (priceScrollRef.current) {
+        priceScrollRef.current.scrollTo({ top: scrollTop, behavior: 'smooth' });
+      }
       
       setHasInitialCentered(true);
       console.log('✅ Initial centering done on mid price:', midPrice);
@@ -178,95 +198,122 @@ export const DOMladder = memo(function DOMladder({
 
   return (
     <div className="h-full flex flex-col bg-card">
-      <header className="sticky top-0 bg-background border-b border-border z-10">
-        <div className="grid grid-cols-5 gap-1 p-2 text-xs font-medium text-muted-foreground">
-          <div className="text-center">Bids</div>
-          <div className="text-center">Price</div>
-          <div className="text-center">Asks</div>
-          <div className="text-center">Size</div>
-          <div className="text-center">Volume</div>
+      {/* Header */}
+      <header className="sticky top-0 bg-background border-b border-border z-20">
+        <div className="flex">
+          <div className="flex-1 grid grid-cols-4 gap-1 p-2 text-xs font-medium text-muted-foreground">
+            <div className="text-center">Bids</div>
+            <div className="text-center">Asks</div>
+            <div className="text-center">Size</div>
+            <div className="text-center">Volume</div>
+          </div>
+          <div className="w-20 flex items-center justify-center text-xs font-bold text-muted-foreground bg-muted/50 border-l border-border">
+            Price
+          </div>
         </div>
       </header>
 
-      <div 
-        ref={scrollRef}
-        className="flex-1 overflow-auto"
-      >
-        {priceLadder.map((level) => {
-          const ordersAtPrice = getOrdersAtPrice(level.price);
-          const isCurrentPrice = Math.abs(level.price - currentPrice) < tickSize / 2;
-          const isMidPrice = Math.abs(level.price - midPrice) < tickSize / 2;
-          const isAvgBuy = averagePrices.avgBuy && Math.abs(level.price - averagePrices.avgBuy) < tickSize / 2;
-          const isAvgSell = averagePrices.avgSell && Math.abs(level.price - averagePrices.avgSell) < tickSize / 2;
-          const hasOrders = ordersAtPrice.length > 0;
-          const frameSize = sizeByPrice.get(level.price) || 0;
-          
-          return (
-            <div
-              key={level.price}
-              className={cn(
-                "grid grid-cols-5 gap-1 p-1 text-xs border-b border-border/20 min-h-[32px] items-center hover:bg-muted/50 transition-colors relative",
-                isCurrentPrice && "bg-yellow-500/20 border-yellow-500/40",
-                isMidPrice && "bg-blue-500/20 border-blue-500/40",
-                isAvgBuy && "bg-green-500/10",
-                isAvgSell && "bg-red-500/10",
-                hasOrders && "bg-blue-500/10"
-              )}
-            >
-              {/* Bids */}
-              <div 
-                className="text-right text-green-400 font-mono cursor-pointer pr-2"
-                onClick={() => handleCellClick('BUY', level.price)}
-                title="Click to place buy limit order"
-              >
-                {level.bidSize > 0 ? formatSize(level.bidSize) : ''}
-              </div>
-              
-              {/* Price */}
-              <div 
+      <div className="flex-1 flex">
+        {/* Main content area */}
+        <div 
+          ref={scrollRef}
+          className="flex-1 overflow-auto"
+          onScroll={handleMainScroll}
+        >
+          {priceLadder.map((level) => {
+            const ordersAtPrice = getOrdersAtPrice(level.price);
+            const isCurrentPrice = Math.abs(level.price - currentPrice) < tickSize / 2;
+            const isMidPrice = Math.abs(level.price - midPrice) < tickSize / 2;
+            const isAvgBuy = averagePrices.avgBuy && Math.abs(level.price - averagePrices.avgBuy) < tickSize / 2;
+            const isAvgSell = averagePrices.avgSell && Math.abs(level.price - averagePrices.avgSell) < tickSize / 2;
+            const hasOrders = ordersAtPrice.length > 0;
+            const frameSize = sizeByPrice.get(level.price) || 0;
+            
+            return (
+              <div
+                key={level.price}
                 className={cn(
-                  "text-center font-mono font-medium cursor-pointer px-2",
-                  isCurrentPrice && "text-yellow-400 font-bold",
-                  isMidPrice && "text-blue-400 font-bold"
+                  "grid grid-cols-4 gap-1 p-1 text-xs border-b border-border/20 min-h-[32px] items-center hover:bg-muted/50 transition-colors relative",
+                  isCurrentPrice && "bg-yellow-500/20 border-yellow-500/40",
+                  isMidPrice && "bg-blue-500/20 border-blue-500/40",
+                  isAvgBuy && "bg-green-500/10",
+                  isAvgSell && "bg-red-500/10",
+                  hasOrders && "bg-blue-500/10"
+                )}
+              >
+                {/* Bids */}
+                <div 
+                  className="text-right text-green-400 font-mono cursor-pointer pr-2"
+                  onClick={() => handleCellClick('BUY', level.price)}
+                  title="Click to place buy limit order"
+                >
+                  {level.bidSize > 0 ? formatSize(level.bidSize) : ''}
+                </div>
+                
+                {/* Asks */}
+                <div 
+                  className="text-left text-red-400 font-mono cursor-pointer pl-2"
+                  onClick={() => handleCellClick('SELL', level.price)}
+                  title="Click to place sell limit order"
+                >
+                  {level.askSize > 0 ? formatSize(level.askSize) : ''}
+                </div>
+                
+                {/* Size (volume in current frame window) */}
+                <div className="text-center text-orange-400 font-mono">
+                  {frameSize > 0 ? formatSize(frameSize) : ''}
+                </div>
+                
+                {/* Volume (cumulative) */}
+                <div className="text-center text-blue-400 font-mono">
+                  {level.volume > 0 ? formatSize(level.volume) : ''}
+                </div>
+                
+                {/* Order count overlay */}
+                {ordersAtPrice.length > 0 && (
+                  <div
+                    className="absolute right-1 top-1 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs cursor-pointer z-10"
+                    onClick={() => handleOrderClick(level.price)}
+                    title={`${ordersAtPrice.length} order(s) at this price. Click to cancel.`}
+                  >
+                    {ordersAtPrice.length}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+
+        {/* Fixed Price Column */}
+        <div 
+          ref={priceScrollRef}
+          className="w-20 bg-background border-l border-border overflow-hidden"
+        >
+          {priceLadder.map((level) => {
+            const isCurrentPrice = Math.abs(level.price - currentPrice) < tickSize / 2;
+            const isMidPrice = Math.abs(level.price - midPrice) < tickSize / 2;
+            const isAvgBuy = averagePrices.avgBuy && Math.abs(level.price - averagePrices.avgBuy) < tickSize / 2;
+            const isAvgSell = averagePrices.avgSell && Math.abs(level.price - averagePrices.avgSell) < tickSize / 2;
+            
+            return (
+              <div
+                key={`price-${level.price}`}
+                className={cn(
+                  "min-h-[32px] flex items-center justify-center text-xs font-mono font-bold cursor-pointer border-b border-border/20",
+                  isCurrentPrice && "text-yellow-400 bg-yellow-500/20",
+                  isMidPrice && "text-blue-400 bg-blue-500/20",
+                  isAvgBuy && "bg-green-500/10",
+                  isAvgSell && "bg-red-500/10",
+                  "hover:bg-muted/50 transition-colors"
                 )}
                 onClick={() => handleCellClick('BUY', level.price)}
                 title="Click to center and place order"
               >
                 {formatPrice(level.price)}
               </div>
-              
-              {/* Asks */}
-              <div 
-                className="text-left text-red-400 font-mono cursor-pointer pl-2"
-                onClick={() => handleCellClick('SELL', level.price)}
-                title="Click to place sell limit order"
-              >
-                {level.askSize > 0 ? formatSize(level.askSize) : ''}
-              </div>
-              
-              {/* Size (volume in current frame window) */}
-              <div className="text-center text-orange-400 font-mono">
-                {frameSize > 0 ? formatSize(frameSize) : ''}
-              </div>
-              
-              {/* Volume (cumulative) */}
-              <div className="text-center text-blue-400 font-mono">
-                {level.volume > 0 ? formatSize(level.volume) : ''}
-              </div>
-              
-              {/* Order count overlay */}
-              {ordersAtPrice.length > 0 && (
-                <div
-                  className="absolute right-1 top-1 bg-blue-600 text-white rounded-full w-5 h-5 flex items-center justify-center text-xs cursor-pointer z-10"
-                  onClick={() => handleOrderClick(level.price)}
-                  title={`${ordersAtPrice.length} order(s) at this price. Click to cancel.`}
-                >
-                  {ordersAtPrice.length}
-                </div>
-              )}
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
       </div>
     </div>
   );
