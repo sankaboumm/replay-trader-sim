@@ -262,7 +262,7 @@ export const DOMladder = memo(function DOMladder({
               {/* Price */}
               <div className={cn(
                 "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
-                isLastPrice && "text-yellow-400 font-bold"
+                isLastPrice && "text-trading-average font-bold"
               )}>
                 {formatPrice(level.price)}
               </div>

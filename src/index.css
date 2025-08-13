@@ -49,6 +49,7 @@
     --trading-neutral: 0 0% 65%;
     --trading-profit: 120 100% 35%;
     --trading-loss: 0 84% 60%;
+    --trading-average: 45 100% 50%;  /* Yellow for average price */
     
     /* DOM Ladder Colors */
     --ladder-header: 220 13% 12%;
@@ -128,6 +129,10 @@
   
   .text-trading-neutral {
     color: hsl(var(--trading-neutral));
+  }
+  
+  .text-trading-average {
+    color: hsl(var(--trading-average));
   }
   
   .bg-trading-buy {
