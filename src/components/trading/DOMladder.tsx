@@ -28,12 +28,12 @@ interface DOMladderProps {
   disabled?: boolean;
 }
 
-const TICK_SIZE = 5.0;
+const TICK_SIZE = 0.25;
 const INITIAL_LEVELS = 100;
 const EXTEND_THRESHOLD = 10;
 
 function formatPrice(price: number): string {
-  return price.toFixed(0);
+  return price.toFixed(2).replace('.', ',');
 }
 
 function formatSize(size: number): string {

@@ -78,6 +78,10 @@ export function useTradingEngine() {
   });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
+  
+  // Constants for P&L calculation
+  const TICK_SIZE = 0.25;
+  const TICK_VALUE = 5.0; // Each tick of 0.25 is worth 5$
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
@@ -152,8 +156,8 @@ export function useTradingEngine() {
   };
 
   const roundToGrid = (price: number): number => {
-    // Round to nearest 5.0 (tick size)
-    return Math.round(price / 5) * 5;
+    // Round to nearest 0.25 (half up)
+    return Math.round(price * 4) / 4;
   };
 
   // Load market data from file
@@ -457,7 +461,7 @@ export function useTradingEngine() {
           // Update current price (last)
           setCurrentPrice(event.tradePrice);
           
-          // Update volume by price on grid (rounded to 5.0)
+          // Update volume by price on grid (rounded to 0.25)
           const gridPrice = roundToGrid(event.tradePrice);
           setVolumeByPrice(prev => {
             const newMap = new Map(prev);
@@ -509,7 +513,7 @@ export function useTradingEngine() {
             // Update or add bid level
             if (event.bidPrice && event.bidPrice > 0) {
               const gridBidPrice = roundToGrid(event.bidPrice);
-              const bidIndex = newBook.findIndex(level => Math.abs(level.price - gridBidPrice) < 2.5);
+              const bidIndex = newBook.findIndex(level => Math.abs(level.price - gridBidPrice) < 0.125);
               
               if (bidIndex >= 0) {
                 newBook[bidIndex] = { 
@@ -529,7 +533,7 @@ export function useTradingEngine() {
             // Update or add ask level
             if (event.askPrice && event.askPrice > 0) {
               const gridAskPrice = roundToGrid(event.askPrice);
-              const askIndex = newBook.findIndex(level => Math.abs(level.price - gridAskPrice) < 2.5);
+              const askIndex = newBook.findIndex(level => Math.abs(level.price - gridAskPrice) < 0.125);
               
               if (askIndex >= 0) {
                 newBook[askIndex] = { 
@@ -659,11 +663,13 @@ export function useTradingEngine() {
           // Closing or reducing position - calculate realized PnL
           const closeQuantity = Math.min(quantity, Math.abs(prev.quantity));
           if (prev.quantity > 0) {
-            // Was long, selling
-            realizedPnL = closeQuantity * (fillPrice - prev.averagePrice);
+            // Was long, selling - calculate ticks difference and multiply by tick value
+            const tickDifference = (fillPrice - prev.averagePrice) / TICK_SIZE;
+            realizedPnL = closeQuantity * tickDifference * TICK_VALUE;
           } else {
-            // Was short, buying
-            realizedPnL = closeQuantity * (prev.averagePrice - fillPrice);
+            // Was short, buying - calculate ticks difference and multiply by tick value  
+            const tickDifference = (prev.averagePrice - fillPrice) / TICK_SIZE;
+            realizedPnL = closeQuantity * tickDifference * TICK_VALUE;
           }
         }
       }
@@ -702,9 +708,10 @@ export function useTradingEngine() {
     setOrders(prev => prev.filter(order => Math.abs(order.price - price) >= 0.125));
   }, []);
 
-  // Update PnL
+  // Update PnL using tick value
   useEffect(() => {
-    const unrealized = position.quantity * (currentPrice - position.averagePrice);
+    const tickDifference = (currentPrice - position.averagePrice) / TICK_SIZE;
+    const unrealized = position.quantity * tickDifference * TICK_VALUE;
     
     setPnl({
       unrealized,
@@ -749,11 +756,13 @@ export function useTradingEngine() {
                 // Closing or reducing position - calculate realized PnL
                 const closeQuantity = Math.min(quantity, Math.abs(prev.quantity));
                 if (prev.quantity > 0) {
-                  // Was long, selling
-                  realizedPnL = closeQuantity * (fillPrice - prev.averagePrice);
+                  // Was long, selling - calculate ticks difference and multiply by tick value
+                  const tickDifference = (fillPrice - prev.averagePrice) / TICK_SIZE;
+                  realizedPnL = closeQuantity * tickDifference * TICK_VALUE;
                 } else {
-                  // Was short, buying to cover
-                  realizedPnL = closeQuantity * (prev.averagePrice - fillPrice);
+                  // Was short, buying to cover - calculate ticks difference and multiply by tick value
+                  const tickDifference = (prev.averagePrice - fillPrice) / TICK_SIZE;
+                  realizedPnL = closeQuantity * tickDifference * TICK_VALUE;
                 }
                 
                 // Update total realized PnL
