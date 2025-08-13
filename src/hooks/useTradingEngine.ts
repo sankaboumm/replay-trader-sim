@@ -159,25 +159,49 @@ export function useTradingEngine() {
   // Load market data from file
   const loadMarketData = useCallback((file: File) => {
     console.log('Loading file:', file.name, 'Type:', file.type, 'Size:', file.size);
+    
+    // Reset states
+    setMarketData([]);
+    setCurrentEventIndex(0);
+    setIsPlaying(false);
+    
     const reader = new FileReader();
     
     reader.onload = (event) => {
       const text = event.target?.result as string;
       console.log('File loaded, content preview:', text.substring(0, 200));
+      console.log('File size in memory:', text.length, 'characters');
       
+      // Parse with streaming support for large files
       Papa.parse(text, {
         header: true,
         skipEmptyLines: true,
+        worker: false, // Keep on main thread for now but could be moved to worker
+        chunk: (results, parser) => {
+          console.log('Processing chunk with', results.data.length, 'rows');
+        },
         complete: (results) => {
-          console.log('CSV parsed:', results.data.length, 'rows');
-          console.log('First row:', results.data[0]);
+          console.log('CSV parsing complete!');
+          console.log('Total rows parsed:', results.data.length);
+          console.log('Errors during parsing:', results.errors?.length || 0);
+          
+          if (results.errors?.length > 0) {
+            console.error('CSV parsing errors:', results.errors.slice(0, 5)); // Show first 5 errors
+          }
           
           const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
           const processedRows = new Set<string>(); // For deduplication
           
           results.data.forEach((row: any, index) => {
+            // Progress tracking for large files
+            if (index % 1000 === 0) {
+              console.log(`Processing row ${index}/${results.data.length} (${Math.round(index/results.data.length*100)}%)`);
+            }
+            
             // Skip empty rows
-            if (!row || Object.keys(row).length === 0) return;
+            if (!row || Object.keys(row).length === 0) {
+              return;
+            }
             
             // Deduplication check
             const rowKey = JSON.stringify(row);
@@ -187,7 +211,10 @@ export function useTradingEngine() {
             }
             processedRows.add(rowKey);
             
-            console.log('Processing row:', row);
+            // Log first few rows for debugging
+            if (index < 5 || index % 5000 === 0) {
+              console.log(`Processing row ${index}:`, row);
+            }
             
             // Extract and validate timestamp
             const timestamp = parseTimestamp(row);
