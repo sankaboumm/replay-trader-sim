@@ -238,7 +238,7 @@ export const DOMladder = memo(function DOMladder({
               className={cn(
                 "grid grid-cols-7 text-xs border-b border-border/50 h-6",
                 isLastPrice && "bg-ladder-last/20",
-                (isAvgBuyPrice || isAvgSellPrice) && "bg-trading-average/20",
+                (isAvgBuyPrice || isAvgSellPrice) && "border-2 border-trading-average",
                 "hover:bg-ladder-row-hover transition-colors"
               )}
             >
