@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback, useEffect, useRef } from 'react';
+import { memo, useMemo, useCallback, useEffect, useRef, useState } from 'react';
 import { cn } from '@/lib/utils';
 
 interface OrderBookLevel {
@@ -53,11 +53,12 @@ export const DOMladder = memo(function DOMladder({
 }: DOMladderProps) {
   
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [hasInitialCentered, setHasInitialCentered] = useState(false);
   
   // Use orderBook directly (already contains 41 levels sorted correctly)
   const priceLadder = orderBook;
   
-  // Center view on current price
+  // Center view on current price (manual only)
   const centerOnCurrentPrice = useCallback(() => {
     if (!currentPrice || !scrollRef.current) return;
     
@@ -82,6 +83,35 @@ export const DOMladder = memo(function DOMladder({
     const targetScrollTop = (currentPriceIndex * rowHeight) - (container.clientHeight / 2);
     container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
   }, [currentPrice, priceLadder, tickSize]);
+
+  // Initial centering on mid price when DOM loads
+  useEffect(() => {
+    if (!hasInitialCentered && midPrice > 0 && priceLadder.length > 0 && scrollRef.current) {
+      const rowHeight = 32;
+      const container = scrollRef.current;
+      
+      // Find the index of the mid price in the ladder
+      let midPriceIndex = priceLadder.findIndex(level => 
+        Math.abs(level.price - midPrice) < tickSize / 2
+      );
+      
+      if (midPriceIndex === -1) {
+        // If mid price not found, find the closest one
+        midPriceIndex = priceLadder.reduce((closestIdx, level, idx) => {
+          const currentDistance = Math.abs(priceLadder[closestIdx]?.price - midPrice);
+          const thisDistance = Math.abs(level.price - midPrice);
+          return thisDistance < currentDistance ? idx : closestIdx;
+        }, 0);
+      }
+      
+      // Calculate scroll position to center this row
+      const targetScrollTop = (midPriceIndex * rowHeight) - (container.clientHeight / 2);
+      container.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+      
+      setHasInitialCentered(true);
+      console.log('✅ Initial centering done on mid price:', midPrice);
+    }
+  }, [midPrice, priceLadder, tickSize, hasInitialCentered]);
 
   // Get orders at specific price
   const getOrdersAtPrice = useCallback((price: number) => {
