@@ -18,13 +18,16 @@ export const FileUpload = memo(function FileUpload({
   };
 
   const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    console.log('FileUpload: File selected from input');
+    console.log('🔥 FileUpload: File selected from input');
+    console.log('🔥 Event target:', event.target);
+    console.log('🔥 Files:', event.target.files);
     const file = event.target.files?.[0];
     if (file) {
-      console.log('FileUpload: Calling onFileSelect with file:', file.name);
+      console.log('🔥 FileUpload: Calling onFileSelect with file:', file.name);
+      console.log('🔥 onFileSelect function:', onFileSelect);
       onFileSelect(file);
     } else {
-      console.log('FileUpload: No file selected');
+      console.log('🔥 FileUpload: No file selected');
     }
   };
 
