@@ -158,7 +158,8 @@ export function useTradingEngine() {
 
   // Load market data from file
   const loadMarketData = useCallback((file: File) => {
-    console.log('Loading file:', file.name, 'Type:', file.type, 'Size:', file.size);
+    console.log('🚀 IMPORT STARTED - Loading file:', file.name, 'Type:', file.type, 'Size:', file.size);
+    console.log('🚀 File object:', file);
     
     // Reset states
     setMarketData([]);
