@@ -79,6 +79,8 @@ export const TimeAndSales = memo(function TimeAndSales({
                   "grid grid-cols-4 text-xs border-b border-border/50 h-8 items-center",
                   isUpTick && "flash-buy",
                   isDownTick && "flash-sell",
+                  trade.size > 10 && trade.aggressor === 'BUY' && "bg-trading-buy/20",
+                  trade.size > 10 && trade.aggressor === 'SELL' && "bg-trading-sell/20",
                   "hover:bg-ladder-row-hover transition-colors"
                 )}
               >
