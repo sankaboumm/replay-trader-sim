@@ -184,11 +184,18 @@ export function useTradingEngine() {
           console.log('CSV parsing complete!');
           console.log('Total rows parsed:', results.data.length);
           console.log('Errors during parsing:', results.errors?.length || 0);
+          console.log('First row sample:', results.data[0]);
           
           if (results.errors?.length > 0) {
             console.error('CSV parsing errors:', results.errors.slice(0, 5)); // Show first 5 errors
           }
           
+          if (!results.data || results.data.length === 0) {
+            console.error('No data found in CSV file!');
+            return;
+          }
+          
+          console.log('Starting data processing...');
           const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
           const processedRows = new Set<string>(); // For deduplication
           
