@@ -177,10 +177,7 @@ export function useTradingEngine() {
       Papa.parse(text, {
         header: true,
         skipEmptyLines: true,
-        worker: false, // Keep on main thread for now but could be moved to worker
-        chunk: (results, parser) => {
-          console.log('Processing chunk with', results.data.length, 'rows');
-        },
+        worker: false,
         complete: (results) => {
           try {
             console.log('CSV parsing complete!');
