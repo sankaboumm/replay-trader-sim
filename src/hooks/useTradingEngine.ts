@@ -769,11 +769,13 @@ export function useTradingEngine() {
       if (nextEvent) {
         // Calculate delay between events in milliseconds
         const timeDiff = nextEvent.timestamp - currentEvent.timestamp;
-        const baseDelay = Math.min(timeDiff, 1000); // Cap at 1 second max
+        const baseDelay = Math.min(timeDiff, 5000); // Cap at 5 seconds max
         const adjustedDelay = baseDelay / playbackSpeed;
         
-        // Set minimum delay based on playback speed to avoid too fast playback
-        const minDelay = playbackSpeed >= 10 ? 50 : playbackSpeed >= 5 ? 100 : 200;
+        // For real-time (1x), respect actual delays. For faster speeds, use progressively smaller minimums
+        const minDelay = playbackSpeed === 1 ? 0 : 
+                        playbackSpeed === 2 ? 10 : 
+                        playbackSpeed === 5 ? 20 : 50; // 10x speed
         const finalDelay = Math.max(minDelay, adjustedDelay);
         
         console.log('Playback timing:', { timeDiff, baseDelay, adjustedDelay, finalDelay, speed: playbackSpeed });
