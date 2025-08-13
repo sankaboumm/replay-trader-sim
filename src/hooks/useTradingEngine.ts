@@ -425,7 +425,9 @@ export function useTradingEngine() {
             
             console.log('Setting initial price to:', initialPrice);
             setCurrentPrice(initialPrice);
-            console.log('✅ Import completed successfully!');
+            console.log('Setting marketData with', events.length, 'events...');
+            setMarketData(events);
+            console.log('✅ Import completed successfully! MarketData should now have', events.length, 'events');
             
           } catch (error) {
             console.error('🔥 Error in CSV complete handler:', error);
