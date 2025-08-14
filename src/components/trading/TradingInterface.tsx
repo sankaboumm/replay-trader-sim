@@ -3,6 +3,7 @@ import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { DOMladder } from './DOMladder';
+import { TickLadder } from './TickLadder';
 import { TimeAndSales } from './TimeAndSales';
 import { PlaybackControls } from './PlaybackControls';
 import { PositionPanel } from './PositionPanel';
@@ -27,7 +28,8 @@ export function TradingInterface() {
     setPlaybackSpeed,
     placeLimitOrder,
     placeMarketOrder,
-    cancelOrdersAtPrice
+    cancelOrdersAtPrice,
+    currentTickLadder
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -113,11 +115,10 @@ export function TradingInterface() {
           )}
         </div>
 
-        {/* Center Panel - DOM Ladder */}
+        {/* Center Panel - Tick Ladder */}
         <div className="flex-1 bg-background">
-          <DOMladder
-            orderBook={orderBook}
-            orderBookData={currentOrderBookData}
+          <TickLadder
+            tickLadder={currentTickLadder}
             currentPrice={currentPrice}
             orders={orders}
             onLimitOrder={placeLimitOrder}

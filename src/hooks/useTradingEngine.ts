@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Papa from 'papaparse';
+import { OrderBookProcessor, ParsedOrderBook, Trade as OrderBookTrade, TickLadder } from '@/lib/orderbook';
 
 interface MarketEvent {
   timestamp: number;
@@ -93,6 +94,12 @@ export function useTradingEngine() {
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
   
+  // New state for robust order book processing
+  const [orderBookSnapshots, setOrderBookSnapshots] = useState<ParsedOrderBook[]>([]);
+  const [trades, setTrades] = useState<OrderBookTrade[]>([]);
+  const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder | null>(null);
+  const [orderBookProcessor] = useState(() => new OrderBookProcessor(0.25));
+  
   // Constants for P&L calculation
   const TICK_SIZE = 0.25;
   const TICK_VALUE = 5.0; // Each tick of 0.25 is worth 5$
@@ -135,28 +142,27 @@ export function useTradingEngine() {
     if (!value || value === '[]' || value === '') return [];
     
     try {
-      // Try JSON first
+      // Try JSON.parse first
       if (value.startsWith('[') && value.endsWith(']')) {
-        return JSON.parse(value).map((v: any) => parseFloat(v)).filter((v: number) => !isNaN(v));
-      }
-      
-      // Try pipe or semicolon separated
-      const separators = ['|', ';', ','];
-      for (const sep of separators) {
-        if (value.includes(sep)) {
-          return value.split(sep)
-            .map(v => parseFloat(v.trim()))
-            .filter(v => !isNaN(v));
+        const jsonResult = JSON.parse(value);
+        if (Array.isArray(jsonResult)) {
+          return jsonResult.map(v => parseFloat(v)).filter(v => !isNaN(v));
         }
       }
-      
-      // Single value
-      const single = parseFloat(value);
-      return isNaN(single) ? [] : [single];
     } catch (e) {
-      console.warn('Failed to parse array field:', value, e);
-      return [];
+      // JSON failed, try NumPy format
     }
+    
+    // NumPy format: remove brackets and split on spaces/commas
+    const cleaned = value.replace(/^\[|\]$/g, '').trim();
+    if (!cleaned) return [];
+    
+    return cleaned
+      .split(/[\s,]+/)
+      .map(v => v.trim())
+      .filter(v => v.length > 0)
+      .map(v => parseFloat(v))
+      .filter(v => !isNaN(v));
   };
 
   const normalizeEventType = (eventType: string): string => {
@@ -184,6 +190,10 @@ export function useTradingEngine() {
     setMarketData([]);
     setCurrentEventIndex(0);
     setIsPlaying(false);
+    setOrderBookSnapshots([]);
+    setTrades([]);
+    setCurrentTickLadder(null);
+    orderBookProcessor.resetVolume();
     
     const reader = new FileReader();
     
@@ -218,6 +228,10 @@ export function useTradingEngine() {
             console.log('✅ Starting data processing...');
             const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
             const processedRows = new Set<string>(); // For deduplication
+            
+            // New arrays for robust processing
+            const orderbookSnapshots: ParsedOrderBook[] = [];
+            const tradeEvents: OrderBookTrade[] = [];
             
             console.log('✅ About to start forEach loop...');
             
@@ -270,6 +284,12 @@ export function useTradingEngine() {
                 if (isNaN(price) || price <= 0 || isNaN(size) || size <= 0 || !aggressor) {
                   console.log('Skipping invalid TRADE:', { price, size, aggressor });
                   return;
+                }
+                
+                // Use robust processor for trades
+                const trade = orderBookProcessor.parseTrade(row);
+                if (trade) {
+                  tradeEvents.push(trade);
                 }
                 
                 rawEvents.push({
@@ -340,6 +360,12 @@ export function useTradingEngine() {
                 if (bidPrices.length === 0 && askPrices.length === 0) {
                   console.log('Skipping empty ORDERBOOK');
                   return;
+                }
+                
+                // Use robust processor for orderbook
+                const snapshot = orderBookProcessor.parseOrderBookSnapshot(row);
+                if (snapshot) {
+                  orderbookSnapshots.push(snapshot);
                 }
                 
                 rawEvents.push({
@@ -446,11 +472,41 @@ export function useTradingEngine() {
               }
             }
             
+            // Infer tick size from price data
+            const allPrices = [
+              ...tradeEvents.map(t => t.price),
+              ...orderbookSnapshots.flatMap(s => [...s.bidPrices, ...s.askPrices])
+            ];
+            if (allPrices.length > 0) {
+              const inferredTick = orderBookProcessor.inferTickSize(allPrices);
+              orderBookProcessor.setTickSize(inferredTick);
+              console.log('Inferred tick size:', inferredTick);
+            }
+            
+            // Sort snapshots and trades by timestamp
+            orderbookSnapshots.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+            tradeEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
+            
             console.log('Setting initial price to:', initialPrice);
             setCurrentPrice(initialPrice);
             console.log('Setting marketData with', events.length, 'events...');
             setMarketData(events);
-            console.log('✅ Import completed successfully! MarketData should now have', events.length, 'events');
+            setOrderBookSnapshots(orderbookSnapshots);
+            setTrades(tradeEvents);
+            
+            // Generate initial tick ladder if we have data
+            if (orderbookSnapshots.length > 0) {
+              const initialLadder = orderBookProcessor.createTickLadder(
+                orderbookSnapshots[0], 
+                tradeEvents
+              );
+              setCurrentTickLadder(initialLadder);
+            }
+            
+            console.log('✅ Import completed successfully!');
+            console.log('MarketData events:', events.length);
+            console.log('Orderbook snapshots:', orderbookSnapshots.length);
+            console.log('Trades:', tradeEvents.length);
             
           } catch (error) {
             console.error('🔥 Error in CSV complete handler:', error);
@@ -653,6 +709,23 @@ export function useTradingEngine() {
             book_bid_sizes: event.bookBidSizes?.slice(0, 20) || [],
             book_ask_sizes: event.bookAskSizes?.slice(0, 20) || []
           });
+
+          // Generate tick ladder for current orderbook snapshot
+          const currentSnapshot = orderBookSnapshots.find(s => 
+            Math.abs(s.timestamp.getTime() - event.timestamp) < 1000
+          );
+          
+          if (currentSnapshot) {
+            // Find previous snapshot for trade window calculation
+            const previousSnapshot = orderBookSnapshots[orderBookSnapshots.findIndex(s => s === currentSnapshot) - 1];
+            
+            const ladder = orderBookProcessor.createTickLadder(
+              currentSnapshot,
+              trades,
+              previousSnapshot?.timestamp
+            );
+            setCurrentTickLadder(ladder);
+          }
 
           const newBook: OrderBookLevel[] = [];
           const priceMap = new Map<number, OrderBookLevel>();
@@ -970,6 +1043,11 @@ export function useTradingEngine() {
     setPlaybackSpeed,
     placeLimitOrder,
     placeMarketOrder,
-    cancelOrdersAtPrice
+    cancelOrdersAtPrice,
+    // New tick ladder data
+    orderBookSnapshots,
+    trades,
+    currentTickLadder,
+    orderBookProcessor
   };
 }
