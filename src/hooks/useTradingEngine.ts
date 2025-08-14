@@ -159,26 +159,30 @@ export function useTradingEngine() {
   };
 
   const parseArrayField = (value: string): number[] => {
-    if (!value || value === '[]' || value === '') return [];
+    if (!value || typeof value !== 'string') return [];
     
     try {
       // Handle NumPy-style format: "[ 4  6  6  6  7  8 ]"
-      let cleaned = value.toString().trim();
+      let cleaned = value.trim();
       
-      // Remove brackets
-      if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
-        cleaned = cleaned.slice(1, -1);
-      }
+      // Remove brackets if present
+      if (cleaned.startsWith('[')) cleaned = cleaned.substring(1);
+      if (cleaned.endsWith(']')) cleaned = cleaned.substring(0, cleaned.length - 1);
       
-      // Split on spaces and/or commas, filter empty strings, convert to numbers
+      // Split and parse
+      if (!cleaned.trim()) return [];
+      
       return cleaned
-        .split(/[\s,]+/)
+        .split(/\s+/)
         .filter(v => v.trim() !== '')
-        .map(v => parseFloat(v.trim()))
-        .filter(v => !isNaN(v));
+        .map(v => {
+          const num = parseFloat(v.trim());
+          return isNaN(num) ? 0 : num;
+        })
+        .filter(v => v > 0);
         
     } catch (e) {
-      console.warn('Failed to parse NumPy array field:', value, e);
+      console.warn('Parse error for:', value);
       return [];
     }
   };
@@ -493,10 +497,14 @@ export function useTradingEngine() {
             setMarketData(events);
             console.log('✅ Import completed successfully! MarketData should now have', events.length, 'events');
             
-            // Process data for the new ladder system
+            // Process data for the new ladder system (SAFE VERSION)
             console.log('🚀 About to call processDataForLadder...');
-            processDataForLadder(events);
-            console.log('🚀 processDataForLadder completed');
+            try {
+              processDataForLadder(events);
+              console.log('🚀 processDataForLadder completed');
+            } catch (ladderError) {
+              console.error('❌ Ladder processing failed, but continuing:', ladderError);
+            }
             
           } catch (error) {
             console.error('🔥 Error in CSV complete handler:', error);
