@@ -78,63 +78,59 @@ export const DOMladder = memo(function DOMladder({
   
   // Generate price ladder from orderbook data
   const priceLadder = useMemo(() => {
-    if (!orderBookData || !orderBookData.book_bid_prices || !orderBookData.book_ask_prices) {
-      // Fallback to fixed price ladder if no orderbook data
-      if (!priceRange) return [];
-      
+    if (orderBookData && (orderBookData.book_bid_prices.length > 0 || orderBookData.book_ask_prices.length > 0)) {
+      // Use real orderbook data (up to 20 levels)
       const levels: OrderBookLevel[] = [];
-      const totalLevels = Math.round((priceRange.end - priceRange.start) / TICK_SIZE);
+      const allPrices = new Set<number>();
       
-      for (let i = 0; i <= totalLevels; i++) {
-        const price = priceRange.start + (i * TICK_SIZE);
-        const bookLevel = orderBook.find(level => 
-          Math.abs(level.price - price) < TICK_SIZE / 2
-        );
+      // Collect all unique prices from bid and ask sides
+      orderBookData.book_bid_prices.forEach(price => allPrices.add(price));
+      orderBookData.book_ask_prices.forEach(price => allPrices.add(price));
+      
+      // Convert to sorted array (highest first for proper DOM display)
+      const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
+      
+      // Create levels for each price
+      sortedPrices.forEach(price => {
+        const bidIndex = orderBookData.book_bid_prices.findIndex(p => Math.abs(p - price) < 0.001);
+        const askIndex = orderBookData.book_ask_prices.findIndex(p => Math.abs(p - price) < 0.001);
         
         levels.push({
           price,
-          bidSize: bookLevel?.bidSize || 0,
-          askSize: bookLevel?.askSize || 0,
-          bidOrders: bookLevel?.bidOrders || 0,
-          askOrders: bookLevel?.askOrders || 0,
-          volume: bookLevel?.volume || 0
+          bidSize: bidIndex >= 0 ? (orderBookData.book_bid_sizes[bidIndex] || 0) : 0,
+          askSize: askIndex >= 0 ? (orderBookData.book_ask_sizes[askIndex] || 0) : 0,
+          bidOrders: bidIndex >= 0 ? (orderBookData.book_bid_orders?.[bidIndex] || 0) : 0,
+          askOrders: askIndex >= 0 ? (orderBookData.book_ask_orders?.[askIndex] || 0) : 0,
+          volume: 0
         });
-      }
+      });
       
-      return levels.sort((a, b) => b.price - a.price);
+      return levels;
     }
     
-    // Create levels from orderbook data
+    // Fallback to fixed price ladder if no orderbook data
+    if (!priceRange) return [];
+    
     const levels: OrderBookLevel[] = [];
-    const maxLevels = Math.max(
-      orderBookData.book_bid_prices.length,
-      orderBookData.book_ask_prices.length
-    );
+    const totalLevels = Math.round((priceRange.end - priceRange.start) / TICK_SIZE);
     
-    // Combine all unique prices from bid and ask sides
-    const allPrices = new Set([
-      ...orderBookData.book_bid_prices,
-      ...orderBookData.book_ask_prices
-    ]);
-    
-    // Convert to sorted array (highest first)
-    const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
-    
-    sortedPrices.forEach(price => {
-      const bidIndex = orderBookData.book_bid_prices.findIndex(p => Math.abs(p - price) < 0.001);
-      const askIndex = orderBookData.book_ask_prices.findIndex(p => Math.abs(p - price) < 0.001);
+    for (let i = 0; i <= totalLevels; i++) {
+      const price = priceRange.start + (i * TICK_SIZE);
+      const bookLevel = orderBook.find(level => 
+        Math.abs(level.price - price) < TICK_SIZE / 2
+      );
       
       levels.push({
         price,
-        bidSize: bidIndex >= 0 ? (orderBookData.book_bid_sizes[bidIndex] || 0) : 0,
-        askSize: askIndex >= 0 ? (orderBookData.book_ask_sizes[askIndex] || 0) : 0,
-        bidOrders: bidIndex >= 0 ? (orderBookData.book_bid_orders?.[bidIndex] || 0) : 0,
-        askOrders: askIndex >= 0 ? (orderBookData.book_ask_orders?.[askIndex] || 0) : 0,
-        volume: 0
+        bidSize: bookLevel?.bidSize || 0,
+        askSize: bookLevel?.askSize || 0,
+        bidOrders: bookLevel?.bidOrders || 0,
+        askOrders: bookLevel?.askOrders || 0,
+        volume: bookLevel?.volume || 0
       });
-    });
+    }
     
-    return levels;
+    return levels.sort((a, b) => b.price - a.price);
   }, [priceRange, orderBook, orderBookData]);
   
   // Handle infinite scroll
