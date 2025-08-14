@@ -586,6 +586,32 @@ export function useTradingEngine() {
       case 'BBO':
         // BBO only updates Top of Book - does NOT affect last price or volume
         if (event.bidPrice || event.askPrice) {
+          // Generate simulated 20-level orderbook from BBO data
+          if (event.bidPrice && event.askPrice) {
+            const midPrice = (event.bidPrice + event.askPrice) / 2;
+            const bid_prices: number[] = [];
+            const ask_prices: number[] = [];
+            const bid_sizes: number[] = [];
+            const ask_sizes: number[] = [];
+            
+            // Generate 20 levels around current BBO
+            for (let i = 0; i < 20; i++) {
+              bid_prices.push(event.bidPrice - (i * TICK_SIZE));
+              ask_prices.push(event.askPrice + (i * TICK_SIZE));
+              bid_sizes.push(Math.max(1, (event.bidSize || 1) - Math.floor(i / 3)));
+              ask_sizes.push(Math.max(1, (event.askSize || 1) - Math.floor(i / 3)));
+            }
+            
+            setCurrentOrderBookData({
+              book_bid_prices: bid_prices,
+              book_ask_prices: ask_prices,
+              book_bid_sizes: bid_sizes,
+              book_ask_sizes: ask_sizes
+            });
+            
+            console.log('✅ Generated 20-level orderbook from BBO');
+          }
+          
           setOrderBook(prev => {
             const newBook = [...prev];
             
