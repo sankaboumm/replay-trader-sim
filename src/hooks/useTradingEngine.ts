@@ -646,6 +646,15 @@ export function useTradingEngine() {
           console.log('ORDERBOOK - bookBidSizes:', event.bookBidSizes?.slice(0, 5));
           console.log('ORDERBOOK - bookAskSizes:', event.bookAskSizes?.slice(0, 5));
           
+          // Test avec des données simulées pour voir si le DOMladder fonctionne
+          setCurrentOrderBookData({
+            book_bid_prices: [23932, 23931.75, 23931.5, 23931.25, 23931],
+            book_ask_prices: [23932.25, 23932.5, 23932.75, 23933, 23933.25],
+            book_bid_sizes: [10, 15, 20, 25, 30],
+            book_ask_sizes: [12, 18, 22, 28, 32]
+          });
+          console.log('✅ Simulated orderBookData set for testing');
+          
           // Store the complete orderbook data (up to 20 levels)
           setCurrentOrderBookData({
             book_bid_prices: event.bookBidPrices?.slice(0, 20) || [],
