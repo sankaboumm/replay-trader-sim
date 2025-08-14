@@ -338,12 +338,27 @@ export function useTradingEngine() {
               
               // Handle ORDERBOOK events (including ORDERBOOK_FULL)
               else if (eventType === 'ORDERBOOK' || eventType === 'ORDERBOOK_FULL') {
+                console.log(`🔍 Found ${eventType} event at row ${index}`);
+                console.log('🔍 Raw book data:', {
+                  book_bid_prices: row.book_bid_prices?.substring(0, 50),
+                  book_bid_sizes: row.book_bid_sizes?.substring(0, 50),
+                  book_ask_prices: row.book_ask_prices?.substring(0, 50),
+                  book_ask_sizes: row.book_ask_sizes?.substring(0, 50)
+                });
+                
                 const bidPrices = parseArrayField(row.book_bid_prices);
                 const bidSizes = parseArrayField(row.book_bid_sizes);
                 const bidOrders = parseArrayField(row.book_bid_orders);
                 const askPrices = parseArrayField(row.book_ask_prices);
                 const askSizes = parseArrayField(row.book_ask_sizes);
                 const askOrders = parseArrayField(row.book_ask_orders);
+                
+                console.log('🔍 Parsed arrays:', {
+                  bidPrices: bidPrices.length,
+                  bidSizes: bidSizes.length,
+                  askPrices: askPrices.length,
+                  askSizes: askSizes.length
+                });
                 
                 // Validation: arrays must have consistent lengths
                 const bidValid = bidPrices.length === bidSizes.length && 
@@ -352,7 +367,7 @@ export function useTradingEngine() {
                                 (askOrders.length === 0 || askOrders.length === askPrices.length);
                 
                 if (!bidValid || !askValid) {
-                  console.log('Skipping ORDERBOOK with inconsistent arrays:', {
+                  console.log('❌ Skipping ORDERBOOK with inconsistent arrays:', {
                     bidPrices: bidPrices.length,
                     bidSizes: bidSizes.length,
                     bidOrders: bidOrders.length,
@@ -365,14 +380,16 @@ export function useTradingEngine() {
                 
                 // Must have at least some data
                 if (bidPrices.length === 0 && askPrices.length === 0) {
-                  console.log('Skipping empty ORDERBOOK');
+                  console.log('❌ Skipping empty ORDERBOOK');
                   return;
                 }
+                
+                console.log('✅ Adding ORDERBOOK event with', bidPrices.length, 'bids and', askPrices.length, 'asks');
                 
                 rawEvents.push({
                   timestamp,
                   sortOrder,
-                  eventType: 'ORDERBOOK',
+                  eventType: eventType === 'ORDERBOOK_FULL' ? 'ORDERBOOK' : 'ORDERBOOK', // Normalize to ORDERBOOK
                   bookBidPrices: bidPrices,
                   bookAskPrices: askPrices,
                   bookBidSizes: bidSizes,
