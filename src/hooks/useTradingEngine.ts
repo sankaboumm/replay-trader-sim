@@ -251,7 +251,10 @@ export function useTradingEngine() {
               
               console.log(`Row ${index}: event_type="${row.event_type}" -> normalized="${eventType}"`);
               
-              // Define sort order for intra-timestamp ordering: ORDERBOOK → BBO → TRADE
+              // Log unique event types
+              if (index < 50) {
+                console.log(`Raw event_type: "${row.event_type}", Available columns:`, Object.keys(row).slice(0, 10));
+              }
               let sortOrder = 0;
               if (eventType === 'ORDERBOOK') sortOrder = 0;
               else if (eventType === 'BBO') sortOrder = 1;
