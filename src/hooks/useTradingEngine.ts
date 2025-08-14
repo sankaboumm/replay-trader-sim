@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, useEffect } from 'react';
 import Papa from 'papaparse';
 import { OrderBookProcessor, ParsedOrderBook, Trade as OrderBookTrade, TickLadder } from '@/lib/orderbook';
+import { useOrderEngine } from '@/hooks/useOrderEngine';
 
 interface MarketEvent {
   timestamp: number;
@@ -92,6 +93,14 @@ export function useTradingEngine() {
     total: 0
   });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
+  
+  // Constants for P&L calculation
+  const TICK_SIZE = 0.25;
+  const TICK_VALUE = 5.0; // Each tick of 0.25 is worth 5$
+  const AGGREGATION_WINDOW_MS = 5;
+  
+  // Order execution engine
+  const orderEngine = useOrderEngine(TICK_SIZE);
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
   
   // New state for robust order book processing
@@ -99,11 +108,6 @@ export function useTradingEngine() {
   const [trades, setTrades] = useState<OrderBookTrade[]>([]);
   const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder | null>(null);
   const [orderBookProcessor] = useState(() => new OrderBookProcessor(0.25));
-  
-  // Constants for P&L calculation
-  const TICK_SIZE = 0.25;
-  const TICK_VALUE = 5.0; // Each tick of 0.25 is worth 5$
-  const AGGREGATION_WINDOW_MS = 5;
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
@@ -194,6 +198,7 @@ export function useTradingEngine() {
     setTrades([]);
     setCurrentTickLadder(null);
     orderBookProcessor.resetVolume();
+    orderEngine.reset();
     
     const reader = new FileReader();
     
@@ -827,19 +832,21 @@ export function useTradingEngine() {
     });
   }, [flushAggregationBuffer]);
 
-  // Place limit order
+  // Place limit order - use order engine for proper queue management
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
-    const newOrder: Order = {
-      id: `order-${++orderIdCounter.current}`,
-      side,
-      price,
-      quantity,
-      filled: 0,
-      timestamp: Date.now()
-    };
+    if (!currentTickLadder) return;
     
-    setOrders(prev => [...prev, newOrder]);
-  }, []);
+    // Create orderbook maps for queue calculation
+    const bidSizes = new Map<number, number>();
+    const askSizes = new Map<number, number>();
+    
+    for (const level of currentTickLadder.levels) {
+      if (level.bidSize > 0) bidSizes.set(level.tick, level.bidSize);
+      if (level.askSize > 0) askSizes.set(level.tick, level.askSize);
+    }
+    
+    orderEngine.placeLimitOrder(side, price, quantity, { bidSizes, askSizes });
+  }, [currentTickLadder, orderEngine]);
 
   // Place market order
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number) => {
@@ -896,22 +903,15 @@ export function useTradingEngine() {
     setTimeAndSales(prev => [trade, ...prev]);
   }, [currentPrice]);
 
-  // Cancel orders at price
+  // Cancel orders at price - use order engine
   const cancelOrdersAtPrice = useCallback((price: number) => {
-    setOrders(prev => prev.filter(order => Math.abs(order.price - price) >= 0.125));
-  }, []);
+    orderEngine.cancelOrdersAtPrice(price);
+  }, [orderEngine]);
 
-  // Update PnL using tick value
+  // Update PnL using order engine and current price
   useEffect(() => {
-    const tickDifference = (currentPrice - position.averagePrice) / TICK_SIZE;
-    const unrealized = position.quantity * tickDifference * TICK_VALUE;
-    
-    setPnl({
-      unrealized,
-      realized: realizedPnLTotal,
-      total: unrealized + realizedPnLTotal
-    });
-  }, [position, currentPrice, realizedPnLTotal]);
+    orderEngine.updateUnrealizedPnL(currentPrice);
+  }, [currentPrice, orderEngine]);
 
   // Check for limit order execution when price changes
   useEffect(() => {
@@ -1069,6 +1069,8 @@ export function useTradingEngine() {
     orderBookSnapshots,
     trades,
     currentTickLadder,
-    orderBookProcessor
+    orderBookProcessor,
+    // Order engine data
+    orderEngine
   };
 }

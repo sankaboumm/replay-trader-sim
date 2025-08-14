@@ -242,9 +242,9 @@ export class OrderBookProcessor {
       }
     }
     
-    // Generate 41 levels (20 up, center, 20 down)
+    // Generate 41 levels (20 up, center, 20 down) - REVERSED ORDER: high prices first
     const levels: TickLevel[] = [];
-    for (let i = -20; i <= 20; i++) {
+    for (let i = 20; i >= -20; i--) { // REVERSED: start from +20 down to -20
       const tick = midTick + i;
       const price = this.fromTick(tick);
       

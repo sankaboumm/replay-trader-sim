@@ -1,23 +1,18 @@
 import { memo, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType, TickLevel } from '@/lib/orderbook';
-
-interface Order {
-  id: string;
-  side: 'BUY' | 'SELL';
-  price: number;
-  quantity: number;
-  filled: number;
-}
+import { LimitOrder, Position } from '@/hooks/useOrderEngine';
 
 interface TickLadderProps {
   tickLadder: TickLadderType | null;
   currentPrice: number;
-  orders: Order[];
+  orders: LimitOrder[];
+  position: Position;
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
+  toTick: (price: number) => number;
 }
 
 function formatPrice(price: number): string {
@@ -32,36 +27,29 @@ export const TickLadder = memo(function TickLadder({
   tickLadder,
   currentPrice,
   orders,
+  position,
   onLimitOrder,
   onMarketOrder,
   onCancelOrders,
-  disabled = false
+  disabled = false,
+  toTick
 }: TickLadderProps) {
 
   // Get orders for a specific price level
   const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') => {
+    const tickIndex = toTick(price);
     return orders.filter(order => 
       order.side === side && 
-      Math.abs(order.price - price) < 0.125 &&
-      order.quantity > order.filled
+      order.tickIndex === tickIndex &&
+      order.remain > 0 &&
+      (order.status === 'WORKING' || order.status === 'PARTIAL')
     );
   };
 
-  // Calculate average buy and sell prices
-  const averagePrices = useMemo(() => {
-    const filledBuyOrders = orders.filter(o => o.side === 'BUY' && o.filled > 0);
-    const filledSellOrders = orders.filter(o => o.side === 'SELL' && o.filled > 0);
-    
-    const avgBuyPrice = filledBuyOrders.length > 0 
-      ? filledBuyOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) / filledBuyOrders.reduce((sum, o) => sum + o.filled, 0)
-      : null;
-      
-    const avgSellPrice = filledSellOrders.length > 0
-      ? filledSellOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) / filledSellOrders.reduce((sum, o) => sum + o.filled, 0)
-      : null;
-      
-    return { avgBuyPrice, avgSellPrice };
-  }, [orders]);
+  // Get position average price tick for highlighting
+  const positionAverageTick = useMemo(() => {
+    return position.contracts !== 0 ? toTick(position.averagePrice) : null;
+  }, [position, toTick]);
 
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
@@ -117,12 +105,11 @@ export const TickLadder = memo(function TickLadder({
       <div className="flex-1 overflow-y-auto trading-scroll">
         {tickLadder.levels.map((level, index) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
-          const isAvgBuyPrice = averagePrices.avgBuyPrice && Math.abs(level.price - averagePrices.avgBuyPrice) < 0.125;
-          const isAvgSellPrice = averagePrices.avgSellPrice && Math.abs(level.price - averagePrices.avgSellPrice) < 0.125;
+          const isPositionAverage = positionAverageTick !== null && level.tick === positionAverageTick;
           const buyOrders = getOrdersAtPrice(level.price, 'BUY');
           const sellOrders = getOrdersAtPrice(level.price, 'SELL');
-          const totalBuyQuantity = buyOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
-          const totalSellQuantity = sellOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
+          const totalBuyQuantity = buyOrders.reduce((sum, order) => sum + order.remain, 0);
+          const totalSellQuantity = sellOrders.reduce((sum, order) => sum + order.remain, 0);
           
           // Determine dominant aggressor for size coloring
           const isDominantBuy = level.sizeWindow > 0; // Simplified for now
@@ -139,7 +126,7 @@ export const TickLadder = memo(function TickLadder({
               className={cn(
                 "grid grid-cols-5 text-xs border-b border-border/50 h-6",
                 isLastPrice && "bg-ladder-last/20",
-                (isAvgBuyPrice || isAvgSellPrice) && "border-2 border-trading-average",
+                isPositionAverage && "ring-2 ring-yellow-400 bg-yellow-50 dark:bg-yellow-900/20",
                 "hover:bg-ladder-row-hover transition-colors"
               )}
             >
@@ -153,22 +140,18 @@ export const TickLadder = memo(function TickLadder({
                 {formatSize(level.sizeWindow)}
               </div>
 
-              {/* Bids - only show if price is below or at current price */}
+              {/* Bids - show below best bid (gating) */}
               <div 
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
-                  level.price <= currentPrice && "hover:bg-trading-buy/10",
+                  level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
+                  "hover:bg-trading-buy/10",
                   totalBuyQuantity > 0 && "ring-2 ring-trading-buy/50"
                 )}
                 onClick={() => totalBuyQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
               >
-                {level.price <= currentPrice && (
-                  <>
-                    <span>{formatSize(level.bidSize)}</span>
-                    {totalBuyQuantity > 0 && <span className="ml-1 text-xs">({totalBuyQuantity})</span>}
-                  </>
-                )}
+                <span>{formatSize(level.bidSize)}</span>
+                {totalBuyQuantity > 0 && <span className="ml-1 text-xs">({totalBuyQuantity})</span>}
               </div>
 
               {/* Price */}
@@ -179,22 +162,18 @@ export const TickLadder = memo(function TickLadder({
                 {formatPrice(level.price)}
               </div>
 
-              {/* Asks - only show if price is above or at current price */}
+              {/* Asks - show above best ask (gating) */}
               <div 
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
-                  level.price >= currentPrice && "hover:bg-trading-sell/10",
+                  level.askSize > 0 && "bg-ladder-ask text-trading-sell",
+                  "hover:bg-trading-sell/10",
                   totalSellQuantity > 0 && "ring-2 ring-trading-sell/50"
                 )}
                 onClick={() => totalSellQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
               >
-                {level.price >= currentPrice && (
-                  <>
-                    <span>{formatSize(level.askSize)}</span>
-                    {totalSellQuantity > 0 && <span className="ml-1 text-xs">({totalSellQuantity})</span>}
-                  </>
-                )}
+                <span>{formatSize(level.askSize)}</span>
+                {totalSellQuantity > 0 && <span className="ml-1 text-xs">({totalSellQuantity})</span>}
               </div>
 
               {/* Volume (Cumulative) */}

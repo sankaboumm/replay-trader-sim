@@ -29,7 +29,8 @@ export function TradingInterface() {
     placeLimitOrder,
     placeMarketOrder,
     cancelOrdersAtPrice,
-    currentTickLadder
+    currentTickLadder,
+    orderEngine
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -79,8 +80,17 @@ export function TradingInterface() {
         {/* Left Panel - Position & Controls */}
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <PositionPanel
-            position={position}
-            pnl={pnl}
+            position={{
+              symbol: 'NQ',
+              quantity: orderEngine.position.contracts,
+              averagePrice: orderEngine.position.averagePrice,
+              marketPrice: currentPrice
+            }}
+            pnl={{
+              unrealized: orderEngine.position.unrealizedPnL,
+              realized: orderEngine.position.realizedPnL,
+              total: orderEngine.position.totalPnL
+            }}
             currentPrice={currentPrice}
             className="flex-shrink-0"
           />
@@ -120,11 +130,13 @@ export function TradingInterface() {
           <TickLadder
             tickLadder={currentTickLadder}
             currentPrice={currentPrice}
-            orders={orders}
+            orders={orderEngine.orders}
+            position={orderEngine.position}
             onLimitOrder={placeLimitOrder}
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
+            toTick={orderEngine.toTick}
           />
         </div>
 
