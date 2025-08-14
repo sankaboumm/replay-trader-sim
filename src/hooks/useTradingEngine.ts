@@ -247,6 +247,8 @@ export function useTradingEngine() {
               const timestamp = parseTimestamp(row);
               const eventType = normalizeEventType(row.event_type);
               
+              console.log(`Row ${index}: event_type="${row.event_type}" -> normalized="${eventType}"`);
+              
               // Define sort order for intra-timestamp ordering: ORDERBOOK → BBO → TRADE
               let sortOrder = 0;
               if (eventType === 'ORDERBOOK') sortOrder = 0;
