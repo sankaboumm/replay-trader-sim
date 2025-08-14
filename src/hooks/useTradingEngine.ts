@@ -512,75 +512,83 @@ export function useTradingEngine() {
 
   // Process data for ladder according to specifications
   const processDataForLadder = useCallback((events: MarketEvent[]) => {
-    console.log('📊 Processing data for ladder system...');
+    try {
+      console.log('📊 Processing data for ladder system...');
+      
+      // 3.1 Filter events by type
+      const snapshots = events.filter(e => e.eventType === 'ORDERBOOK');
+      const tradesData = events.filter(e => e.eventType === 'TRADE');
+      
+      console.log(`Found ${snapshots.length} snapshots and ${tradesData.length} trades`);
+      console.log('First few events:', events.slice(0, 5).map(e => e.eventType));
+      console.log('All event types in data:', [...new Set(events.map(e => e.eventType))]);
+      
+      if (snapshots.length === 0) {
+        console.log('❌ No ORDERBOOK events found! Checking for ORDERBOOK_FULL...');
+        const orderbookFullEvents = events.filter(e => e.eventType === 'ORDERBOOK_FULL');
+        console.log('ORDERBOOK_FULL events:', orderbookFullEvents.length);
+      }
     
-    // 3.1 Filter events by type
-    const snapshots = events.filter(e => e.eventType === 'ORDERBOOK');
-    const tradesData = events.filter(e => e.eventType === 'TRADE');
-    
-    console.log(`Found ${snapshots.length} snapshots and ${tradesData.length} trades`);
-    console.log('First few events:', events.slice(0, 5).map(e => e.eventType));
-    console.log('All event types in data:', [...new Set(events.map(e => e.eventType))]);
-    
-    if (snapshots.length === 0) {
-      console.log('❌ No ORDERBOOK events found! Checking for ORDERBOOK_FULL...');
-      const orderbookFullEvents = events.filter(e => e.eventType === 'ORDERBOOK_FULL');
-      console.log('ORDERBOOK_FULL events:', orderbookFullEvents.length);
+      // Sort by timestamp
+      snapshots.sort((a, b) => a.timestamp - b.timestamp);
+      tradesData.sort((a, b) => a.timestamp - b.timestamp);
+      
+      // Process snapshots into tick-indexed format
+      const processedSnapshots: OrderBookSnapshot[] = snapshots.map((snapshot, index) => {
+        const bidMap = new Map<number, number>();
+        const askMap = new Map<number, number>();
+        
+        // Process bid side
+        if (snapshot.bookBidPrices && snapshot.bookBidSizes) {
+          for (let i = 0; i < snapshot.bookBidPrices.length; i++) {
+            const price = snapshot.bookBidPrices[i];
+            const size = snapshot.bookBidSizes[i];
+            if (price > 0 && size > 0) {
+              const tickIndex = toTick(price);
+              bidMap.set(tickIndex, size);
+            }
+          }
+        }
+        
+        // Process ask side
+        if (snapshot.bookAskPrices && snapshot.bookAskSizes) {
+          for (let i = 0; i < snapshot.bookAskPrices.length; i++) {
+            const price = snapshot.bookAskPrices[i];
+            const size = snapshot.bookAskSizes[i];
+            if (price > 0 && size > 0) {
+              const tickIndex = toTick(price);
+              askMap.set(tickIndex, size);
+            }
+          }
+        }
+        
+        // Calculate mid price
+        let midPrice = 0;
+        const bestBid = snapshot.bookBidPrices?.[0] || 0;
+        const bestAsk = snapshot.bookAskPrices?.[0] || 0;
+        if (bestBid > 0 && bestAsk > 0) {
+          midPrice = (bestBid + bestAsk) / 2;
+        }
+        
+        return {
+          bidMap,
+          askMap,
+          timestamp: snapshot.timestamp.toString(),
+          midPrice
+        };
+      });
+      
+      setOrderbookSnapshots(processedSnapshots);
+      setTrades(tradesData);
+      
+      console.log('✅ Ladder data processing complete');
+      
+    } catch (error) {
+      console.error('❌ Error in processDataForLadder:', error);
+      // Don't crash the app, just log the error
+      setOrderbookSnapshots([]);
+      setTrades([]);
     }
-    
-    // Sort by timestamp
-    snapshots.sort((a, b) => a.timestamp - b.timestamp);
-    tradesData.sort((a, b) => a.timestamp - b.timestamp);
-    
-    // Process snapshots into tick-indexed format
-    const processedSnapshots: OrderBookSnapshot[] = snapshots.map((snapshot, index) => {
-      const bidMap = new Map<number, number>();
-      const askMap = new Map<number, number>();
-      
-      // Process bid side
-      if (snapshot.bookBidPrices && snapshot.bookBidSizes) {
-        for (let i = 0; i < snapshot.bookBidPrices.length; i++) {
-          const price = snapshot.bookBidPrices[i];
-          const size = snapshot.bookBidSizes[i];
-          if (price > 0 && size > 0) {
-            const tickIndex = toTick(price);
-            bidMap.set(tickIndex, size);
-          }
-        }
-      }
-      
-      // Process ask side
-      if (snapshot.bookAskPrices && snapshot.bookAskSizes) {
-        for (let i = 0; i < snapshot.bookAskPrices.length; i++) {
-          const price = snapshot.bookAskPrices[i];
-          const size = snapshot.bookAskSizes[i];
-          if (price > 0 && size > 0) {
-            const tickIndex = toTick(price);
-            askMap.set(tickIndex, size);
-          }
-        }
-      }
-      
-      // Calculate mid price
-      let midPrice = 0;
-      const bestBid = snapshot.bookBidPrices?.[0] || 0;
-      const bestAsk = snapshot.bookAskPrices?.[0] || 0;
-      if (bestBid > 0 && bestAsk > 0) {
-        midPrice = (bestBid + bestAsk) / 2;
-      }
-      
-      return {
-        bidMap,
-        askMap,
-        timestamp: snapshot.timestamp.toString(),
-        midPrice
-      };
-    });
-    
-    setOrderbookSnapshots(processedSnapshots);
-    setTrades(tradesData);
-    
-    console.log('✅ Ladder data processing complete');
   }, [toTick]);
 
   // Process market event
