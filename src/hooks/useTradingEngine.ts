@@ -162,26 +162,23 @@ export function useTradingEngine() {
     if (!value || value === '[]' || value === '') return [];
     
     try {
-      // Try JSON first
-      if (value.startsWith('[') && value.endsWith(']')) {
-        return JSON.parse(value).map((v: any) => parseFloat(v)).filter((v: number) => !isNaN(v));
+      // Handle NumPy-style format: "[ 4  6  6  6  7  8 ]"
+      let cleaned = value.toString().trim();
+      
+      // Remove brackets
+      if (cleaned.startsWith('[') && cleaned.endsWith(']')) {
+        cleaned = cleaned.slice(1, -1);
       }
       
-      // Try pipe or semicolon separated
-      const separators = ['|', ';', ','];
-      for (const sep of separators) {
-        if (value.includes(sep)) {
-          return value.split(sep)
-            .map(v => parseFloat(v.trim()))
-            .filter(v => !isNaN(v));
-        }
-      }
-      
-      // Single value
-      const single = parseFloat(value);
-      return isNaN(single) ? [] : [single];
+      // Split on spaces and/or commas, filter empty strings, convert to numbers
+      return cleaned
+        .split(/[\s,]+/)
+        .filter(v => v.trim() !== '')
+        .map(v => parseFloat(v.trim()))
+        .filter(v => !isNaN(v));
+        
     } catch (e) {
-      console.warn('Failed to parse array field:', value, e);
+      console.warn('Failed to parse NumPy array field:', value, e);
       return [];
     }
   };
