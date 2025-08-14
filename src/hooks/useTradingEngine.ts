@@ -3,7 +3,7 @@ import Papa from 'papaparse';
 
 interface MarketEvent {
   timestamp: number;
-  eventType: 'TRADE' | 'BBO' | 'ORDERBOOK';
+  eventType: 'TRADE' | 'BBO' | 'ORDERBOOK' | 'ORDERBOOK_FULL';
   tradePrice?: number;
   tradeSize?: number;
   aggressor?: 'BUY' | 'SELL';
@@ -503,6 +503,14 @@ export function useTradingEngine() {
     const tradesData = events.filter(e => e.eventType === 'TRADE');
     
     console.log(`Found ${snapshots.length} snapshots and ${tradesData.length} trades`);
+    console.log('First few events:', events.slice(0, 5).map(e => e.eventType));
+    console.log('All event types in data:', [...new Set(events.map(e => e.eventType))]);
+    
+    if (snapshots.length === 0) {
+      console.log('❌ No ORDERBOOK events found! Checking for ORDERBOOK_FULL...');
+      const orderbookFullEvents = events.filter(e => e.eventType === 'ORDERBOOK_FULL');
+      console.log('ORDERBOOK_FULL events:', orderbookFullEvents.length);
+    }
     
     // Sort by timestamp
     snapshots.sort((a, b) => a.timestamp - b.timestamp);
@@ -1086,12 +1094,21 @@ export function useTradingEngine() {
 
   // Generate ladder data according to specifications
   const generateLadderData = useCallback(() => {
+    console.log('🔧 generateLadderData called');
+    console.log('🔧 orderbookSnapshots.length:', orderbookSnapshots.length);
+    console.log('🔧 currentEventIndex:', currentEventIndex);
+    
     if (orderbookSnapshots.length === 0 || currentEventIndex >= orderbookSnapshots.length) {
+      console.log('❌ No snapshots or index out of bounds');
       return [];
     }
 
     const currentSnapshot = orderbookSnapshots[Math.min(currentEventIndex, orderbookSnapshots.length - 1)];
-    if (!currentSnapshot) return [];
+    console.log('🔧 currentSnapshot:', currentSnapshot);
+    if (!currentSnapshot) {
+      console.log('❌ No current snapshot');
+      return [];
+    }
 
     const midTick = toTick(currentSnapshot.midPrice);
     const ladderTicks: number[] = [];
