@@ -203,6 +203,8 @@ export function useTradingEngine() {
             console.log('Total rows parsed:', results.data.length);
             console.log('Errors during parsing:', results.errors?.length || 0);
             console.log('First row sample:', results.data[0]);
+            console.log('Available columns:', Object.keys(results.data[0] || {}));
+            console.log('Looking for columns: book_bid_prices, book_ask_prices, book_bid_sizes, book_ask_sizes');
             
             if (results.errors?.length > 0) {
               console.error('CSV parsing errors:', results.errors.slice(0, 5)); // Show first 5 errors
