@@ -717,7 +717,8 @@ export function useTradingEngine() {
           
           if (currentSnapshot) {
             // Find previous snapshot for trade window calculation
-            const previousSnapshot = orderBookSnapshots[orderBookSnapshots.findIndex(s => s === currentSnapshot) - 1];
+            const currentIndex = orderBookSnapshots.findIndex(s => s === currentSnapshot);
+            const previousSnapshot = currentIndex > 0 ? orderBookSnapshots[currentIndex - 1] : undefined;
             
             const ladder = orderBookProcessor.createTickLadder(
               currentSnapshot,
@@ -725,7 +726,27 @@ export function useTradingEngine() {
               previousSnapshot?.timestamp
             );
             setCurrentTickLadder(ladder);
-          }
+            console.log('Updated tick ladder with', ladder.levels.length, 'levels');
+          } else {
+          // Create orderbook snapshot directly from event data  
+          const eventSnapshot = {
+            bidPrices: event.bookBidPrices || [],
+            bidSizes: event.bookBidSizes || [],
+            bidOrders: [],
+            askPrices: event.bookAskPrices || [],
+            askSizes: event.bookAskSizes || [],
+            askOrders: [],
+            timestamp: new Date(event.timestamp)
+          };
+          
+          console.log('Creating tick ladder from event snapshot...');
+          const ladder = orderBookProcessor.createTickLadder(
+            eventSnapshot,
+            trades
+          );
+          setCurrentTickLadder(ladder);
+          console.log('Tick ladder updated - levels:', ladder.levels.length, 'midTick:', ladder.midTick);
+        }
 
           const newBook: OrderBookLevel[] = [];
           const priceMap = new Map<number, OrderBookLevel>();

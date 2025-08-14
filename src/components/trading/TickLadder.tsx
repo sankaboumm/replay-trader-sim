@@ -90,11 +90,11 @@ export const TickLadder = memo(function TickLadder({
     onCancelOrders(price);
   };
 
-  if (!tickLadder) {
+  if (!tickLadder || !tickLadder.levels || tickLadder.levels.length === 0) {
     return (
       <div className="h-full flex items-center justify-center bg-card">
         <div className="text-muted-foreground">
-          {disabled ? 'Snapshots DOM manquants' : 'Chargement...'}
+          {disabled ? 'Snapshots DOM manquants' : 'Chargement des données orderbook...'}
         </div>
       </div>
     );
@@ -127,6 +127,11 @@ export const TickLadder = memo(function TickLadder({
           // Determine dominant aggressor for size coloring
           const isDominantBuy = level.sizeWindow > 0; // Simplified for now
           const isDominantSell = level.sizeWindow > 0; // Simplified for now
+          
+          // Debug log for first few levels
+          if (index < 3) {
+            console.log(`Level ${index}: price=${level.price}, bidSize=${level.bidSize}, askSize=${level.askSize}`);
+          }
           
           return (
             <div 
