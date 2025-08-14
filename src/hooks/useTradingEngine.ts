@@ -304,8 +304,8 @@ export function useTradingEngine() {
                 });
               }
               
-              // Handle ORDERBOOK events
-              else if (eventType === 'ORDERBOOK') {
+              // Handle ORDERBOOK events (including ORDERBOOK_FULL)
+              else if (eventType === 'ORDERBOOK' || eventType === 'ORDERBOOK_FULL') {
                 const bidPrices = parseArrayField(row.book_bid_prices);
                 const bidSizes = parseArrayField(row.book_bid_sizes);
                 const bidOrders = parseArrayField(row.book_bid_orders);
