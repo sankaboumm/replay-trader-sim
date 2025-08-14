@@ -105,10 +105,10 @@ export const TickLadder = memo(function TickLadder({
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="grid grid-cols-5 text-xs font-semibold text-muted-foreground">
+          <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
           <div className="p-2 text-center border-r border-border">Price</div>
           <div className="p-2 text-center border-r border-border">Asks</div>
-          <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center">Volume</div>
         </div>
       </div>
@@ -143,18 +143,32 @@ export const TickLadder = memo(function TickLadder({
                 "hover:bg-ladder-row-hover transition-colors"
               )}
             >
-              {/* Bids */}
+              {/* Size (Window) */}
+              <div className={cn(
+                "flex items-center justify-center border-r border-border/50",
+                level.sizeWindow > 0 && "font-medium",
+                isDominantBuy && level.sizeWindow > 0 && "text-trading-buy",
+                isDominantSell && level.sizeWindow > 0 && "text-trading-sell"
+              )}>
+                {formatSize(level.sizeWindow)}
+              </div>
+
+              {/* Bids - only show if price is below or at current price */}
               <div 
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
+                  level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
                   level.price <= currentPrice && "hover:bg-trading-buy/10",
                   totalBuyQuantity > 0 && "ring-2 ring-trading-buy/50"
                 )}
                 onClick={() => totalBuyQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
               >
-                <span>{formatSize(level.bidSize)}</span>
-                {totalBuyQuantity > 0 && <span className="ml-1 text-xs">({totalBuyQuantity})</span>}
+                {level.price <= currentPrice && (
+                  <>
+                    <span>{formatSize(level.bidSize)}</span>
+                    {totalBuyQuantity > 0 && <span className="ml-1 text-xs">({totalBuyQuantity})</span>}
+                  </>
+                )}
               </div>
 
               {/* Price */}
@@ -165,28 +179,22 @@ export const TickLadder = memo(function TickLadder({
                 {formatPrice(level.price)}
               </div>
 
-              {/* Asks */}
+              {/* Asks - only show if price is above or at current price */}
               <div 
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.askSize > 0 && "bg-ladder-ask text-trading-sell",
+                  level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                   level.price >= currentPrice && "hover:bg-trading-sell/10",
                   totalSellQuantity > 0 && "ring-2 ring-trading-sell/50"
                 )}
                 onClick={() => totalSellQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
               >
-                <span>{formatSize(level.askSize)}</span>
-                {totalSellQuantity > 0 && <span className="ml-1 text-xs">({totalSellQuantity})</span>}
-              </div>
-
-              {/* Size (Window) */}
-              <div className={cn(
-                "flex items-center justify-center border-r border-border/50",
-                level.sizeWindow > 0 && "font-medium",
-                isDominantBuy && level.sizeWindow > 0 && "text-trading-buy",
-                isDominantSell && level.sizeWindow > 0 && "text-trading-sell"
-              )}>
-                {formatSize(level.sizeWindow)}
+                {level.price >= currentPrice && (
+                  <>
+                    <span>{formatSize(level.askSize)}</span>
+                    {totalSellQuantity > 0 && <span className="ml-1 text-xs">({totalSellQuantity})</span>}
+                  </>
+                )}
               </div>
 
               {/* Volume (Cumulative) */}
