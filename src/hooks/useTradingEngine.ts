@@ -497,7 +497,9 @@ export function useTradingEngine() {
             console.log('✅ Import completed successfully! MarketData should now have', events.length, 'events');
             
             // Process data for the new ladder system
+            console.log('🚀 About to call processDataForLadder...');
             processDataForLadder(events);
+            console.log('🚀 processDataForLadder completed');
             
           } catch (error) {
             console.error('🔥 Error in CSV complete handler:', error);
