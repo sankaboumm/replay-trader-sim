@@ -20,6 +20,7 @@ export function TradingInterface() {
     playbackSpeed,
     currentPrice,
     orderBook,
+    currentOrderBookData,
     orders,
     loadMarketData,
     togglePlayback,
@@ -116,6 +117,7 @@ export function TradingInterface() {
         <div className="flex-1 bg-background">
           <DOMladder
             orderBook={orderBook}
+            orderBookData={currentOrderBookData}
             currentPrice={currentPrice}
             orders={orders}
             onLimitOrder={placeLimitOrder}

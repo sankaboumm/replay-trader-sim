@@ -64,6 +64,14 @@ export function useTradingEngine() {
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [currentPrice, setCurrentPrice] = useState(0);
   const [orderBook, setOrderBook] = useState<OrderBookLevel[]>([]);
+  const [currentOrderBookData, setCurrentOrderBookData] = useState<{
+    book_bid_prices: number[];
+    book_ask_prices: number[];
+    book_bid_sizes: number[];
+    book_ask_sizes: number[];
+    book_bid_orders?: number[];
+    book_ask_orders?: number[];
+  } | null>(null);
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
   const [aggregationBuffer, setAggregationBuffer] = useState<{
     trades: Trade[];
@@ -625,10 +633,18 @@ export function useTradingEngine() {
       case 'ORDERBOOK':
         // ORDERBOOK replaces the complete L2 depth (snapshot)
         if (event.bookBidPrices || event.bookAskPrices) {
+          // Store the complete orderbook data (up to 20 levels)
+          setCurrentOrderBookData({
+            book_bid_prices: event.bookBidPrices?.slice(0, 20) || [],
+            book_ask_prices: event.bookAskPrices?.slice(0, 20) || [],
+            book_bid_sizes: event.bookBidSizes?.slice(0, 20) || [],
+            book_ask_sizes: event.bookAskSizes?.slice(0, 20) || []
+          });
+
           const newBook: OrderBookLevel[] = [];
           const priceMap = new Map<number, OrderBookLevel>();
           
-          // Process bid prices
+          // Process bid prices (keep existing 10-level logic for backwards compatibility)
           if (event.bookBidPrices && event.bookBidSizes) {
             for (let i = 0; i < Math.min(event.bookBidPrices.length, 10); i++) {
               const bidPrice = event.bookBidPrices[i];
@@ -654,7 +670,7 @@ export function useTradingEngine() {
             }
           }
           
-          // Process ask prices
+          // Process ask prices (keep existing 10-level logic for backwards compatibility)
           if (event.bookAskPrices && event.bookAskSizes) {
             for (let i = 0; i < Math.min(event.bookAskPrices.length, 10); i++) {
               const askPrice = event.bookAskPrices[i];
@@ -934,6 +950,7 @@ export function useTradingEngine() {
     playbackSpeed,
     currentPrice,
     orderBook,
+    currentOrderBookData,
     orders,
     loadMarketData,
     togglePlayback,
