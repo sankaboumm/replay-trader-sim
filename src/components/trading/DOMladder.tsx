@@ -78,6 +78,10 @@ export const DOMladder = memo(function DOMladder({
   
   // Generate price ladder from orderbook data
   const priceLadder = useMemo(() => {
+    console.log('DOMladder: orderBookData:', orderBookData);
+    console.log('DOMladder: priceRange:', priceRange);
+    console.log('DOMladder: orderBook:', orderBook);
+    
     if (orderBookData && (orderBookData.book_bid_prices.length > 0 || orderBookData.book_ask_prices.length > 0)) {
       // Use real orderbook data (up to 20 levels)
       const levels: OrderBookLevel[] = [];

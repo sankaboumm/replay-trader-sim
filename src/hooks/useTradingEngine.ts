@@ -632,7 +632,13 @@ export function useTradingEngine() {
         
       case 'ORDERBOOK':
         // ORDERBOOK replaces the complete L2 depth (snapshot)
+        console.log('Processing ORDERBOOK event:', event);
         if (event.bookBidPrices || event.bookAskPrices) {
+          console.log('ORDERBOOK - bookBidPrices:', event.bookBidPrices?.slice(0, 5));
+          console.log('ORDERBOOK - bookAskPrices:', event.bookAskPrices?.slice(0, 5));
+          console.log('ORDERBOOK - bookBidSizes:', event.bookBidSizes?.slice(0, 5));
+          console.log('ORDERBOOK - bookAskSizes:', event.bookAskSizes?.slice(0, 5));
+          
           // Store the complete orderbook data (up to 20 levels)
           setCurrentOrderBookData({
             book_bid_prices: event.bookBidPrices?.slice(0, 20) || [],
