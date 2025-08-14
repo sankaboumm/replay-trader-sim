@@ -1,22 +1,13 @@
-import { memo, useMemo, useCallback, useState, useEffect, useRef } from 'react';
+import { memo, useMemo, useCallback, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
-interface OrderBookLevel {
+interface LadderRow {
   price: number;
   bidSize: number;
   askSize: number;
-  bidOrders?: number;
-  askOrders?: number;
-  volume?: number;
-}
-
-interface OrderBookData {
-  book_bid_sizes: number[];
-  book_ask_sizes: number[];
-  book_bid_prices: number[];
-  book_ask_prices: number[];
-  book_bid_orders?: number[];
-  book_ask_orders?: number[];
+  size: number;
+  volume: number;
+  tickIndex: number;
 }
 
 interface Order {
@@ -28,8 +19,7 @@ interface Order {
 }
 
 interface DOMladderProps {
-  orderBook: OrderBookLevel[];
-  orderBookData?: OrderBookData;
+  ladderData: LadderRow[];
   currentPrice: number;
   orders: Order[];
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
@@ -39,8 +29,6 @@ interface DOMladderProps {
 }
 
 const TICK_SIZE = 0.25;
-const INITIAL_LEVELS = 100;
-const EXTEND_THRESHOLD = 10;
 
 function formatPrice(price: number): string {
   return price.toFixed(2).replace('.', ',');
@@ -51,8 +39,7 @@ function formatSize(size: number): string {
 }
 
 export const DOMladder = memo(function DOMladder({
-  orderBook,
-  orderBookData,
+  ladderData,
   currentPrice,
   orders,
   onLimitOrder,
@@ -61,112 +48,16 @@ export const DOMladder = memo(function DOMladder({
   disabled = false
 }: DOMladderProps) {
   
-  const [priceRange, setPriceRange] = useState<{ start: number; end: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [scrollTop, setScrollTop] = useState(0);
   
-  // Initialize price range once we have a current price
-  useEffect(() => {
-    if (currentPrice > 0 && !priceRange) {
-      const roundedPrice = Math.round(currentPrice / TICK_SIZE) * TICK_SIZE;
-      setPriceRange({
-        start: roundedPrice - (INITIAL_LEVELS * TICK_SIZE / 2),
-        end: roundedPrice + (INITIAL_LEVELS * TICK_SIZE / 2)
-      });
-    }
-  }, [currentPrice, priceRange]);
-  
-  // Generate price ladder from orderbook data
-  const priceLadder = useMemo(() => {
-    console.log('DOMladder: orderBookData:', orderBookData);
-    console.log('DOMladder: priceRange:', priceRange);
-    console.log('DOMladder: orderBook:', orderBook);
-    
-    if (orderBookData && (orderBookData.book_bid_prices.length > 0 || orderBookData.book_ask_prices.length > 0)) {
-      // Use real orderbook data (up to 20 levels)
-      const levels: OrderBookLevel[] = [];
-      const allPrices = new Set<number>();
-      
-      // Collect all unique prices from bid and ask sides
-      orderBookData.book_bid_prices.forEach(price => allPrices.add(price));
-      orderBookData.book_ask_prices.forEach(price => allPrices.add(price));
-      
-      // Convert to sorted array (highest first for proper DOM display)
-      const sortedPrices = Array.from(allPrices).sort((a, b) => b - a);
-      
-      // Create levels for each price
-      sortedPrices.forEach(price => {
-        const bidIndex = orderBookData.book_bid_prices.findIndex(p => Math.abs(p - price) < 0.001);
-        const askIndex = orderBookData.book_ask_prices.findIndex(p => Math.abs(p - price) < 0.001);
-        
-        levels.push({
-          price,
-          bidSize: bidIndex >= 0 ? (orderBookData.book_bid_sizes[bidIndex] || 0) : 0,
-          askSize: askIndex >= 0 ? (orderBookData.book_ask_sizes[askIndex] || 0) : 0,
-          bidOrders: bidIndex >= 0 ? (orderBookData.book_bid_orders?.[bidIndex] || 0) : 0,
-          askOrders: askIndex >= 0 ? (orderBookData.book_ask_orders?.[askIndex] || 0) : 0,
-          volume: 0
-        });
-      });
-      
-      return levels;
-    }
-    
-    // Fallback to fixed price ladder if no orderbook data
-    if (!priceRange) return [];
-    
-    const levels: OrderBookLevel[] = [];
-    const totalLevels = Math.round((priceRange.end - priceRange.start) / TICK_SIZE);
-    
-    for (let i = 0; i <= totalLevels; i++) {
-      const price = priceRange.start + (i * TICK_SIZE);
-      const bookLevel = orderBook.find(level => 
-        Math.abs(level.price - price) < TICK_SIZE / 2
-      );
-      
-      levels.push({
-        price,
-        bidSize: bookLevel?.bidSize || 0,
-        askSize: bookLevel?.askSize || 0,
-        bidOrders: bookLevel?.bidOrders || 0,
-        askOrders: bookLevel?.askOrders || 0,
-        volume: bookLevel?.volume || 0
-      });
-    }
-    
-    return levels.sort((a, b) => b.price - a.price);
-  }, [priceRange, orderBook, orderBookData]);
-  
-  // Handle infinite scroll
-  const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLDivElement;
-    const { scrollTop, scrollHeight, clientHeight } = target;
-    setScrollTop(scrollTop);
-    
-    if (!priceRange) return;
-    
-    // Extend range upward when scrolling near top
-    if (scrollTop < EXTEND_THRESHOLD * 24 && priceRange) {
-      setPriceRange(prev => prev ? {
-        start: prev.start - (INITIAL_LEVELS * TICK_SIZE / 4),
-        end: prev.end
-      } : null);
-    }
-    
-    // Extend range downward when scrolling near bottom
-    if (scrollHeight - scrollTop - clientHeight < EXTEND_THRESHOLD * 24 && priceRange) {
-      setPriceRange(prev => prev ? {
-        start: prev.start,
-        end: prev.end + (INITIAL_LEVELS * TICK_SIZE / 4)
-      } : null);
-    }
-  }, [priceRange]);
+  console.log('🎯 DOMladder: received ladderData with', ladderData.length, 'rows');
+  console.log('🎯 DOMladder: currentPrice:', currentPrice);
   
   // Center on current price when space is pressed
   const centerOnCurrentPrice = useCallback(() => {
-    if (currentPrice > 0 && priceRange && scrollRef.current) {
-      const priceIndex = priceLadder.findIndex(level => 
-        Math.abs(level.price - currentPrice) < TICK_SIZE / 2
+    if (currentPrice > 0 && scrollRef.current && ladderData.length > 0) {
+      const priceIndex = ladderData.findIndex(row => 
+        Math.abs(row.price - currentPrice) < TICK_SIZE / 2
       );
       
       if (priceIndex >= 0) {
@@ -174,7 +65,7 @@ export const DOMladder = memo(function DOMladder({
         scrollRef.current.scrollTo({ top: targetScroll, behavior: 'smooth' });
       }
     }
-  }, [currentPrice, priceRange, priceLadder]);
+  }, [currentPrice, ladderData]);
 
   // Handle keyboard events
   useEffect(() => {
@@ -245,6 +136,14 @@ export const DOMladder = memo(function DOMladder({
     onCancelOrders(price);
   }, [disabled, onCancelOrders]);
 
+  if (ladderData.length === 0) {
+    return (
+      <div className="h-full flex items-center justify-center bg-card">
+        <div className="text-muted-foreground">No ladder data available</div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex flex-col bg-card">
       {/* Header */}
@@ -264,20 +163,19 @@ export const DOMladder = memo(function DOMladder({
       <div 
         ref={scrollRef}
         className="flex-1 overflow-y-auto trading-scroll"
-        onScroll={handleScroll}
       >
-        {priceLadder.map((level, index) => {
-          const isLastPrice = Math.abs(level.price - currentPrice) < TICK_SIZE / 2;
-          const isAvgBuyPrice = averagePrices.avgBuyPrice && Math.abs(level.price - averagePrices.avgBuyPrice) < TICK_SIZE / 2;
-          const isAvgSellPrice = averagePrices.avgSellPrice && Math.abs(level.price - averagePrices.avgSellPrice) < TICK_SIZE / 2;
-          const buyOrders = getOrdersAtPrice(level.price, 'BUY');
-          const sellOrders = getOrdersAtPrice(level.price, 'SELL');
+        {ladderData.map((row) => {
+          const isLastPrice = Math.abs(row.price - currentPrice) < TICK_SIZE / 2;
+          const isAvgBuyPrice = averagePrices.avgBuyPrice && Math.abs(row.price - averagePrices.avgBuyPrice) < TICK_SIZE / 2;
+          const isAvgSellPrice = averagePrices.avgSellPrice && Math.abs(row.price - averagePrices.avgSellPrice) < TICK_SIZE / 2;
+          const buyOrders = getOrdersAtPrice(row.price, 'BUY');
+          const sellOrders = getOrdersAtPrice(row.price, 'SELL');
           const totalBuyQuantity = buyOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
           const totalSellQuantity = sellOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
           
           return (
             <div 
-              key={level.price}
+              key={row.tickIndex}
               className={cn(
                 "grid grid-cols-7 text-xs border-b border-border/50 h-6",
                 isLastPrice && "bg-ladder-last/20",
@@ -289,10 +187,10 @@ export const DOMladder = memo(function DOMladder({
               <div 
                 className={cn(
                   "flex items-center justify-center text-trading-buy cursor-pointer",
-                  level.price <= currentPrice && "hover:bg-trading-buy/10",
+                  row.price <= currentPrice && "hover:bg-trading-buy/10",
                   totalBuyQuantity > 0 && "bg-trading-buy/20"
                 )}
-                onClick={() => totalBuyQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
+                onClick={() => totalBuyQuantity > 0 ? handleOrderClick(row.price) : handleCellClick(row.price, 'bid')}
               >
                 {totalBuyQuantity > 0 && `+${totalBuyQuantity} LMT`}
               </div>
@@ -301,10 +199,10 @@ export const DOMladder = memo(function DOMladder({
               <div 
                 className={cn(
                   "flex items-center justify-center text-trading-sell cursor-pointer border-r border-border/50",
-                  level.price >= currentPrice && "hover:bg-trading-sell/10",
+                  row.price >= currentPrice && "hover:bg-trading-sell/10",
                   totalSellQuantity > 0 && "bg-trading-sell/20"
                 )}
-                onClick={() => totalSellQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
+                onClick={() => totalSellQuantity > 0 ? handleOrderClick(row.price) : handleCellClick(row.price, 'ask')}
               >
                 {totalSellQuantity > 0 && `+${totalSellQuantity} LMT`}
               </div>
@@ -313,12 +211,12 @@ export const DOMladder = memo(function DOMladder({
               <div 
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
-                  level.price < currentPrice && "hover:bg-trading-buy/10"
+                  row.bidSize > 0 && "bg-ladder-bid text-trading-buy",
+                  row.price < currentPrice && "hover:bg-trading-buy/10"
                 )}
-                onClick={() => handleCellClick(level.price, 'bid')}
+                onClick={() => handleCellClick(row.price, 'bid')}
               >
-                {level.bidSize > 0 && formatSize(level.bidSize)}
+                {row.bidSize > 0 && formatSize(row.bidSize)}
               </div>
 
               {/* Price */}
@@ -326,29 +224,29 @@ export const DOMladder = memo(function DOMladder({
                 "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
                 isLastPrice && "text-trading-average font-bold"
               )}>
-                {formatPrice(level.price)}
+                {formatPrice(row.price)}
               </div>
 
               {/* Asks */}
               <div 
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.askSize > 0 && "bg-ladder-ask text-trading-sell",
-                  level.price > currentPrice && "hover:bg-trading-sell/10"
+                  row.askSize > 0 && "bg-ladder-ask text-trading-sell",
+                  row.price > currentPrice && "hover:bg-trading-sell/10"
                 )}
-                onClick={() => handleCellClick(level.price, 'ask')}
+                onClick={() => handleCellClick(row.price, 'ask')}
               >
-                {level.askSize > 0 && formatSize(level.askSize)}
+                {row.askSize > 0 && formatSize(row.askSize)}
               </div>
 
-              {/* Last Trade Size */}
+              {/* Size (traded in this frame) */}
               <div className="flex items-center justify-center border-r border-border/50">
-                {/* Show last trade size at this exact price if available */}
+                {row.size > 0 && formatSize(row.size)}
               </div>
 
-              {/* Volume */}
+              {/* Volume (cumulative) */}
               <div className="flex items-center justify-center text-muted-foreground">
-                {level.volume && level.volume > 0 ? formatSize(level.volume) : ''}
+                {row.volume > 0 && formatSize(row.volume)}
               </div>
             </div>
           );

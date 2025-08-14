@@ -27,7 +27,8 @@ export function TradingInterface() {
     setPlaybackSpeed,
     placeLimitOrder,
     placeMarketOrder,
-    cancelOrdersAtPrice
+    cancelOrdersAtPrice,
+    ladderData
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -116,8 +117,7 @@ export function TradingInterface() {
         {/* Center Panel - DOM Ladder */}
         <div className="flex-1 bg-background">
           <DOMladder
-            orderBook={orderBook}
-            orderBookData={currentOrderBookData}
+            ladderData={ladderData}
             currentPrice={currentPrice}
             orders={orders}
             onLimitOrder={placeLimitOrder}

@@ -17,6 +17,18 @@ interface MarketEvent {
   bookAskSizes?: number[];
 }
 
+interface OrderBookSnapshot {
+  bidMap: Map<number, number>; // tickIndex -> size
+  askMap: Map<number, number>; // tickIndex -> size
+  timestamp: string;
+  midPrice: number;
+}
+
+interface TradeAggregation {
+  tickIndex: number;
+  totalSize: number;
+}
+
 interface Trade {
   id: string;
   timestamp: number;
@@ -97,6 +109,21 @@ export function useTradingEngine() {
   const TICK_SIZE = 0.25;
   const TICK_VALUE = 5.0; // Each tick of 0.25 is worth 5$
   const AGGREGATION_WINDOW_MS = 5;
+
+  // Tick-based indexing helpers
+  const toTick = useCallback((price: number): number => {
+    return Math.round(price / TICK_SIZE);
+  }, []);
+
+  const fromTick = useCallback((tickIndex: number): number => {
+    return tickIndex * TICK_SIZE;
+  }, []);
+
+  // Orderbook snapshot processing state
+  const [orderbookSnapshots, setOrderbookSnapshots] = useState<OrderBookSnapshot[]>([]);
+  const [trades, setTrades] = useState<MarketEvent[]>([]);
+  const [currentSnapshotIndex, setCurrentSnapshotIndex] = useState(0);
+  const [cumulativeVolumeByTick, setCumulativeVolumeByTick] = useState<Map<number, number>>(new Map());
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
@@ -452,6 +479,9 @@ export function useTradingEngine() {
             setMarketData(events);
             console.log('✅ Import completed successfully! MarketData should now have', events.length, 'events');
             
+            // Process data for the new ladder system
+            processDataForLadder(events);
+            
           } catch (error) {
             console.error('🔥 Error in CSV complete handler:', error);
             console.error('🔥 Error stack:', error.stack);
@@ -463,6 +493,71 @@ export function useTradingEngine() {
     
     reader.readAsText(file, 'UTF-8');
   }, []);
+
+  // Process data for ladder according to specifications
+  const processDataForLadder = useCallback((events: MarketEvent[]) => {
+    console.log('📊 Processing data for ladder system...');
+    
+    // 3.1 Filter events by type
+    const snapshots = events.filter(e => e.eventType === 'ORDERBOOK');
+    const tradesData = events.filter(e => e.eventType === 'TRADE');
+    
+    console.log(`Found ${snapshots.length} snapshots and ${tradesData.length} trades`);
+    
+    // Sort by timestamp
+    snapshots.sort((a, b) => a.timestamp - b.timestamp);
+    tradesData.sort((a, b) => a.timestamp - b.timestamp);
+    
+    // Process snapshots into tick-indexed format
+    const processedSnapshots: OrderBookSnapshot[] = snapshots.map((snapshot, index) => {
+      const bidMap = new Map<number, number>();
+      const askMap = new Map<number, number>();
+      
+      // Process bid side
+      if (snapshot.bookBidPrices && snapshot.bookBidSizes) {
+        for (let i = 0; i < snapshot.bookBidPrices.length; i++) {
+          const price = snapshot.bookBidPrices[i];
+          const size = snapshot.bookBidSizes[i];
+          if (price > 0 && size > 0) {
+            const tickIndex = toTick(price);
+            bidMap.set(tickIndex, size);
+          }
+        }
+      }
+      
+      // Process ask side
+      if (snapshot.bookAskPrices && snapshot.bookAskSizes) {
+        for (let i = 0; i < snapshot.bookAskPrices.length; i++) {
+          const price = snapshot.bookAskPrices[i];
+          const size = snapshot.bookAskSizes[i];
+          if (price > 0 && size > 0) {
+            const tickIndex = toTick(price);
+            askMap.set(tickIndex, size);
+          }
+        }
+      }
+      
+      // Calculate mid price
+      let midPrice = 0;
+      const bestBid = snapshot.bookBidPrices?.[0] || 0;
+      const bestAsk = snapshot.bookAskPrices?.[0] || 0;
+      if (bestBid > 0 && bestAsk > 0) {
+        midPrice = (bestBid + bestAsk) / 2;
+      }
+      
+      return {
+        bidMap,
+        askMap,
+        timestamp: snapshot.timestamp.toString(),
+        midPrice
+      };
+    });
+    
+    setOrderbookSnapshots(processedSnapshots);
+    setTrades(tradesData);
+    
+    console.log('✅ Ladder data processing complete');
+  }, [toTick]);
 
   // Process market event
   // Flush aggregation buffer to Time & Sales
@@ -989,6 +1084,73 @@ export function useTradingEngine() {
     };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent]);
 
+  // Generate ladder data according to specifications
+  const generateLadderData = useCallback(() => {
+    if (orderbookSnapshots.length === 0 || currentEventIndex >= orderbookSnapshots.length) {
+      return [];
+    }
+
+    const currentSnapshot = orderbookSnapshots[Math.min(currentEventIndex, orderbookSnapshots.length - 1)];
+    if (!currentSnapshot) return [];
+
+    const midTick = toTick(currentSnapshot.midPrice);
+    const ladderTicks: number[] = [];
+    
+    // Generate 41 ticks around mid price (20 above, mid, 20 below)
+    for (let i = -20; i <= 20; i++) {
+      ladderTicks.push(midTick + i);
+    }
+
+    // Calculate size and volume for current frame
+    const frameStartTime = currentEventIndex > 0 ? orderbookSnapshots[currentEventIndex - 1]?.timestamp : '0';
+    const frameEndTime = currentSnapshot.timestamp;
+    
+    const tradesInFrame = trades.filter(trade => 
+      trade.timestamp.toString() > frameStartTime && 
+      trade.timestamp.toString() <= frameEndTime
+    );
+    
+    // Group trades by tick for size calculation
+    const sizeByTick = new Map<number, number>();
+    tradesInFrame.forEach(trade => {
+      if (trade.tradePrice) {
+        const tickIndex = toTick(trade.tradePrice);
+        const currentSize = sizeByTick.get(tickIndex) || 0;
+        sizeByTick.set(tickIndex, currentSize + (trade.tradeSize || 0));
+      }
+    });
+
+    // Update cumulative volume
+    setCumulativeVolumeByTick(prev => {
+      const newCumulative = new Map(prev);
+      sizeByTick.forEach((size, tick) => {
+        const currentVolume = newCumulative.get(tick) || 0;
+        newCumulative.set(tick, currentVolume + size);
+      });
+      return newCumulative;
+    });
+
+    // Generate ladder rows
+    return ladderTicks.map(tickIndex => {
+      const price = fromTick(tickIndex);
+      const bidSize = currentSnapshot.bidMap.get(tickIndex) || 0;
+      const askSize = currentSnapshot.askMap.get(tickIndex) || 0;
+      const size = sizeByTick.get(tickIndex) || 0;
+      const volume = cumulativeVolumeByTick.get(tickIndex) || 0;
+
+      return {
+        price,
+        bidSize,
+        askSize,
+        size,
+        volume,
+        tickIndex
+      };
+    });
+  }, [orderbookSnapshots, currentEventIndex, trades, toTick, fromTick, cumulativeVolumeByTick]);
+
+  const ladderData = generateLadderData();
+
   return {
     marketData,
     position,
@@ -1005,6 +1167,10 @@ export function useTradingEngine() {
     setPlaybackSpeed,
     placeLimitOrder,
     placeMarketOrder,
-    cancelOrdersAtPrice
+    cancelOrdersAtPrice,
+    // New ladder system
+    ladderData,
+    orderbookSnapshots,
+    currentSnapshotIndex
   };
 }
