@@ -223,3 +223,9 @@
     transparent 100%
   );
 }
+/* Supprime transitions/animations pour le ladder (anti-flash) */
+.trading-no-anim,
+.trading-no-anim * {
+  transition: none !important;
+  animation: none !important;
+}
