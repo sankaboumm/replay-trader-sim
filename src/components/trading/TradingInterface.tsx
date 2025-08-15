@@ -133,7 +133,7 @@ export function TradingInterface() {
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
-            position={position}          {/* 👈 ajouté pour surligner le prix moyen */}
+            position={position}
           />
         </div>
 
