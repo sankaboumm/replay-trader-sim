@@ -1,6 +1,3 @@
-// src/components/TickLadder.tsx
-// Affichage ladder sans reverse(), colonne Price fixe, highlight du last uniquement sur la cellule Price
-
 import { memo } from "react";
 import { cn } from "@/lib/utils";
 import { TickLadder as TickLadderType, TickLevel } from "@/lib/orderbook";
@@ -28,11 +25,10 @@ interface TickLadderProps {
   onMarketOrder: (side: "BUY" | "SELL", quantity: number) => void;
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
-  position?: Position; // pour afficher le prix moyen encadré
+  position?: Position; // pour l’outline jaune sur le prix moyen
 }
 
 const fmtPrice = (p: number) => p.toFixed(2).replace(".", ",");
-
 const fmtSize = (n: number) => (n > 0 ? String(n) : "");
 
 export const TickLadder = memo(function TickLadder({
@@ -55,15 +51,26 @@ export const TickLadder = memo(function TickLadder({
       )
       .reduce((s, o) => s + (o.quantity - o.filled), 0);
 
+  /**
+   * Règle demandée :
+   * - Market LONG : cliquer AU-DESSUS du prix dans la colonne Bids
+   * - Market SHORT: cliquer EN-DESSOUS du prix dans la colonne Asks
+   * - Sinon : un clic = LIMIT à ce niveau.
+   */
   const handleCellClick = (price: number, col: "bid" | "ask") => {
     if (disabled) return;
-    // Règles (ex: un clic déclenche LIMIT par défaut)
+    const isAbove = price - currentPrice > 0.124;
+    const isBelow = currentPrice - price > 0.124;
+    const isAt = Math.abs(price - currentPrice) < 0.125;
+
     if (col === "bid") {
-      // clic sur la colonne bid => BUY limit à ce prix
-      onLimitOrder("BUY", price, 1);
+      // BIDS: au-dessus (ou égal) => market BUY, sinon => limit BUY
+      if (isAbove || isAt) onMarketOrder("BUY", 1);
+      else onLimitOrder("BUY", price, 1);
     } else {
-      // clic sur ask => SELL limit à ce prix
-      onLimitOrder("SELL", price, 1);
+      // ASKS: en-dessous (ou égal) => market SELL, sinon => limit SELL
+      if (isBelow || isAt) onMarketOrder("SELL", 1);
+      else onLimitOrder("SELL", price, 1);
     }
   };
 
@@ -82,7 +89,6 @@ export const TickLadder = memo(function TickLadder({
     );
   }
 
-  // clé stable par tick ; NE PAS reverse() ici : le ladder est déjà trié décroissant
   return (
     <div className="h-full flex flex-col bg-card">
       {/* Header */}
@@ -96,13 +102,13 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Rows */}
+      {/* Rows (déjà triées décroissantes par le moteur) */}
       <div className="flex-1 overflow-y-auto trading-scroll">
         {tickLadder.levels.map((level: TickLevel) => {
           const openBuys = getOpenQty(level.price, "BUY");
           const openSells = getOpenQty(level.price, "SELL");
-          const isLast = tickLadder.lastTick != null && level.tick === tickLadder.lastTick;
-
+          const isLast =
+            tickLadder.lastTick != null && level.tick === tickLadder.lastTick;
           const isAvg =
             position &&
             position.quantity !== 0 &&
@@ -115,7 +121,7 @@ export const TickLadder = memo(function TickLadder({
                 "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6 hover:bg-ladder-row-hover"
               )}
             >
-              {/* Size window (si vous l’alimentez) */}
+              {/* Size (fenêtre de flux si alimentée) */}
               <div className="flex items-center justify-center border-r border-border/50">
                 {fmtSize(level.sizeWindow ?? 0)}
               </div>
@@ -134,15 +140,18 @@ export const TickLadder = memo(function TickLadder({
                 }
               >
                 {fmtSize(level.bidSize)}
-                {openBuys > 0 && <span className="ml-1 text-[10px]">({openBuys})</span>}
+                {openBuys > 0 && (
+                  <span className="ml-1 text-[10px]">({openBuys})</span>
+                )}
               </div>
 
-              {/* Price (seule cellule pouvant avoir un highlight) */}
+              {/* Price — seul élément avec highlight */}
               <div
                 className={cn(
                   "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
                   isLast && "text-trading-average font-bold",
-                  isAvg && "outline outline-2 outline-[hsl(var(--trading-average))] outline-offset-[-2px] rounded-[2px]"
+                  isAvg &&
+                    "outline outline-2 outline-[hsl(var(--trading-average))] outline-offset-[-2px] rounded-[2px]"
                 )}
                 title={
                   isAvg
@@ -172,7 +181,7 @@ export const TickLadder = memo(function TickLadder({
                 )}
               </div>
 
-              {/* Volume cumulé (si alimenté) */}
+              {/* Volume cumulé si alimenté */}
               <div className="flex items-center justify-center text-muted-foreground">
                 {fmtSize(level.volumeCumulative ?? 0)}
               </div>
