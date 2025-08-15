@@ -14,21 +14,22 @@ export function TradingInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     marketData,
-    currentLadder,
-    currentPrice,
-    orders,
     position,
-    originTick,
+    pnl,
+    timeAndSales,
     isPlaying,
     playbackSpeed,
-    timeAndSales,
-    pnl,
+    currentPrice,
+    orderBook,
+    currentOrderBookData,
+    orders,
     loadMarketData,
     togglePlayback,
     setPlaybackSpeed,
-    handleLimitOrder,
-    handleMarketOrder,
-    handleCancelOrders
+    placeLimitOrder,
+    placeMarketOrder,
+    cancelOrdersAtPrice,
+    currentTickLadder
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -78,12 +79,7 @@ export function TradingInterface() {
         {/* Left Panel - Position & Controls */}
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <PositionPanel
-            position={{
-              symbol: 'NQ',
-              quantity: position.pos,
-              averagePrice: position.avg,
-              marketPrice: currentPrice
-            }}
+            position={position}
             pnl={pnl}
             currentPrice={currentPrice}
             className="flex-shrink-0"
@@ -122,16 +118,13 @@ export function TradingInterface() {
         {/* Center Panel - Tick Ladder */}
         <div className="flex-1 bg-background">
           <TickLadder
-            tickLadder={currentLadder}
+            tickLadder={currentTickLadder}
             currentPrice={currentPrice}
             orders={orders}
-            position={position}
-            originTick={originTick}
-            onLimitOrder={handleLimitOrder}
-            onMarketOrder={handleMarketOrder}
-            onCancelOrders={handleCancelOrders}
+            onLimitOrder={placeLimitOrder}
+            onMarketOrder={placeMarketOrder}
+            onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
-            tickSize={0.25}
           />
         </div>
 

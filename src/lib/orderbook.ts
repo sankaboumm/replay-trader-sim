@@ -181,7 +181,7 @@ export class OrderBookProcessor {
   }
 
   /**
-   * Create centered price ladder (20 levels up/down from mid) - DESCENDING ORDER
+   * Create centered price ladder (20 levels up/down from mid)
    */
   createTickLadder(
     orderbook: ParsedOrderBook, 
@@ -242,21 +242,17 @@ export class OrderBookProcessor {
       }
     }
     
-    // *** DESCENDANT (haut → bas) *** - Prix plus élevés en haut
+    // Generate 41 levels (20 up, center, 20 down)
     const levels: TickLevel[] = [];
-    for (let i = 20; i >= -20; i--) { // De +20 vers -20 (descendant)
+    for (let i = -20; i <= 20; i++) {
       const tick = midTick + i;
       const price = this.fromTick(tick);
-      
-      // Gating visuel pour éviter des bids "au-dessus" & asks "au-dessous"
-      const bidSize = (price <= bestBid + 1e-9) ? (bidMap.get(tick) || 0) : 0;
-      const askSize = (price >= bestAsk - 1e-9) ? (askMap.get(tick) || 0) : 0;
       
       levels.push({
         tick,
         price,
-        bidSize,
-        askSize,
+        bidSize: bidMap.get(tick) || 0,
+        askSize: askMap.get(tick) || 0,
         sizeWindow: sizeMap.get(tick) || 0,
         volumeCumulative: this.volumeByTick.get(tick) || 0
       });
