@@ -1,6 +1,3 @@
-// src/hooks/useTradingEngine.ts
-// Lecture CSV, horloge de replay, PnL, ordres, ancrage du ladder et synchro L2+prix
-
 import { useState, useCallback, useRef, useEffect } from "react";
 import Papa from "papaparse";
 import {
@@ -67,7 +64,6 @@ interface PnL {
 }
 
 export function useTradingEngine() {
-  // ---- state principal ----
   const [marketData, setMarketData] = useState<MarketEvent[]>([]);
   const [currentEventIndex, setCurrentEventIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -94,7 +90,6 @@ export function useTradingEngine() {
     new Map()
   );
 
-  // Données pour le ladder robuste
   const [orderBookSnapshots, setOrderBookSnapshots] = useState<
     ParsedOrderBook[]
   >([]);
@@ -104,7 +99,6 @@ export function useTradingEngine() {
   );
   const [orderBookProcessor] = useState(() => new OrderBookProcessor(0.25));
 
-  // Refs anti-stale + ancre de centre
   const orderBookSnapshotsRef = useRef<ParsedOrderBook[]>([]);
   const tradesRef = useRef<OrderBookTrade[]>([]);
   const anchorRef = useRef<number | null>(null);
@@ -116,15 +110,12 @@ export function useTradingEngine() {
     tradesRef.current = trades;
   }, [trades]);
 
-  // Constantes PnL
   const TICK_SIZE = 0.25;
   const TICK_VALUE = 5.0;
-  const AGG_WINDOW_MS = 5;
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
 
-  // ---------- utils ----------
   const roundToGrid = (price: number) => Math.round(price * 4) / 4;
 
   const parseTimestamp = (row: any): number => {
@@ -171,7 +162,6 @@ export function useTradingEngine() {
     return undefined;
   };
 
-  // ---------- chargement fichier ----------
   const loadMarketData = useCallback((file: File) => {
     // reset
     setMarketData([]);
@@ -274,7 +264,6 @@ export function useTradingEngine() {
           );
           const events: MarketEvent[] = raw.map(({ sortOrder, ...e }) => e);
 
-          // tick size
           const allPrices = [
             ...snaps.flatMap((s) => [...s.bidPrices, ...s.askPrices]),
             ...trs.map((t) => t.price),
@@ -285,7 +274,6 @@ export function useTradingEngine() {
             );
           }
 
-          // prix initial
           let initialPrice = 19300;
           const ft = events.find(
             (e) => e.eventType === "TRADE" && e.tradePrice && e.tradePrice > 0
@@ -310,17 +298,14 @@ export function useTradingEngine() {
             }
           }
 
-          // ancre fixe
           anchorRef.current = initialPrice;
           orderBookProcessor.setAnchorByPrice(initialPrice);
 
-          // states
           setCurrentPrice(initialPrice);
           setMarketData(events);
           setOrderBookSnapshots(snaps.sort((a, b) => +a.timestamp - +b.timestamp));
           setTrades(trs.sort((a, b) => +a.timestamp - +b.timestamp));
 
-          // ladder initial
           if (snaps.length) {
             const ladder = orderBookProcessor.createTickLadder(snaps[0], trs);
             setCurrentTickLadder(ladder);
@@ -331,16 +316,13 @@ export function useTradingEngine() {
     reader.readAsText(file, "UTF-8");
   }, [orderBookProcessor]);
 
-  // ---------- exécution d’événements ----------
   const processEvent = useCallback(
     (event: MarketEvent) => {
       switch (event.eventType) {
         case "TRADE": {
           if (event.tradePrice && event.tradeSize && event.aggressor) {
-            // last
             setCurrentPrice(event.tradePrice);
 
-            // TAS (sans sur-aggrégation ici)
             const t: Trade = {
               id: `trade-${Date.now()}-${Math.random()}`,
               timestamp: event.timestamp,
@@ -350,7 +332,6 @@ export function useTradingEngine() {
             };
             setTimeAndSales((prev) => [t, ...prev.slice(0, 99)]);
 
-            // Volume par prix (grille 0.25)
             const grid = roundToGrid(event.tradePrice);
             setVolumeByPrice((prev) => {
               const next = new Map(prev);
@@ -358,7 +339,6 @@ export function useTradingEngine() {
               return next;
             });
 
-            // Partiels LIMIT basés sur prints (optionnel)
             setOrders((prev) =>
               prev.map((o) => {
                 if (o.filled >= o.quantity) return o;
@@ -371,7 +351,6 @@ export function useTradingEngine() {
               })
             );
 
-            // historise pour ladder
             setTrades((prev) => [
               ...prev,
               {
@@ -386,7 +365,7 @@ export function useTradingEngine() {
         }
 
         case "BBO": {
-          // met à jour le mini-book + reconstruit le ladder dans **le même frame**
+          // Reconstruit ladder + mini book
           setCurrentOrderBookData((prev) => {
             const next = {
               book_bid_prices: event.bidPrice ? [event.bidPrice] : prev?.book_bid_prices ?? [],
@@ -395,7 +374,6 @@ export function useTradingEngine() {
               book_ask_sizes:  event.askSize  ? [event.askSize]  : prev?.book_ask_sizes  ?? [],
             };
 
-            // Reconstruit ladder tout de suite, même ancre
             const snap: ParsedOrderBook = {
               bidPrices: next.book_bid_prices,
               bidSizes: next.book_bid_sizes,
@@ -413,7 +391,6 @@ export function useTradingEngine() {
             );
             setCurrentTickLadder(ladder);
 
-            // alimente la vue “10 niveaux” locale
             const newBook: OrderBookLevel[] = [];
             const add = (p?: number, s?: number, side?: "bid" | "ask") => {
               if (!p || !s || p <= 0 || s <= 0) return;
@@ -438,6 +415,89 @@ export function useTradingEngine() {
 
             return next;
           });
+
+          // *** EXÉCUTION LIMIT via top-of-book ***
+          const bestBid = event.bidPrice;
+          const bestAsk = event.askPrice;
+
+          if (Number.isFinite(bestBid as number) || Number.isFinite(bestAsk as number)) {
+            setOrders((prev) => {
+              const updated: Order[] = [];
+              for (const o of prev) {
+                let hit = false;
+                if (o.side === "BUY" && Number.isFinite(bestAsk as number) && (bestAsk as number) <= o.price) hit = true;
+                if (o.side === "SELL" && Number.isFinite(bestBid as number) && (bestBid as number) >= o.price) hit = true;
+
+                if (!hit) {
+                  updated.push(o);
+                  continue;
+                }
+
+                const qty = o.quantity - o.filled;
+                if (qty <= 0) continue;
+                const fillPrice = o.price;
+
+                // Position + realized PnL
+                setPosition((prevPos) => {
+                  const newQty = prevPos.quantity + (o.side === "BUY" ? qty : -qty);
+                  let realized = 0;
+                  if (prevPos.quantity !== 0) {
+                    const closing =
+                      (prevPos.quantity > 0 && o.side === "SELL") ||
+                      (prevPos.quantity < 0 && o.side === "BUY");
+                    if (closing) {
+                      const closeQty = Math.min(qty, Math.abs(prevPos.quantity));
+                      const tickDiff =
+                        prevPos.quantity > 0
+                          ? (fillPrice - prevPos.averagePrice) / TICK_SIZE
+                          : (prevPos.averagePrice - fillPrice) / TICK_SIZE;
+                      realized = closeQty * tickDiff * TICK_VALUE;
+                      setRealizedPnLTotal((t) => t + realized);
+                    }
+                  }
+                  let newAvg = prevPos.averagePrice;
+                  if (newQty === 0) newAvg = 0;
+                  else if (
+                    (prevPos.quantity >= 0 && o.side === "BUY") ||
+                    (prevPos.quantity <= 0 && o.side === "SELL")
+                  ) {
+                    const prevAbs = Math.abs(prevPos.quantity);
+                    const totalQty = prevAbs + qty;
+                    const prevVal = prevPos.averagePrice * prevAbs;
+                    const addVal = fillPrice * qty;
+                    newAvg = totalQty > 0 ? (prevVal + addVal) / totalQty : fillPrice;
+                  } else {
+                    newAvg = fillPrice;
+                  }
+                  return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
+                });
+
+                // “Last” (pour PnL latent) et TAS synthétique
+                setCurrentPrice(fillPrice);
+                const t: Trade = {
+                  id: `limit-bbo-${Date.now()}-${Math.random()}`,
+                  timestamp: Date.now(),
+                  price: fillPrice,
+                  size: qty,
+                  aggressor: o.side,
+                };
+                setTimeAndSales((prevTnS) => [t, ...prevTnS.slice(0, 99)]);
+
+                // Volume par prix + trade pour marquer le last dans le ladder
+                const grid = roundToGrid(fillPrice);
+                setVolumeByPrice((prevMap) => {
+                  const next = new Map(prevMap);
+                  next.set(grid, (next.get(grid) ?? 0) + qty);
+                  return next;
+                });
+                setTrades((prevTrades) => [
+                  ...prevTrades,
+                  { timestamp: new Date(), price: fillPrice, size: qty, aggressor: o.side },
+                ]);
+              }
+              return updated;
+            });
+          }
           break;
         }
 
@@ -446,13 +506,12 @@ export function useTradingEngine() {
             const snap: ParsedOrderBook = {
               bidPrices: event.bookBidPrices ?? [],
               bidSizes: event.bookBidSizes ?? [],
-              bidOrders: [],
               askPrices: event.bookAskPrices ?? [],
               askSizes: event.bookAskSizes ?? [],
+              bidOrders: [],
               askOrders: [],
               timestamp: new Date(event.timestamp),
             };
-
             if (anchorRef.current != null)
               orderBookProcessor.setAnchorByPrice(anchorRef.current);
             const ladder = orderBookProcessor.createTickLadder(
@@ -461,7 +520,6 @@ export function useTradingEngine() {
             );
             setCurrentTickLadder(ladder);
 
-            // stocke 20 niveaux pour l’UI
             setCurrentOrderBookData({
               book_bid_prices: (event.bookBidPrices ?? []).slice(0, 20),
               book_ask_prices: (event.bookAskPrices ?? []).slice(0, 20),
@@ -469,7 +527,6 @@ export function useTradingEngine() {
               book_ask_sizes: (event.bookAskSizes ?? []).slice(0, 20),
             });
 
-            // reconstruit la vue locale 10 niveaux (affichage)
             const priceMap = new Map<number, OrderBookLevel>();
             const list: OrderBookLevel[] = [];
             const fillSide = (
@@ -512,7 +569,8 @@ export function useTradingEngine() {
     [orderBookProcessor, volumeByPrice]
   );
 
-  // ---------- ordres ----------
+  const togglePlayback = useCallback(() => setIsPlaying((p) => !p), []);
+
   const placeLimitOrder = useCallback((side: Side, price: number, quantity: number) => {
     const newOrder: Order = {
       id: `order-${++orderIdCounter.current}`,
@@ -529,7 +587,8 @@ export function useTradingEngine() {
     (side: Side, quantity: number) => {
       const bestAsk = currentOrderBookData?.book_ask_prices?.[0];
       const bestBid = currentOrderBookData?.book_bid_prices?.[0];
-      const fillPrice = side === "BUY" ? (bestAsk ?? currentPrice) : (bestBid ?? currentPrice);
+      const fillPrice =
+        side === "BUY" ? (bestAsk ?? currentPrice) : (bestBid ?? currentPrice);
 
       setPosition((prev) => {
         const newQty = prev.quantity + (side === "BUY" ? quantity : -quantity);
@@ -591,7 +650,6 @@ export function useTradingEngine() {
         return next;
       });
 
-      // Ajoute aux trades pour que le ladder marque le lastTick
       setTrades((prev) => [
         ...prev,
         { timestamp: new Date(), price: fillPrice, size: quantity, aggressor: side },
@@ -604,14 +662,17 @@ export function useTradingEngine() {
     setOrders((prev) => prev.filter((o) => Math.abs(o.price - price) >= 0.125));
   }, []);
 
-  // ---------- PnL ----------
   useEffect(() => {
     const tickDiff = (currentPrice - position.averagePrice) / TICK_SIZE;
     const unrealized = position.quantity * tickDiff * TICK_VALUE;
-    setPnl({ unrealized, realized: realizedPnLTotal, total: unrealized + realizedPnLTotal });
+    setPnl({
+      unrealized,
+      realized: realizedPnLTotal,
+      total: unrealized + realizedPnLTotal,
+    });
   }, [position, currentPrice, realizedPnLTotal]);
 
-  // ---------- exécution LIMIT par crossing du last (filet de sécurité) ----------
+  // filet de sécurité : exécute LIMIT si le "last" traverse
   useEffect(() => {
     if (currentPrice <= 0) return;
     setOrders((prev) => {
@@ -658,24 +719,38 @@ export function useTradingEngine() {
           } else if (Math.sign(newQty) !== Math.sign(prevPos.quantity)) {
             newAvg = fillPrice;
           }
-
           return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
         });
 
-        // book-keep
-        updated.splice(i, 1);
-
-        // Trades synthétiques pour afficher le last dans le ladder
-        setTrades((prev) => [
+        setTimeAndSales((prev) => [
+          {
+            id: `limit-trade-${Date.now()}-${i}`,
+            timestamp: Date.now(),
+            price: fillPrice,
+            size: qty,
+            aggressor: o.side,
+          },
           ...prev,
+        ]);
+
+        const grid = roundToGrid(fillPrice);
+        setVolumeByPrice((prevMap) => {
+          const next = new Map(prevMap);
+          next.set(grid, (next.get(grid) ?? 0) + qty);
+          return next;
+        });
+
+        setTrades((prevTrades) => [
+          ...prevTrades,
           { timestamp: new Date(), price: fillPrice, size: qty, aggressor: o.side },
         ]);
+
+        updated.splice(i, 1);
       }
       return updated;
     });
   }, [currentPrice]);
 
-  // ---------- boucle de lecture ----------
   useEffect(() => {
     if (isPlaying && currentEventIndex < marketData.length) {
       const cur = marketData[currentEventIndex];
@@ -718,7 +793,6 @@ export function useTradingEngine() {
     placeLimitOrder,
     placeMarketOrder,
     cancelOrdersAtPrice,
-    // pour le DOM
     orderBookSnapshots,
     trades,
     currentTickLadder,
