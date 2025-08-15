@@ -640,58 +640,143 @@ export function useTradingEngine() {
         break;
         
       case 'BBO':
-        // BBO only updates Top of Book - does NOT affect last price or volume
-        if (event.bidPrice || event.askPrice) {
-          setOrderBook(prev => {
-            const newBook = [...prev];
-            
-            // Update or add bid level
-            if (event.bidPrice && event.bidPrice > 0) {
-              const gridBidPrice = roundToGrid(event.bidPrice);
-              const bidIndex = newBook.findIndex(level => Math.abs(level.price - gridBidPrice) < 0.125);
-              
-              if (bidIndex >= 0) {
-                newBook[bidIndex] = { 
-                  ...newBook[bidIndex], 
-                  bidSize: event.bidSize || 0 
-                };
-              } else {
-                newBook.push({
-                  price: gridBidPrice,
-                  bidSize: event.bidSize || 0,
-                  askSize: 0,
-                  volume: 0
-                });
-              }
-            }
-            
-            // Update or add ask level
-            if (event.askPrice && event.askPrice > 0) {
-              const gridAskPrice = roundToGrid(event.askPrice);
-              const askIndex = newBook.findIndex(level => Math.abs(level.price - gridAskPrice) < 0.125);
-              
-              if (askIndex >= 0) {
-                newBook[askIndex] = { 
-                  ...newBook[askIndex], 
-                  askSize: event.askSize || 0 
-                };
-              } else {
-                newBook.push({
-                  price: gridAskPrice,
-                  bidSize: 0,
-                  askSize: event.askSize || 0,
-                  volume: 0
-                });
-              }
-            }
-            
-            // Sort by price (descending for proper display)
-            newBook.sort((a, b) => b.price - a.price);
-            
-            return newBook;
-          });
+  // BBO met à jour le Top of Book (bid/ask). On met à jour notre mini-carnet
+  // ET on exécute aussi les ordres limites si le top-of-book traverse leur prix.
+  if (event.bidPrice || event.askPrice) {
+    // 1) Mise à jour du mini-orderbook local (grille 0.5 – adapte si tu utilises 0.25)
+    setOrderBook(prev => {
+      const newBook = [...prev];
+
+      const roundToGrid = (p: number) => Math.round(p * 2) / 2;
+
+      // Met à jour/ajoute le niveau bid
+      if (event.bidPrice && event.bidPrice > 0) {
+        const gridBidPrice = roundToGrid(event.bidPrice);
+        const bidIndex = newBook.findIndex(level => Math.abs(level.price - gridBidPrice) < 0.125);
+
+        if (bidIndex >= 0) {
+          newBook[bidIndex] = { ...newBook[bidIndex], bidSize: event.bidSize || 0 };
+        } else {
+          newBook.push({ price: gridBidPrice, bidSize: event.bidSize || 0, askSize: 0, volume: 0 });
         }
-        break;
+      }
+
+      // Met à jour/ajoute le niveau ask
+      if (event.askPrice && event.askPrice > 0) {
+        const gridAskPrice = roundToGrid(event.askPrice);
+        const askIndex = newBook.findIndex(level => Math.abs(level.price - gridAskPrice) < 0.125);
+
+        if (askIndex >= 0) {
+          newBook[askIndex] = { ...newBook[askIndex], askSize: event.askSize || 0 };
+        } else {
+          newBook.push({ price: gridAskPrice, bidSize: 0, askSize: event.askSize || 0, volume: 0 });
+        }
+      }
+
+      // Trie du plus haut au plus bas (utilisé par le ladder)
+      newBook.sort((a, b) => b.price - a.price);
+      return newBook;
+    });
+
+    // 2) Exécution des ordres LIMIT quand le Top-of-Book traverse leur prix
+    //    BUY limit : si bestAsk <= prix limite  → exécute
+    //    SELL limit: si bestBid >= prix limite  → exécute
+    try {
+      setOrderBook(current => {
+        const book = current.length ? current : [];
+
+        // Best bid / best ask actuels
+        const bestBid = book
+          .filter(l => (l.bidSize || 0) > 0)
+          .reduce((max, l) => Math.max(max, l.price), -Infinity);
+
+        const bestAsk = book
+          .filter(l => (l.askSize || 0) > 0)
+          .reduce((min, l) => Math.min(min, l.price), Infinity);
+
+        if (!Number.isFinite(bestBid) && !Number.isFinite(bestAsk)) {
+          return book; // pas de top-of-book exploitable
+        }
+
+        setOrders(prev => {
+          const updated = prev.map(order => {
+            let shouldExecute = false;
+
+            if (order.side === 'BUY') {
+              if (Number.isFinite(bestAsk) && bestAsk <= order.price) shouldExecute = true;
+            } else {
+              if (Number.isFinite(bestBid) && bestBid >= order.price) shouldExecute = true;
+            }
+
+            if (!shouldExecute) return order;
+
+            const remaining = order.quantity - order.filled;
+            if (remaining <= 0) return order;
+
+            const fillPrice = order.price; // on exécute à la limite
+
+            // Mise à jour Position + PnL (utilise tes constantes TICK_SIZE/TICK_VALUE déjà définies)
+            setPosition(prevPos => {
+              const newQuantity = prevPos.quantity + (order.side === 'BUY' ? remaining : -remaining);
+
+              let realizedPnL = 0;
+              if (prevPos.quantity !== 0) {
+                const closeQty = Math.min(remaining, Math.abs(prevPos.quantity));
+                if (closeQty > 0) {
+                  const tickDiff =
+                    prevPos.quantity > 0
+                      ? (fillPrice - prevPos.averagePrice) / TICK_SIZE
+                      : (prevPos.averagePrice - fillPrice) / TICK_SIZE;
+                  realizedPnL = closeQty * tickDiff * TICK_VALUE;
+                  setRealizedPnLTotal(t => t + realizedPnL);
+                }
+              }
+
+              let newAveragePrice = prevPos.averagePrice;
+              if (prevPos.quantity === 0) {
+                newAveragePrice = fillPrice;
+              } else if ((prevPos.quantity > 0 && order.side === 'BUY') || (prevPos.quantity < 0 && order.side === 'SELL')) {
+                const prevValue = prevPos.averagePrice * Math.abs(prevPos.quantity);
+                const addValue = fillPrice * remaining;
+                const totalQty = Math.abs(prevPos.quantity) + remaining;
+                newAveragePrice = totalQty > 0 ? (prevValue + addValue) / totalQty : prevPos.averagePrice;
+              } else if (newQuantity === 0) {
+                newAveragePrice = 0;
+              }
+
+              return {
+                ...prevPos,
+                quantity: newQuantity,
+                averagePrice: newAveragePrice,
+                marketPrice: fillPrice
+              };
+            });
+
+            // Time & Sales synthétique pour l’UI
+            const trade = {
+              id: `limit-trade-bbo-${Date.now()}-${Math.random()}`,
+              timestamp: Date.now(),
+              price: fillPrice,
+              size: remaining,
+              aggressor: order.side as 'BUY' | 'SELL',
+            };
+            setTimeAndSales(prevTnS => [trade, ...prevTnS]);
+
+            // Marquer l’ordre rempli
+            return { ...order, filled: order.quantity };
+          });
+
+          // Supprime les ordres complètement remplis
+          return updated.filter(o => o.filled < o.quantity);
+        });
+
+        return book;
+      });
+    } catch (e) {
+      console.warn('BBO-based limit fill failed:', e);
+    }
+  }
+  break;
         
       case 'ORDERBOOK':
         // ORDERBOOK replaces the complete L2 depth (snapshot)
