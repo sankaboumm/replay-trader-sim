@@ -180,13 +180,14 @@ export const TickLadder = memo(function TickLadder({
               <div
                 className={cn(
                   "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
-                  isLast && "text-trading-average font-bold",
-                  isAvg && "ring-2 ring-trading-average rounded-sm" // surlignage uniquement la cellule Price
+                  isLastPrice && "text-trading-average font-bold"
                 )}
-                title={isAvg ? "Votre prix moyen" : undefined}
-              >
-                {formatPrice(price)}
-              </div>
+                // Encadré jaune fiable (uniquement la cellule Price) :
+                style={isAvgBuyPrice || isAvgSellPrice ? { boxShadow: '0 0 0 2px hsl(var(--trading-average)) inset', borderRadius: '2px' } : undefined}
+                title={isAvgBuyPrice || isAvgSellPrice ? "Votre prix moyen" : undefined}
+>
+  {formatPrice(level.price)}
+</div>
 
               {/* ASKS */}
               <div
