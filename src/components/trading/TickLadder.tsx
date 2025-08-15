@@ -25,21 +25,57 @@ interface TickLadderProps {
   onMarketOrder: (side: Side, quantity: number) => void;
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
-  /** Optionnel – si tu le passes on surligne le prix moyen (arrondi au tick) */
-  position?: PositionLike;
+  position?: PositionLike; // pour surligner le prix moyen
 }
 
-/** format prix */
 function fmtPrice(p: number) {
   return Number.isFinite(p) ? p.toFixed(2).replace('.', ',') : '';
 }
-/** format taille */
 function fmtSize(s: number) {
   return s > 0 ? String(s) : '';
 }
-/** arrondi au tick 0.25 (sécurisé) */
 function roundToTick(p: number, step = 0.25) {
   return Math.round(p / step) * step;
+}
+
+/** Déduit un pas de tick robuste: plus petit écart > 0, sinon 0.25 */
+function inferStep(prices: number[], fallback = 0.25) {
+  const uniq = Array.from(new Set(prices.filter(Number.isFinite))).sort((a, b) => a - b);
+  let best = Number.POSITIVE_INFINITY;
+  for (let i = 1; i < uniq.length; i++) {
+    const d = +(uniq[i] - uniq[i - 1]).toFixed(10);
+    if (d > 0 && d < best) best = d;
+  }
+  if (!isFinite(best) || best <= 0) return fallback;
+  // borne supérieure : si le “pas” est aberrant, garde fallback
+  if (best > 1) return fallback;
+  return best;
+}
+
+/** Déduplique/merge les niveaux à prix identique (arrondis au tick) */
+function dedupeMergeLevels(
+  levels: any[],
+  step: number
+) {
+  const map = new Map<string, any>();
+  for (const l of levels) {
+    const k = roundToTick(l.price, step).toFixed(2);
+    const prev = map.get(k);
+    if (!prev) {
+      map.set(k, { ...l, price: parseFloat(k) });
+    } else {
+      map.set(k, {
+        ...prev,
+        // on garde le max pour les tailles (ou somme si tu préfères)
+        bidSize: Math.max(prev.bidSize || 0, l.bidSize || 0),
+        askSize: Math.max(prev.askSize || 0, l.askSize || 0),
+        volumeCumulative: Math.max(prev.volumeCumulative || 0, l.volumeCumulative || 0),
+        sizeWindow: (prev.sizeWindow || 0) + (l.sizeWindow || 0)
+      });
+    }
+  }
+  // tri décroissant (haut = prix élevé)
+  return Array.from(map.values()).sort((a: any, b: any) => b.price - a.price);
 }
 
 export const TickLadder = memo(function TickLadder({
@@ -53,29 +89,42 @@ export const TickLadder = memo(function TickLadder({
   position
 }: TickLadderProps) {
 
-  // ---- refs & états pour stabiliser le scroll (anti-sauts) ----
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevAnchorDeltaRef = useRef<number | null>(null);
-  const [userScrolled, setUserScrolled] = useState(false); // on ne recentre pas automatiquement
+  const [userScrolled, setUserScrolled] = useState(false);
 
-  // ---- fenêtre d’affichage : on “padde” avec des ticks vides pour un scroll large ----
+  // Étape 1: on part des niveaux fournis
+  const baseLevels = useMemo(() => {
+    if (!tickLadder?.levels?.length) return [];
+    return tickLadder.levels.slice();
+  }, [tickLadder]);
+
+  // Étape 2: on déduit un pas de tick fiable à partir des prix présents
+  const step = useMemo(() => {
+    const prices = baseLevels.map((l: any) => l.price);
+    return inferStep(prices, 0.25);
+  }, [baseLevels]);
+
+  // Étape 3: dédoublonner/merger par prix (arrondi au step)
+  const mergedLevels = useMemo(() => {
+    if (!baseLevels.length) return [];
+    return dedupeMergeLevels(baseLevels, step);
+  }, [baseLevels, step]);
+
+  // Étape 4: on “padde” visuellement pour scroller au-delà (sans dupliquer les prix existants)
   const displayLevels = useMemo(() => {
-    if (!tickLadder || !tickLadder.levels?.length) return [];
+    if (!mergedLevels.length) return [];
+    const levels = mergedLevels.slice(); // copie
 
-    const levels = tickLadder.levels.slice(); // ne pas muter
-    // step déduit (fallback 0.25)
-    const step = Math.abs((levels[1]?.price ?? currentPrice) - (levels[0]?.price ?? currentPrice)) || 0.25;
+    const PAD = 200; // nb de ticks vides haut/bas
+    const top = levels[0].price;
+    const bot = levels[levels.length - 1].price;
 
-    // on veut pouvoir scroller “au-delà” : on rajoute ~200 ticks vides en haut & en bas
-    const PAD = 200;
-    const maxPrice = levels[0].price;
-    const minPrice = levels[levels.length - 1].price;
-
-    // haut (au-dessus du prix max)
+    // ajoute au-dessus
     for (let i = 1; i <= PAD; i++) {
+      const p = top + i * step;
       levels.unshift({
-        // @ts-ignore: on ne dépend que de price/bidSize/askSize/volume
-        price: maxPrice + i * step,
+        price: p,
         bidSize: 0,
         askSize: 0,
         volumeCumulative: 0,
@@ -83,11 +132,11 @@ export const TickLadder = memo(function TickLadder({
         tick: `pad-top-${i}`
       });
     }
-    // bas (en-dessous du prix min)
+    // ajoute en-dessous
     for (let i = 1; i <= PAD; i++) {
+      const p = bot - i * step;
       levels.push({
-        // @ts-ignore
-        price: minPrice - i * step,
+        price: p,
         bidSize: 0,
         askSize: 0,
         volumeCumulative: 0,
@@ -96,16 +145,15 @@ export const TickLadder = memo(function TickLadder({
       });
     }
 
-    // IMPORTANT : l’échelle visuelle est décroissante (prix du haut > bas)
-    levels.sort((a: any, b: any) => b.price - a.price);
-    return levels;
-  }, [tickLadder, currentPrice]);
+    // par sécurité: re-merge si jamais un pad tombe sur un prix existant
+    return dedupeMergeLevels(levels, step);
+  }, [mergedLevels, step]);
 
-  // ---- gestion des ordres dans les cellules ----
+  // ordres présents à un prix
   const getOrdersAtPrice = (price: number, side: Side) =>
     orders.filter(o =>
       o.side === side &&
-      Math.abs(o.price - price) < 0.125 &&
+      Math.abs(o.price - price) < step / 2 &&
       o.quantity > o.filled
     );
 
@@ -113,7 +161,7 @@ export const TickLadder = memo(function TickLadder({
     if (disabled) return;
     const isAbove = price > currentPrice;
     const isBelow = price < currentPrice;
-    const isAt = Math.abs(price - currentPrice) < 0.125;
+    const isAt = Math.abs(price - currentPrice) < step / 2;
 
     if (column === 'bid') {
       if (isAbove || isAt) onMarketOrder('BUY', 1);
@@ -128,12 +176,13 @@ export const TickLadder = memo(function TickLadder({
     onCancelOrders(price);
   };
 
-  // ---- ancrage de scroll : on garde la ligne du “last” au même endroit quand la data bouge ----
-  // 1) avant update : on mémorise la position du “last” dans le viewport
+  // ---- anti-sauts: mémorise la position verticale de la ligne du last avant maj ----
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const anchor = el.querySelector<HTMLElement>(`[data-row-price="${roundToTick(currentPrice).toFixed(2)}"]`);
+    const anchor = el.querySelector<HTMLElement>(
+      `[data-row-price="${roundToTick(currentPrice, step).toFixed(2)}"]`
+    );
     if (!anchor) {
       prevAnchorDeltaRef.current = null;
       return;
@@ -141,32 +190,35 @@ export const TickLadder = memo(function TickLadder({
     const crect = el.getBoundingClientRect();
     const arect = anchor.getBoundingClientRect();
     prevAnchorDeltaRef.current = arect.top - crect.top;
-  }, [/* dépend de la version précédente */]);
+  }, [/* avant re-render */]);
 
-  // 2) après update : on réapplique un delta pour que le “last” ne saute pas
+  // ---- puis réapplique un décalage pour garder le last au même endroit ----
   useLayoutEffect(() => {
-    if (userScrolled) return; // l’utilisateur a pris la main, on ne touche plus
+    if (userScrolled) return;
     const el = scrollRef.current;
     if (!el) return;
-    const anchor = el.querySelector<HTMLElement>(`[data-row-price="${roundToTick(currentPrice).toFixed(2)}"]`);
+    const anchor = el.querySelector<HTMLElement>(
+      `[data-row-price="${roundToTick(currentPrice, step).toFixed(2)}"]`
+    );
     if (!anchor || prevAnchorDeltaRef.current == null) return;
-
     const crect = el.getBoundingClientRect();
     const arect = anchor.getBoundingClientRect();
     const delta = (arect.top - crect.top) - prevAnchorDeltaRef.current;
     if (Math.abs(delta) > 0.5) {
       el.scrollTop += delta;
     }
-  }, [displayLevels, currentPrice, userScrolled]);
+  }, [displayLevels, currentPrice, userScrolled, step]);
 
-  // barre d’espace => recadrer le “last” au centre
+  // barre d’espace → recentre le last
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code !== 'Space') return;
       e.preventDefault();
       const el = scrollRef.current;
       if (!el) return;
-      const anchor = el.querySelector<HTMLElement>(`[data-row-price="${roundToTick(currentPrice).toFixed(2)}"]`);
+      const anchor = el.querySelector<HTMLElement>(
+        `[data-row-price="${roundToTick(currentPrice, step).toFixed(2)}"]`
+      );
       if (!anchor) return;
       const crect = el.getBoundingClientRect();
       const arect = anchor.getBoundingClientRect();
@@ -176,7 +228,7 @@ export const TickLadder = memo(function TickLadder({
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [currentPrice]);
+  }, [currentPrice, step]);
 
   if (!tickLadder || !displayLevels.length) {
     return (
@@ -188,15 +240,11 @@ export const TickLadder = memo(function TickLadder({
     );
   }
 
-  // surlignage du prix moyen UNIQUEMENT sur la cellule “Price”
   const avgPriceRounded =
     position && position.quantity !== 0
-      ? roundToTick(position.averagePrice)
+      ? roundToTick(position.averagePrice, step)
       : null;
 
-  // largeur des colonnes (on les fige → utile pour la sticky)
-  // 64px | 1fr | 88px | 1fr | 64px  → price = 88px
-  // On rend la cellule Price sticky et on lui donne un z-index + un fond.
   return (
     <div className="h-full flex flex-col bg-card">
       <div className="bg-ladder-header border-b border-border">
@@ -214,9 +262,9 @@ export const TickLadder = memo(function TickLadder({
         className="flex-1 overflow-y-auto trading-scroll"
         onScroll={() => setUserScrolled(true)}
       >
-        {displayLevels.map((level: any) => {
-          const price = roundToTick(level.price);
-          const isLast = Math.abs(price - roundToTick(currentPrice)) < 0.125;
+        {displayLevels.map((level: any, idx: number) => {
+          const price = roundToTick(level.price, step);
+          const isLast = Math.abs(price - roundToTick(currentPrice, step)) < step / 2;
 
           const buyOrders = getOrdersAtPrice(price, 'BUY');
           const sellOrders = getOrdersAtPrice(price, 'SELL');
@@ -225,32 +273,31 @@ export const TickLadder = memo(function TickLadder({
 
           return (
             <div
-              key={level.tick ?? price}
+              key={`${price.toFixed(2)}-${level.tick ?? idx}`}
               data-row-price={price.toFixed(2)}
               className={cn(
                 "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6",
                 "hover:bg-ladder-row-hover transition-colors"
               )}
             >
-              {/* Size (fenêtre d’agression récente si tu l’utilises) */}
+              {/* Size */}
               <div className={cn(
                 "flex items-center justify-center border-r border-border/50",
-                level.sizeWindow > 0 && "font-medium",
-                level.sizeWindow > 0 && "text-trading-neutral"
+                level.sizeWindow > 0 && "font-medium text-trading-neutral"
               )}>
                 {fmtSize(level.sizeWindow ?? 0)}
               </div>
 
-              {/* Bids (affiché pour prix <= last) */}
+              {/* Bids */}
               <div
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
+                  price <= currentPrice && (level.bidSize || 0) > 0 && "bg-ladder-bid text-trading-buy",
                   price <= currentPrice && "hover:bg-trading-buy/10",
                   totalBuyQty > 0 && "ring-2 ring-trading-buy/50"
                 )}
                 onClick={() =>
-                  totalBuyQty > 0 ? handleOrderClick(price) : handleCellClick(price, 'bid')
+                  totalBuyQty > 0 ? onCancelOrders(price) : onLimitOrder('BUY', price, 1)
                 }
               >
                 {price <= currentPrice && (
@@ -261,29 +308,29 @@ export const TickLadder = memo(function TickLadder({
                 )}
               </div>
 
-              {/* Price (VRAIMENT FIXE & SEULEMENT cette cellule en jaune si avg) */}
+              {/* Price — sticky + highlight moyen uniquement ici */}
               <div
                 className={cn(
                   "flex items-center justify-center font-mono font-medium border-r border-border/50 sticky-price-cell",
                   isLast && "text-trading-average font-bold",
                   avgPriceRounded != null &&
-                    Math.abs(price - avgPriceRounded) < 0.125 &&
+                    Math.abs(price - avgPriceRounded) < step / 2 &&
                     "outline-average-price"
                 )}
               >
                 {fmtPrice(price)}
               </div>
 
-              {/* Asks (affiché pour prix >= last) */}
+              {/* Asks */}
               <div
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
+                  price >= currentPrice && (level.askSize || 0) > 0 && "bg-ladder-ask text-trading-sell",
                   price >= currentPrice && "hover:bg-trading-sell/10",
                   totalSellQty > 0 && "ring-2 ring-trading-sell/50"
                 )}
                 onClick={() =>
-                  totalSellQty > 0 ? handleOrderClick(price) : handleCellClick(price, 'ask')
+                  totalSellQty > 0 ? onCancelOrders(price) : onLimitOrder('SELL', price, 1)
                 }
               >
                 {price >= currentPrice && (
@@ -294,7 +341,7 @@ export const TickLadder = memo(function TickLadder({
                 )}
               </div>
 
-              {/* Volume cumulé par niveau */}
+              {/* Volume cumulé */}
               <div className="flex items-center justify-center text-muted-foreground">
                 {fmtSize(level.volumeCumulative ?? level.volume ?? 0)}
               </div>
