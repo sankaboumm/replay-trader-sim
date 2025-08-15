@@ -172,12 +172,18 @@ export const TickLadder = memo(function TickLadder({
               </div>
 
               {/* Price */}
-              <div className={cn(
-                "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
-                isLastPrice && "text-trading-average font-bold"
-              )}>
-                {formatPrice(level.price)}
-              </div>
+<div
+  className={cn(
+    // garde le style de base
+    "flex items-center justify-center font-mono font-medium border-r border-border/50",
+    // 👇 AJOUT magique pour la fixer vraiment au centre :
+    "sticky left-1/2 -translate-x-1/2 z-30",
+    // 👇 fond léger pour recouvrir ce qui défile dessous
+    "bg-white/90 dark:bg-neutral-900/90 backdrop-blur"
+  )}
+>
+  {formatPrice(level.price)}
+</div>
 
               {/* Asks - only show if price is above or at current price */}
               <div 
