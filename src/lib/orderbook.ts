@@ -1,285 +1,209 @@
-// Utilities for robust order book parsing and tick-based price management
+// src/lib/orderbook.ts
+// Moteur d’order book + génération d’un ladder ancré (anti-jitter)
+
+export type Side = "BUY" | "SELL";
+
+export interface Trade {
+  timestamp: Date;
+  price: number;
+  size: number;
+  aggressor: Side;
+}
 
 export interface ParsedOrderBook {
   bidPrices: number[];
   bidSizes: number[];
-  bidOrders: number[];
+  bidOrders?: number[];
   askPrices: number[];
   askSizes: number[];
-  askOrders: number[];
+  askOrders?: number[];
   timestamp: Date;
-}
-
-export interface Trade {
-  price: number;
-  size: number;
-  aggressor: 'BUY' | 'SELL';
-  timestamp: Date;
-}
-
-export interface TickLadder {
-  midTick: number;
-  levels: TickLevel[];
 }
 
 export interface TickLevel {
-  tick: number;
-  price: number;
+  tick: number;             // index en ticks (0.25 pour le NQ)
+  price: number;            // prix calculé depuis tick
   bidSize: number;
   askSize: number;
-  sizeWindow: number;
-  volumeCumulative: number;
+  bidOrders?: number;
+  askOrders?: number;
+  // champs optionnels utilisés par l'UI
+  sizeWindow?: number;
+  volumeCumulative?: number;
+}
+
+export interface TickLadder {
+  midTick: number;          // tick d’ancrage (centre visuel)
+  midPrice: number;
+  lastTick?: number;        // dernier tick traded
+  lastPrice?: number;
+  levels: TickLevel[];      // du plus haut prix (index 0) au plus bas (dernier)
 }
 
 export class OrderBookProcessor {
-  private tick: number;
-  private volumeByTick: Map<number, number> = new Map();
-  
-  constructor(tickSize: number = 0.25) {
-    this.tick = tickSize;
+  private tickSize = 0.25;
+  private anchorTick: number | null = null;
+
+  constructor(tickSize = 0.25) {
+    this.tickSize = tickSize;
   }
 
-  /**
-   * Robust parsing of book_* columns - handles both JSON and NumPy formats
-   */
-  parseBookArray(value: string | null | undefined): number[] {
-    if (!value || value === '[]' || value === '') return [];
-    
-    try {
-      // Try JSON.parse first
-      if (value.startsWith('[') && value.endsWith(']')) {
-        const jsonResult = JSON.parse(value);
-        if (Array.isArray(jsonResult)) {
-          return jsonResult.map(v => parseFloat(v)).filter(v => !isNaN(v));
+  public setTickSize(size: number) {
+    if (size > 0) this.tickSize = size;
+  }
+
+  public inferTickSize(prices: number[]): number {
+    const uniq = Array.from(new Set(prices.filter(Number.isFinite))).sort((a,b)=>a-b);
+    if (uniq.length < 2) return this.tickSize;
+    let minDiff = Infinity;
+    for (let i=1;i<uniq.length;i++) {
+      const d = +(uniq[i] - uniq[i-1]).toFixed(8);
+      if (d > 0 && d < minDiff) minDiff = d;
+    }
+    // mappe vers ticks usuels
+    const candidates = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
+    let best = candidates[0];
+    let bestErr = Math.abs(minDiff - best);
+    for (const c of candidates) {
+      const err = Math.abs(minDiff - c);
+      if (err < bestErr) { best = c; bestErr = err; }
+    }
+    return best;
+  }
+
+  public setAnchorByPrice(price: number) {
+    this.anchorTick = this.toTick(price);
+  }
+  public clearAnchor() { this.anchorTick = null; }
+
+  public priceToTick(price: number) { return this.toTick(price); }
+
+  private toTick(price: number): number {
+    return Math.round(price / this.tickSize);
+  }
+  private fromTick(tick: number): number {
+    return +(tick * this.tickSize).toFixed(8);
+  }
+
+  /** Optionnel : parse d’un snapshot depuis une ligne CSV déjà chargée */
+  public parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
+    const arr = (v: any): number[] => {
+      if (v == null) return [];
+      if (Array.isArray(v)) return v.map(Number).filter(n=>!isNaN(n));
+      const s = String(v).trim();
+      if (!s) return [];
+      try {
+        if (s.startsWith("[") && s.endsWith("]")) {
+          const j = JSON.parse(s);
+          if (Array.isArray(j)) return j.map(Number).filter(n=>!isNaN(n));
         }
-      }
-    } catch (e) {
-      // JSON failed, try NumPy format
-    }
-    
-    // NumPy format: remove brackets and split on spaces/commas
-    const cleaned = value.replace(/^\[|\]$/g, '').trim();
-    if (!cleaned) return [];
-    
-    return cleaned
-      .split(/[\s,]+/)
-      .map(v => v.trim())
-      .filter(v => v.length > 0)
-      .map(v => parseFloat(v))
-      .filter(v => !isNaN(v));
+      } catch {}
+      const cleaned = s.replace(/^\[|\]$/g, "");
+      if (!cleaned) return [];
+      return cleaned.split(/[\s,]+/).map(Number).filter(n=>!isNaN(n));
+    };
+
+    const bidPrices = arr(row.book_bid_prices);
+    const bidSizes  = arr(row.book_bid_sizes);
+    const bidOrders = arr(row.book_bid_orders);
+    const askPrices = arr(row.book_ask_prices);
+    const askSizes  = arr(row.book_ask_sizes);
+    const askOrders = arr(row.book_ask_orders);
+
+    const okB = bidPrices.length === bidSizes.length &&
+                (bidOrders.length === 0 || bidOrders.length === bidPrices.length);
+    const okA = askPrices.length === askSizes.length &&
+                (askOrders.length === 0 || askOrders.length === askPrices.length);
+    if (!okB || !okA) return null;
+
+    const ts = row.ts_exch_utc ?? row.ts_utc ?? Date.now();
+    const timestamp = new Date(ts);
+
+    return { bidPrices, bidSizes, bidOrders, askPrices, askSizes, askOrders, timestamp };
   }
 
-  /**
-   * Parse a full orderbook snapshot from CSV row
-   */
-  parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
-    try {
-      const bidPrices = this.parseBookArray(row.book_bid_prices);
-      const bidSizes = this.parseBookArray(row.book_bid_sizes);
-      const bidOrders = this.parseBookArray(row.book_bid_orders);
-      const askPrices = this.parseBookArray(row.book_ask_prices);
-      const askSizes = this.parseBookArray(row.book_ask_sizes);
-      const askOrders = this.parseBookArray(row.book_ask_orders);
-      
-      // Validate array lengths
-      if (bidPrices.length !== bidSizes.length || askPrices.length !== askSizes.length) {
-        console.warn('Mismatched array lengths in orderbook snapshot');
-        return null;
-      }
-      
-      // Parse timestamp (priority order)
-      let timestamp = new Date();
-      if (row.ts_exch_utc) {
-        timestamp = new Date(row.ts_exch_utc);
-      } else if (row.ts_utc) {
-        timestamp = new Date(row.ts_utc);
-      }
-      
-      return {
-        bidPrices,
-        bidSizes,
-        bidOrders,
-        askPrices,
-        askSizes,
-        askOrders,
-        timestamp
-      };
-    } catch (error) {
-      console.error('Failed to parse orderbook snapshot:', error);
-      return null;
-    }
+  /** Optionnel : parse d’un trade depuis une ligne CSV */
+  public parseTrade(row: any): Trade | null {
+    const p = Number(row.trade_price);
+    const s = Number(row.trade_size);
+    const aRaw = (row.aggressor ?? "").toString().toUpperCase();
+    const a: Side | null = aRaw === "BUY" || aRaw === "B" ? "BUY"
+                        : aRaw === "SELL" || aRaw === "S" ? "SELL" : null;
+    if (!isFinite(p) || p <= 0 || !isFinite(s) || s <= 0 || !a) return null;
+    const ts = row.ts_exch_utc ?? row.ts_utc ?? Date.now();
+    return { timestamp: new Date(ts), price: p, size: s, aggressor: a };
   }
 
-  /**
-   * Parse trade from CSV row
-   */
-  parseTrade(row: any): Trade | null {
-    try {
-      const price = parseFloat(row.trade_price);
-      const size = parseFloat(row.trade_size);
-      const aggressor = row.aggressor?.toString().toUpperCase().trim();
-      
-      if (isNaN(price) || isNaN(size) || !aggressor) return null;
-      if (aggressor !== 'BUY' && aggressor !== 'SELL') return null;
-      
-      let timestamp = new Date();
-      if (row.ts_exch_utc) {
-        timestamp = new Date(row.ts_exch_utc);
-      } else if (row.ts_utc) {
-        timestamp = new Date(row.ts_utc);
-      }
-      
-      return {
-        price,
-        size,
-        aggressor: aggressor as 'BUY' | 'SELL',
-        timestamp
-      };
-    } catch (error) {
-      console.error('Failed to parse trade:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Convert price to tick index (avoids floating point issues)
-   */
-  toTick(price: number): number {
-    return Math.round(price / this.tick);
-  }
-
-  /**
-   * Convert tick index back to price
-   */
-  fromTick(tick: number): number {
-    return tick * this.tick;
-  }
-
-  /**
-   * Infer tick size from price data
-   */
-  inferTickSize(prices: number[]): number {
-    if (prices.length < 2) return 0.25; // Default for NQ
-    
-    const diffs = [];
-    for (let i = 1; i < Math.min(prices.length, 100); i++) {
-      const diff = Math.abs(prices[i] - prices[i-1]);
-      if (diff > 0) diffs.push(diff);
-    }
-    
-    if (diffs.length === 0) return 0.25;
-    
-    // Find GCD of differences to determine tick
-    const gcd = (a: number, b: number): number => b === 0 ? a : gcd(b, a % b);
-    let result = diffs[0];
-    for (let i = 1; i < diffs.length; i++) {
-      result = gcd(result, diffs[i]);
-    }
-    
-    // Round to reasonable precision
-    return Math.round(result * 100) / 100 || 0.25;
-  }
-
-  /**
-   * Create centered price ladder (20 levels up/down from mid)
-   */
-  createTickLadder(
-    orderbook: ParsedOrderBook, 
-    trades: Trade[], 
-    previousTimestamp?: Date
+  /** Génére un ladder anti-jitter : centre ancré, niveaux par tick */
+  public createTickLadder(
+    snapshot: ParsedOrderBook,
+    trades: Trade[] = [],
+    _prevTs?: Date
   ): TickLadder {
-    // Calculate mid price
-    const bestBid = orderbook.bidPrices.length > 0 ? Math.max(...orderbook.bidPrices) : 0;
-    const bestAsk = orderbook.askPrices.length > 0 ? Math.min(...orderbook.askPrices) : 0;
-    
-    let midPrice = 0;
-    if (bestBid > 0 && bestAsk > 0) {
-      midPrice = (bestBid + bestAsk) / 2;
-    } else if (bestBid > 0) {
-      midPrice = bestBid;
-    } else if (bestAsk > 0) {
-      midPrice = bestAsk;
-    } else {
-      midPrice = 19300; // Fallback
+    // 1) regroupe par tick (évite doublons/arrondis)
+    const bidByTick = new Map<number, { size: number; orders?: number }>();
+    const askByTick = new Map<number, { size: number; orders?: number }>();
+
+    for (let i = 0; i < snapshot.bidPrices.length; i++) {
+      const t = this.toTick(snapshot.bidPrices[i]);
+      const s = snapshot.bidSizes[i] ?? 0;
+      bidByTick.set(t, { size: s, orders: snapshot.bidOrders?.[i] });
     }
-    
-    const midTick = this.toTick(midPrice);
-    
-    // Create bid and ask maps by tick
-    const bidMap = new Map<number, number>();
-    const askMap = new Map<number, number>();
-    
-    // Populate bid map
-    for (let i = 0; i < orderbook.bidPrices.length; i++) {
-      const tick = this.toTick(orderbook.bidPrices[i]);
-      bidMap.set(tick, orderbook.bidSizes[i]);
+    for (let i = 0; i < snapshot.askPrices.length; i++) {
+      const t = this.toTick(snapshot.askPrices[i]);
+      const s = snapshot.askSizes[i] ?? 0;
+      askByTick.set(t, { size: s, orders: snapshot.askOrders?.[i] });
     }
-    
-    // Populate ask map
-    for (let i = 0; i < orderbook.askPrices.length; i++) {
-      const tick = this.toTick(orderbook.askPrices[i]);
-      askMap.set(tick, orderbook.askSizes[i]);
-    }
-    
-    // Calculate trade sizes for current window
-    const sizeMap = new Map<number, number>();
-    if (previousTimestamp) {
-      const windowTrades = trades.filter(t => 
-        t.timestamp > previousTimestamp && t.timestamp <= orderbook.timestamp
-      );
-      
-      for (const trade of windowTrades) {
-        const tick = this.toTick(trade.price);
-        sizeMap.set(tick, (sizeMap.get(tick) || 0) + trade.size);
+
+    // 2) centre ancré (ne bouge pas tout seul)
+    let centerTick = this.anchorTick;
+    if (centerTick == null) {
+      const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
+      if (lastTrade) {
+        centerTick = this.toTick(lastTrade.price);
+      } else {
+        const bestBid = Math.max(...Array.from(bidByTick.keys()).concat([-Infinity]));
+        const bestAsk = Math.min(...Array.from(askByTick.keys()).concat([+Infinity]));
+        centerTick = isFinite(bestBid) && isFinite(bestAsk) && bestBid <= bestAsk
+          ? Math.floor((bestBid + bestAsk) / 2)
+          : 0;
       }
+      this.anchorTick = centerTick;
     }
-    
-    // Update cumulative volume
-    for (const trade of trades) {
-      if (trade.timestamp <= orderbook.timestamp) {
-        const tick = this.toTick(trade.price);
-        this.volumeByTick.set(tick, (this.volumeByTick.get(tick) || 0) + trade.size);
-      }
-    }
-    
-    // Generate 41 levels (20 up, center, 20 down)
+
+    // 3) fenêtre autour du centre (large, l’UI en affiche 20)
+    const HALF = 40;                       // fenêtre ±40 ticks
+    const minTick = centerTick - HALF;
+    const maxTick = centerTick + HALF;
+
     const levels: TickLevel[] = [];
-    for (let i = -20; i <= 20; i++) {
-      const tick = midTick + i;
-      const price = this.fromTick(tick);
-      
+    for (let t = maxTick; t >= minTick; t--) {
+      const bid = bidByTick.get(t);
+      const ask = askByTick.get(t);
       levels.push({
-        tick,
-        price,
-        bidSize: bidMap.get(tick) || 0,
-        askSize: askMap.get(tick) || 0,
-        sizeWindow: sizeMap.get(tick) || 0,
-        volumeCumulative: this.volumeByTick.get(tick) || 0
+        tick: t,
+        price: this.fromTick(t),
+        bidSize: bid?.size ?? 0,
+        askSize: ask?.size ?? 0,
+        bidOrders: bid?.orders ?? 0,
+        askOrders: ask?.orders ?? 0,
+        sizeWindow: 0,
+        volumeCumulative: 0,
       });
     }
-    
-    return { midTick, levels };
+
+    const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
+    const lastTick = lastTrade ? this.toTick(lastTrade.price) : undefined;
+
+    return {
+      midTick: centerTick,
+      midPrice: this.fromTick(centerTick),
+      lastTick,
+      lastPrice: lastTrade?.price,
+      levels,
+    };
   }
 
-  /**
-   * Reset cumulative volume (for new files)
-   */
-  resetVolume(): void {
-    this.volumeByTick.clear();
-  }
-
-  /**
-   * Get current tick size
-   */
-  getTickSize(): number {
-    return this.tick;
-  }
-
-  /**
-   * Set tick size
-   */
-  setTickSize(tickSize: number): void {
-    this.tick = tickSize;
-    this.resetVolume(); // Reset volume when tick changes
-  }
+  // (facultatif) Remise à zéro de compteurs internes si vous en ajoutez plus tard
+  public resetVolume() { /* no-op pour l’instant */ }
 }
