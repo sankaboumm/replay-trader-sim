@@ -1,4 +1,4 @@
-import React, { memo, useMemo, useRef, useImperativeHandle, forwardRef } from 'react';
+import { memo, useMemo } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -11,89 +11,86 @@ interface Order {
 }
 
 interface Position {
-  symbol: string;
   quantity: number;
   averagePrice: number;
-  marketPrice: number;
 }
 
 interface TickLadderProps {
   tickLadder: TickLadderType | null;
   currentPrice: number;
   orders: Order[];
-  position: Position;
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
+  position: Position;
 }
 
 function formatPrice(price: number): string {
   return price.toFixed(2).replace('.', ',');
 }
 
-function formatSize(size?: number): string {
-  if (!size || size <= 0) return '';
-  // Affichage sans décimales
-  return Math.round(size).toString();
+function formatSize(size: number): string {
+  return size > 0 ? size.toString() : '';
 }
 
-const ROW_PX = 24; // h-6
+export const TickLadder = memo(function TickLadder({
+  tickLadder,
+  currentPrice,
+  orders,
+  onLimitOrder,
+  onMarketOrder,
+  onCancelOrders,
+  disabled = false,
+  position,
+}: TickLadderProps) {
 
-export const TickLadder = memo(forwardRef(function TickLadder(
-  {
-    tickLadder,
-    currentPrice,
-    orders,
-    position,
-    onLimitOrder,
-    onMarketOrder,
-    onCancelOrders,
-    disabled = false,
-  }: TickLadderProps,
-  ref: React.Ref<{ centerOnPrice: (p: number) => void }>
-) {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  // Get orders for a specific price level
+  const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') => {
+    return orders.filter(order =>
+      order.side === side &&
+      Math.abs(order.price - price) < 0.125 &&
+      order.quantity > order.filled
+    );
+  };
 
-  // Expose une méthode imperative pour recentrer sur un prix
-  useImperativeHandle(ref, () => ({
-    centerOnPrice: (price: number) => {
-      const container = scrollRef.current;
-      const levels = tickLadder?.levels ?? [];
-      if (!container || levels.length === 0) return;
+  // (facultatif) moyennes d’exécution par côté
+  const averagePrices = useMemo(() => {
+    const filledBuyOrders = orders.filter(o => o.side === 'BUY' && o.filled > 0);
+    const filledSellOrders = orders.filter(o => o.side === 'SELL' && o.filled > 0);
 
-      // On cherche l’index du niveau le plus proche du prix demandé
-      let targetIndex = 0;
-      let bestDiff = Number.POSITIVE_INFINITY;
-      for (let i = 0; i < levels.length; i++) {
-        const d = Math.abs(levels[i].price - price);
-        if (d < bestDiff) {
-          bestDiff = d;
-          targetIndex = i;
-        }
-      }
+    const avgBuyPrice = filledBuyOrders.length > 0
+      ? filledBuyOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) /
+        filledBuyOrders.reduce((sum, o) => sum + o.filled, 0)
+      : null;
 
-      const targetCenter = targetIndex * ROW_PX;
-      const middle = container.clientHeight / 2;
-      const newScrollTop = Math.max(0, targetCenter - middle);
-      container.scrollTo({ top: newScrollTop, behavior: 'smooth' });
-    },
-  }), [tickLadder]);
+    const avgSellPrice = filledSellOrders.length > 0
+      ? filledSellOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) /
+        filledSellOrders.reduce((sum, o) => sum + o.filled, 0)
+      : null;
 
-  // Commandes au clic dans les colonnes
+    return { avgBuyPrice, avgSellPrice };
+  }, [orders]);
+
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
 
-    const isAbove = price > currentPrice;
-    const isBelow = price < currentPrice;
-    const isAt = Math.abs(price - currentPrice) < 0.125;
+    const isAboveCurrentPrice = price > currentPrice;
+    const isBelowCurrentPrice = price < currentPrice;
+    const isAtCurrentPrice = Math.abs(price - currentPrice) < 0.125;
 
     if (column === 'bid') {
-      if (isAbove || isAt) onMarketOrder('BUY', 1);
-      else onLimitOrder('BUY', price, 1);
+      if (isAboveCurrentPrice || isAtCurrentPrice) {
+        onMarketOrder('BUY', 1);
+      } else {
+        onLimitOrder('BUY', price, 1);
+      }
     } else {
-      if (isBelow || isAt) onMarketOrder('SELL', 1);
-      else onLimitOrder('SELL', price, 1);
+      if (isBelowCurrentPrice || isAtCurrentPrice) {
+        onMarketOrder('SELL', 1);
+      } else {
+        onLimitOrder('SELL', price, 1);
+      }
     }
   };
 
@@ -101,17 +98,6 @@ export const TickLadder = memo(forwardRef(function TickLadder(
     if (disabled) return;
     onCancelOrders(price);
   };
-
-  // Commandes en attente à un niveau
-  const getOpenQtyAt = (price: number, side: 'BUY' | 'SELL') => {
-    return orders
-      .filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled)
-      .reduce((s, o) => s + (o.quantity - o.filled), 0);
-  };
-
-  // Surlignage du prix moyen de la position
-  const isAvgPriceAt = (levelPrice: number) =>
-    position.quantity !== 0 && Math.abs(levelPrice - position.averagePrice) < 0.125;
 
   if (!tickLadder || !tickLadder.levels || tickLadder.levels.length === 0) {
     return (
@@ -136,12 +122,24 @@ export const TickLadder = memo(forwardRef(function TickLadder(
         </div>
       </div>
 
-      {/* Rows */}
-      <div ref={scrollRef} className="flex-1 overflow-y-auto trading-scroll">
-        {(tickLadder.levels ?? []).slice().reverse().map((level) => {
+      {/* Ladder Rows */}
+      <div className="flex-1 overflow-y-auto trading-scroll">
+        {(tickLadder?.levels ?? []).slice().reverse().map((level, index) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
-          const bidOpen = getOpenQtyAt(level.price, 'BUY');
-          const askOpen = getOpenQtyAt(level.price, 'SELL');
+
+          // 👉 Seulement cette condition sert à encadrer la cellule "Price"
+          const isAvgPositionPrice =
+            position.quantity !== 0 &&
+            Math.abs(level.price - position.averagePrice) < 0.125;
+
+          const buyOrders = getOrdersAtPrice(level.price, 'BUY');
+          const sellOrders = getOrdersAtPrice(level.price, 'SELL');
+          const totalBuyQuantity = buyOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
+          const totalSellQuantity = sellOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
+
+          // (placeholder) coloration size
+          const isDominantBuy = level.sizeWindow > 0;
+          const isDominantSell = level.sizeWindow > 0;
 
           return (
             <div
@@ -149,66 +147,75 @@ export const TickLadder = memo(forwardRef(function TickLadder(
               className={cn(
                 "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6",
                 isLastPrice && "bg-ladder-last/20",
-                isAvgPriceAt(level.price) && "ring-2 ring-offset-0 ring-[hsl(var(--trading-average))]",
+                // ❌ on NE met plus de bordure ici (sur toute la row)
                 "hover:bg-ladder-row-hover transition-colors"
               )}
             >
-              {/* Size (dernière fenêtre de prints) */}
+              {/* Size (Window) */}
               <div className={cn(
                 "flex items-center justify-center border-r border-border/50",
                 level.sizeWindow > 0 && "font-medium",
-                level.sizeWindow > 0 && (level.lastAggressor === 'BUY' ? "text-trading-buy" : "text-trading-sell")
+                isDominantBuy && level.sizeWindow > 0 && "text-trading-buy",
+                isDominantSell && level.sizeWindow > 0 && "text-trading-sell"
               )}>
                 {formatSize(level.sizeWindow)}
               </div>
 
-              {/* Bids (prix <= last) */}
+              {/* Bids */}
               <div
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
                   level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
                   level.price <= currentPrice && "hover:bg-trading-buy/10",
-                  bidOpen > 0 && "ring-2 ring-trading-buy/50"
+                  totalBuyQuantity > 0 && "ring-2 ring-trading-buy/50"
                 )}
-                onClick={() => (bidOpen > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid'))}
+                onClick={() => totalBuyQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
               >
                 {level.price <= currentPrice && (
                   <>
                     <span>{formatSize(level.bidSize)}</span>
-                    {bidOpen > 0 && <span className="ml-1 text-[10px] opacity-80">({bidOpen})</span>}
+                    {totalBuyQuantity > 0 && <span className="ml-1 text-xs">({totalBuyQuantity})</span>}
                   </>
                 )}
               </div>
 
-              {/* Price (colonne centrale, fond stable) */}
+              {/* Price (👉 c’est ICI qu’on encadre uniquement la cellule quand c’est le prix moyen) */}
               <div
                 className={cn(
                   "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
                   isLastPrice && "text-trading-average font-bold"
                 )}
               >
-                {formatPrice(level.price)}
+                <span
+                  className={cn(
+                    "px-1 rounded-sm",
+                    // Encadrement jaune uniquement sur la cellule Price quand level == avg position
+                    isAvgPositionPrice && "outline outline-2 outline-[hsl(var(--trading-average))]"
+                  )}
+                >
+                  {formatPrice(level.price)}
+                </span>
               </div>
 
-              {/* Asks (prix >= last) */}
+              {/* Asks */}
               <div
                 className={cn(
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
                   level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                   level.price >= currentPrice && "hover:bg-trading-sell/10",
-                  askOpen > 0 && "ring-2 ring-trading-sell/50"
+                  totalSellQuantity > 0 && "ring-2 ring-trading-sell/50"
                 )}
-                onClick={() => (askOpen > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask'))}
+                onClick={() => totalSellQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
               >
                 {level.price >= currentPrice && (
                   <>
                     <span>{formatSize(level.askSize)}</span>
-                    {askOpen > 0 && <span className="ml-1 text-[10px] opacity-80">({askOpen})</span>}
+                    {totalSellQuantity > 0 && <span className="ml-1 text-xs">({totalSellQuantity})</span>}
                   </>
                 )}
               </div>
 
-              {/* Volume cumulé par niveau de prix */}
+              {/* Volume (Cumulative) */}
               <div className="flex items-center justify-center text-muted-foreground">
                 {formatSize(level.volumeCumulative)}
               </div>
@@ -218,4 +225,4 @@ export const TickLadder = memo(forwardRef(function TickLadder(
       </div>
     </div>
   );
-}));
+});
