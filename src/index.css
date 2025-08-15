@@ -196,3 +196,19 @@
     animation: flash-red 0.3s ease-out;
   }
 }
+@layer base {
+  /* Couleur de fond du header du ladder */
+  .bg-ladder-header {
+    background-color: hsl(var(--ladder-header));
+  }
+
+  /* Couleur de fond de la colonne "Price" (colonne sticky) */
+  .bg-ladder-price {
+    background-color: hsl(var(--ladder-price));
+  }
+
+  /* Surlignage “dernier prix” si tu l’utilises */
+  .bg-ladder-last {
+    background-color: hsl(var(--ladder-last));
+  }
+}
