@@ -41,16 +41,16 @@
     --trading-buy: 120 100% 35%;
     --trading-buy-hover: 120 100% 40%;
     --trading-buy-muted: 120 30% 25%;
-    
+
     --trading-sell: 0 84% 60%;
     --trading-sell-hover: 0 84% 65%;
     --trading-sell-muted: 0 30% 35%;
-    
+
     --trading-neutral: 0 0% 65%;
     --trading-profit: 120 100% 35%;
     --trading-loss: 0 84% 60%;
     --trading-average: 45 100% 50%;  /* Yellow for average price */
-    
+
     /* DOM Ladder Colors */
     --ladder-header: 220 13% 12%;
     --ladder-row: 220 13% 10%;
@@ -59,37 +59,29 @@
     --ladder-ask: 0 30% 20%;
     --ladder-price: 220 13% 8%;
     --ladder-last: 45 100% 20%;
-    
+
     /* Gradients */
     --gradient-profit: linear-gradient(135deg, hsl(var(--trading-profit)), hsl(120 100% 25%));
     --gradient-loss: linear-gradient(135deg, hsl(var(--trading-loss)), hsl(0 84% 50%));
     --gradient-buy: linear-gradient(135deg, hsl(var(--trading-buy)), hsl(120 100% 25%));
     --gradient-sell: linear-gradient(135deg, hsl(var(--trading-sell)), hsl(0 84% 50%));
-    
+
     /* Animations */
     --transition-fast: all 0.1s cubic-bezier(0.4, 0, 0.2, 1);
     --transition-smooth: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-    
+
     /* Typography */
     --font-mono: 'JetBrains Mono', 'Monaco', 'Consolas', monospace;
     --font-trading: var(--font-mono);
 
-    --radius: 0.25rem;
-
+    /* Sidebar (non critique pour le ladder) */
     --sidebar-background: 0 0% 98%;
-
     --sidebar-foreground: 240 5.3% 26.1%;
-
     --sidebar-primary: 240 5.9% 10%;
-
     --sidebar-primary-foreground: 0 0% 98%;
-
     --sidebar-accent: 240 4.8% 95.9%;
-
     --sidebar-accent-foreground: 240 5.9% 10%;
-
     --sidebar-border: 220 13% 91%;
-
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 
@@ -113,86 +105,53 @@
     @apply bg-background text-foreground font-mono;
     overflow: hidden; /* Prevent body scroll in trading interface */
   }
-  
+
   /* Trading Platform Typography */
   .font-trading {
     font-family: var(--font-trading);
   }
-  
-  .text-trading-buy {
-    color: hsl(var(--trading-buy));
+
+  .text-trading-buy { color: hsl(var(--trading-buy)); }
+  .text-trading-sell { color: hsl(var(--trading-sell)); }
+  .text-trading-neutral { color: hsl(var(--trading-neutral)); }
+  .text-trading-average { color: hsl(var(--trading-average)); }
+
+  .bg-trading-buy { background-color: hsl(var(--trading-buy)); }
+  .bg-trading-sell { background-color: hsl(var(--trading-sell)); }
+
+  /* Ladder row stylings */
+  .bg-ladder-bid { background-color: hsl(var(--ladder-bid)); }
+  .bg-ladder-ask { background-color: hsl(var(--ladder-ask)); }
+  .bg-ladder-row { background-color: hsl(var(--ladder-row)); }
+  .hover\:bg-ladder-row-hover:hover { background-color: hsl(var(--ladder-row-hover)); }
+
+  /* 🔹 AJOUTS IMPORTANTS pour la colonne Price & header */
+  .bg-ladder-header { background-color: hsl(var(--ladder-header)); }
+  .bg-ladder-price { background-color: hsl(var(--ladder-price)); }
+  .bg-ladder-last { background-color: hsl(var(--ladder-last)); }
+
+  /* Optionnel : démarquer visuellement la colonne Price sticky */
+  .ladder-price-shadow {
+    box-shadow: -1px 0 0 hsl(var(--border)), 1px 0 0 hsl(var(--border));
   }
-  
-  .text-trading-sell {
-    color: hsl(var(--trading-sell));
-  }
-  
-  .text-trading-neutral {
-    color: hsl(var(--trading-neutral));
-  }
-  
-  .text-trading-average {
-    color: hsl(var(--trading-average));
-  }
-  
-  .bg-trading-buy {
-    background-color: hsl(var(--trading-buy));
-  }
-  
-  .bg-trading-sell {
-    background-color: hsl(var(--trading-sell));
-  }
-  
-  .bg-ladder-bid {
-    background-color: hsl(var(--ladder-bid));
-  }
-  
-  .bg-ladder-ask {
-    background-color: hsl(var(--ladder-ask));
-  }
-  
-  .bg-ladder-row {
-    background-color: hsl(var(--ladder-row));
-  }
-  
-  .hover\:bg-ladder-row-hover:hover {
-    background-color: hsl(var(--ladder-row-hover));
-  }
-  
+
   /* Custom scrollbars for trading interface */
-  .trading-scroll::-webkit-scrollbar {
-    width: 6px;
-  }
-  
-  .trading-scroll::-webkit-scrollbar-track {
-    background: hsl(var(--muted));
-  }
-  
-  .trading-scroll::-webkit-scrollbar-thumb {
-    background: hsl(var(--border));
-    border-radius: 3px;
-  }
-  
-  .trading-scroll::-webkit-scrollbar-thumb:hover {
-    background: hsl(var(--trading-neutral));
-  }
-  
+  .trading-scroll::-webkit-scrollbar { width: 6px; }
+  .trading-scroll::-webkit-scrollbar-track { background: hsl(var(--muted)); }
+  .trading-scroll::-webkit-scrollbar-thumb { background: hsl(var(--border)); border-radius: 3px; }
+  .trading-scroll::-webkit-scrollbar-thumb:hover { background: hsl(var(--trading-neutral)); }
+
   /* Animations for price changes */
   @keyframes flash-green {
     0% { background-color: hsl(var(--trading-buy) / 0.3); }
     100% { background-color: transparent; }
   }
-  
+
   @keyframes flash-red {
     0% { background-color: hsl(var(--trading-sell) / 0.3); }
     100% { background-color: transparent; }
   }
-  
-  .flash-buy {
-    animation: flash-green 0.3s ease-out;
-  }
-  
-  .flash-sell {
-    animation: flash-red 0.3s ease-out;
-  }
+
+  .flash-buy { animation: flash-green 0.3s ease-out; }
+  .flash-sell { animation: flash-red 0.3s ease-out; }
 }
