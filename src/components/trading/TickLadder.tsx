@@ -18,6 +18,7 @@ interface TickLadderProps {
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
+  position: Position;
 }
 
 function formatPrice(price: number): string {
@@ -35,7 +36,8 @@ export const TickLadder = memo(function TickLadder({
   onLimitOrder,
   onMarketOrder,
   onCancelOrders,
-  disabled = false
+  disabled = false,
+  position,
 }: TickLadderProps) {
 
   // Get orders for a specific price level
