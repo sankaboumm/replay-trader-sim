@@ -69,6 +69,8 @@ export function useTradingEngine() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const [currentPrice, setCurrentPrice] = useState(0);
+
+  // mini carnet pour l’UI (optionnel)
   const [orderBook, setOrderBook] = useState<OrderBookLevel[]>([]);
   const [currentOrderBookData, setCurrentOrderBookData] = useState<{
     book_bid_prices: number[];
@@ -76,14 +78,17 @@ export function useTradingEngine() {
     book_bid_sizes: number[];
     book_ask_sizes: number[];
   } | null>(null);
+
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
   const [orders, setOrders] = useState<Order[]>([]);
+
   const [position, setPosition] = useState<Position>({
     symbol: "DEMO",
     quantity: 0,
     averagePrice: 0,
     marketPrice: 0,
   });
+
   const [pnl, setPnl] = useState<PnL>({ unrealized: 0, realized: 0, total: 0 });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(
@@ -112,12 +117,12 @@ export function useTradingEngine() {
 
   const TICK_SIZE = 0.25;
   const TICK_VALUE = 5.0;
-
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
 
   const roundToGrid = (price: number) => Math.round(price * 4) / 4;
 
+  // ---------- UTIL ----------
   const parseTimestamp = (row: any): number => {
     const fields = ["ts_exch_utc", "ts_utc", "ts_exch_madrid", "ts_madrid"];
     for (const f of fields) {
@@ -139,22 +144,19 @@ export function useTradingEngine() {
     try {
       if (value.startsWith("[") && value.endsWith("]")) {
         const j = JSON.parse(value);
-        if (Array.isArray(j)) {
-          return j.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
-        }
+        if (Array.isArray(j)) return j.map((v) => +v).filter((n) => isFinite(n));
       }
     } catch {}
     const cleaned = value.replace(/^\[|\]$/g, "").trim();
     if (!cleaned) return [];
     return cleaned
       .split(/[\s,]+/)
-      .map((v) => parseFloat(v))
-      .filter((n) => !isNaN(n));
+      .map((v) => +v)
+      .filter((n) => isFinite(n));
   };
 
   const normalizeEventType = (s: string) =>
     (s ?? "").toString().toUpperCase().trim();
-
   const normalizeAggressor = (s: string): Side | undefined => {
     const a = (s ?? "").toString().toUpperCase().trim();
     if (a === "BUY" || a === "B") return "BUY";
@@ -162,19 +164,110 @@ export function useTradingEngine() {
     return undefined;
   };
 
+  // ---------- APPLY FILL (centralisé) ----------
+  const applyFill = useCallback(
+    (side: Side, fillPrice: number, qty: number, why: string) => {
+      if (!(qty > 0)) return;
+
+      // 1) Position & PnL réalisé (si on réduit/ferme)
+      setPosition((prev) => {
+        const newQty = prev.quantity + (side === "BUY" ? qty : -qty);
+
+        let realized = 0;
+        if (prev.quantity !== 0) {
+          const closing =
+            (prev.quantity > 0 && side === "SELL") ||
+            (prev.quantity < 0 && side === "BUY");
+          if (closing) {
+            const closeQty = Math.min(qty, Math.abs(prev.quantity));
+            const tickDiff =
+              prev.quantity > 0
+                ? (fillPrice - prev.averagePrice) / TICK_SIZE
+                : (prev.averagePrice - fillPrice) / TICK_SIZE;
+            realized = closeQty * tickDiff * TICK_VALUE;
+            setRealizedPnLTotal((t) => t + realized);
+          }
+        }
+
+        let newAvg = prev.averagePrice;
+        if (newQty === 0) newAvg = 0;
+        else if (
+          (prev.quantity >= 0 && side === "BUY") ||
+          (prev.quantity <= 0 && side === "SELL")
+        ) {
+          // on ajoute à la position existante
+          const prevAbs = Math.abs(prev.quantity);
+          const totalQty = prevAbs + qty;
+          const prevVal = prev.averagePrice * prevAbs;
+          const addVal = fillPrice * qty;
+          newAvg = totalQty > 0 ? (prevVal + addVal) / totalQty : fillPrice;
+        } else {
+          // on inverse : nouveau prix moyen = prix du fill
+          newAvg = fillPrice;
+        }
+
+        return {
+          ...prev,
+          quantity: newQty,
+          averagePrice: newAvg,
+          marketPrice: fillPrice,
+        };
+      });
+
+      // 2) “Last” (pour PnL latent) + TAS
+      setCurrentPrice(fillPrice);
+      setTimeAndSales((prev) => [
+        {
+          id: `fill-${why}-${Date.now()}-${Math.random()}`,
+          timestamp: Date.now(),
+          price: fillPrice,
+          size: qty,
+          aggressor: side,
+        },
+        ...prev.slice(0, 99),
+      ]);
+
+      // 3) Volume par prix
+      const grid = roundToGrid(fillPrice);
+      setVolumeByPrice((prev) => {
+        const next = new Map(prev);
+        next.set(grid, (next.get(grid) ?? 0) + qty);
+        return next;
+      });
+
+      // 4) “Trade” pour le ladder (marque le last)
+      setTrades((prev) => [
+        ...prev,
+        { timestamp: new Date(), price: fillPrice, size: qty, aggressor: side },
+      ]);
+    },
+    []
+  );
+
+  // ---------- LOAD ----------
   const loadMarketData = useCallback((file: File) => {
     // reset
     setMarketData([]);
     setCurrentEventIndex(0);
     setIsPlaying(false);
+
     setOrderBookSnapshots([]);
     setTrades([]);
     setCurrentTickLadder(null);
+
     setCurrentOrderBookData(null);
     setOrderBook([]);
+    setOrders([]);
+    setTimeAndSales([]);
+
+    setPosition({ symbol: "DEMO", quantity: 0, averagePrice: 0, marketPrice: 0 });
+    setRealizedPnLTotal(0);
+    setPnl({ unrealized: 0, realized: 0, total: 0 });
+
+    setVolumeByPrice(new Map());
     orderBookProcessor.resetVolume();
-    anchorRef.current = null;
     orderBookProcessor.clearAnchor();
+    anchorRef.current = null;
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -245,6 +338,7 @@ export function useTradingEngine() {
                 timestamp: new Date(ts),
               };
               snaps.push(snap);
+
               raw.push({
                 timestamp: ts,
                 sortOrder,
@@ -274,6 +368,7 @@ export function useTradingEngine() {
             );
           }
 
+          // prix initial
           let initialPrice = 19300;
           const ft = events.find(
             (e) => e.eventType === "TRADE" && e.tradePrice && e.tradePrice > 0
@@ -316,6 +411,7 @@ export function useTradingEngine() {
     reader.readAsText(file, "UTF-8");
   }, [orderBookProcessor]);
 
+  // ---------- CORE ----------
   const processEvent = useCallback(
     (event: MarketEvent) => {
       switch (event.eventType) {
@@ -323,14 +419,17 @@ export function useTradingEngine() {
           if (event.tradePrice && event.tradeSize && event.aggressor) {
             setCurrentPrice(event.tradePrice);
 
-            const t: Trade = {
-              id: `trade-${Date.now()}-${Math.random()}`,
-              timestamp: event.timestamp,
-              price: event.tradePrice,
-              size: event.tradeSize,
-              aggressor: event.aggressor,
-            };
-            setTimeAndSales((prev) => [t, ...prev.slice(0, 99)]);
+            // TAS + volume + ladder
+            setTimeAndSales((prev) => [
+              {
+                id: `trade-${Date.now()}-${Math.random()}`,
+                timestamp: event.timestamp,
+                price: event.tradePrice,
+                size: event.tradeSize,
+                aggressor: event.aggressor,
+              },
+              ...prev.slice(0, 99),
+            ]);
 
             const grid = roundToGrid(event.tradePrice);
             setVolumeByPrice((prev) => {
@@ -339,6 +438,17 @@ export function useTradingEngine() {
               return next;
             });
 
+            setTrades((prev) => [
+              ...prev,
+              {
+                timestamp: new Date(event.timestamp),
+                price: event.tradePrice!,
+                size: event.tradeSize!,
+                aggressor: event.aggressor!,
+              },
+            ]);
+
+            // partial fills contre “last”
             setOrders((prev) =>
               prev.map((o) => {
                 if (o.filled >= o.quantity) return o;
@@ -350,28 +460,26 @@ export function useTradingEngine() {
                 return { ...o, filled: o.filled + add };
               })
             );
-
-            setTrades((prev) => [
-              ...prev,
-              {
-                timestamp: new Date(event.timestamp),
-                price: event.tradePrice!,
-                size: event.tradeSize!,
-                aggressor: event.aggressor!,
-              },
-            ]);
           }
           break;
         }
 
         case "BBO": {
-          // Reconstruit ladder + mini book
+          // met à jour l’UI book + ladder
           setCurrentOrderBookData((prev) => {
             const next = {
-              book_bid_prices: event.bidPrice ? [event.bidPrice] : prev?.book_bid_prices ?? [],
-              book_ask_prices: event.askPrice ? [event.askPrice] : prev?.book_ask_prices ?? [],
-              book_bid_sizes:  event.bidSize  ? [event.bidSize]  : prev?.book_bid_sizes  ?? [],
-              book_ask_sizes:  event.askSize  ? [event.askSize]  : prev?.book_ask_sizes  ?? [],
+              book_bid_prices: event.bidPrice
+                ? [event.bidPrice]
+                : prev?.book_bid_prices ?? [],
+              book_ask_prices: event.askPrice
+                ? [event.askPrice]
+                : prev?.book_ask_prices ?? [],
+              book_bid_sizes: event.bidSize
+                ? [event.bidSize]
+                : prev?.book_bid_sizes ?? [],
+              book_ask_sizes: event.askSize
+                ? [event.askSize]
+                : prev?.book_ask_sizes ?? [],
             };
 
             const snap: ParsedOrderBook = {
@@ -391,16 +499,17 @@ export function useTradingEngine() {
             );
             setCurrentTickLadder(ladder);
 
-            const newBook: OrderBookLevel[] = [];
+            // mini book pour l’affichage
+            const list: OrderBookLevel[] = [];
             const add = (p?: number, s?: number, side?: "bid" | "ask") => {
               if (!p || !s || p <= 0 || s <= 0) return;
               const gp = roundToGrid(p);
-              const i = newBook.findIndex((l) => Math.abs(l.price - gp) < 0.125);
+              const i = list.findIndex((l) => Math.abs(l.price - gp) < 0.125);
               if (i >= 0) {
-                if (side === "bid") newBook[i] = { ...newBook[i], bidSize: s };
-                else newBook[i] = { ...newBook[i], askSize: s };
+                if (side === "bid") list[i] = { ...list[i], bidSize: s };
+                else list[i] = { ...list[i], askSize: s };
               } else {
-                newBook.push({
+                list.push({
                   price: gp,
                   bidSize: side === "bid" ? s : 0,
                   askSize: side === "ask" ? s : 0,
@@ -410,8 +519,8 @@ export function useTradingEngine() {
             };
             add(event.bidPrice, event.bidSize, "bid");
             add(event.askPrice, event.askSize, "ask");
-            newBook.sort((a, b) => b.price - a.price);
-            setOrderBook(newBook);
+            list.sort((a, b) => b.price - a.price);
+            setOrderBook(list);
 
             return next;
           });
@@ -421,82 +530,30 @@ export function useTradingEngine() {
           const bestAsk = event.askPrice;
 
           if (Number.isFinite(bestBid as number) || Number.isFinite(bestAsk as number)) {
+            const hits: Array<{ side: Side; price: number; qty: number }> = [];
             setOrders((prev) => {
-              const updated: Order[] = [];
+              const remaining: Order[] = [];
               for (const o of prev) {
-                let hit = false;
-                if (o.side === "BUY" && Number.isFinite(bestAsk as number) && (bestAsk as number) <= o.price) hit = true;
-                if (o.side === "SELL" && Number.isFinite(bestBid as number) && (bestBid as number) >= o.price) hit = true;
+                const remainingQty = o.quantity - o.filled;
+                if (remainingQty <= 0) continue;
 
-                if (!hit) {
-                  updated.push(o);
-                  continue;
+                let cross = false;
+                if (o.side === "BUY" && Number.isFinite(bestAsk as number) && (bestAsk as number) <= o.price) cross = true;
+                if (o.side === "SELL" && Number.isFinite(bestBid as number) && (bestBid as number) >= o.price) cross = true;
+
+                if (cross) {
+                  hits.push({ side: o.side, price: o.price, qty: remainingQty });
+                } else {
+                  remaining.push(o);
                 }
-
-                const qty = o.quantity - o.filled;
-                if (qty <= 0) continue;
-                const fillPrice = o.price;
-
-                // Position + realized PnL
-                setPosition((prevPos) => {
-                  const newQty = prevPos.quantity + (o.side === "BUY" ? qty : -qty);
-                  let realized = 0;
-                  if (prevPos.quantity !== 0) {
-                    const closing =
-                      (prevPos.quantity > 0 && o.side === "SELL") ||
-                      (prevPos.quantity < 0 && o.side === "BUY");
-                    if (closing) {
-                      const closeQty = Math.min(qty, Math.abs(prevPos.quantity));
-                      const tickDiff =
-                        prevPos.quantity > 0
-                          ? (fillPrice - prevPos.averagePrice) / TICK_SIZE
-                          : (prevPos.averagePrice - fillPrice) / TICK_SIZE;
-                      realized = closeQty * tickDiff * TICK_VALUE;
-                      setRealizedPnLTotal((t) => t + realized);
-                    }
-                  }
-                  let newAvg = prevPos.averagePrice;
-                  if (newQty === 0) newAvg = 0;
-                  else if (
-                    (prevPos.quantity >= 0 && o.side === "BUY") ||
-                    (prevPos.quantity <= 0 && o.side === "SELL")
-                  ) {
-                    const prevAbs = Math.abs(prevPos.quantity);
-                    const totalQty = prevAbs + qty;
-                    const prevVal = prevPos.averagePrice * prevAbs;
-                    const addVal = fillPrice * qty;
-                    newAvg = totalQty > 0 ? (prevVal + addVal) / totalQty : fillPrice;
-                  } else {
-                    newAvg = fillPrice;
-                  }
-                  return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
-                });
-
-                // “Last” (pour PnL latent) et TAS synthétique
-                setCurrentPrice(fillPrice);
-                const t: Trade = {
-                  id: `limit-bbo-${Date.now()}-${Math.random()}`,
-                  timestamp: Date.now(),
-                  price: fillPrice,
-                  size: qty,
-                  aggressor: o.side,
-                };
-                setTimeAndSales((prevTnS) => [t, ...prevTnS.slice(0, 99)]);
-
-                // Volume par prix + trade pour marquer le last dans le ladder
-                const grid = roundToGrid(fillPrice);
-                setVolumeByPrice((prevMap) => {
-                  const next = new Map(prevMap);
-                  next.set(grid, (next.get(grid) ?? 0) + qty);
-                  return next;
-                });
-                setTrades((prevTrades) => [
-                  ...prevTrades,
-                  { timestamp: new Date(), price: fillPrice, size: qty, aggressor: o.side },
-                ]);
               }
-              return updated;
+              return remaining;
             });
+
+            // Appliquer les fills hors du setOrders
+            for (const h of hits) {
+              applyFill(h.side, h.price, h.qty, "limit-bbo");
+            }
           }
           break;
         }
@@ -527,6 +584,7 @@ export function useTradingEngine() {
               book_ask_sizes: (event.bookAskSizes ?? []).slice(0, 20),
             });
 
+            // mini book 10 niveaux
             const priceMap = new Map<number, OrderBookLevel>();
             const list: OrderBookLevel[] = [];
             const fillSide = (
@@ -566,191 +624,10 @@ export function useTradingEngine() {
         }
       }
     },
-    [orderBookProcessor, volumeByPrice]
+    [applyFill, orderBookProcessor, volumeByPrice]
   );
 
-  const togglePlayback = useCallback(() => setIsPlaying((p) => !p), []);
-
-  const placeLimitOrder = useCallback((side: Side, price: number, quantity: number) => {
-    const newOrder: Order = {
-      id: `order-${++orderIdCounter.current}`,
-      side,
-      price,
-      quantity,
-      filled: 0,
-      timestamp: Date.now(),
-    };
-    setOrders((prev) => [...prev, newOrder]);
-  }, []);
-
-  const placeMarketOrder = useCallback(
-    (side: Side, quantity: number) => {
-      const bestAsk = currentOrderBookData?.book_ask_prices?.[0];
-      const bestBid = currentOrderBookData?.book_bid_prices?.[0];
-      const fillPrice =
-        side === "BUY" ? (bestAsk ?? currentPrice) : (bestBid ?? currentPrice);
-
-      setPosition((prev) => {
-        const newQty = prev.quantity + (side === "BUY" ? quantity : -quantity);
-
-        let realized = 0;
-        if (prev.quantity !== 0) {
-          const closing =
-            (prev.quantity > 0 && side === "SELL") ||
-            (prev.quantity < 0 && side === "BUY");
-          if (closing) {
-            const closeQty = Math.min(quantity, Math.abs(prev.quantity));
-            const tickDiff =
-              prev.quantity > 0
-                ? (fillPrice - prev.averagePrice) / TICK_SIZE
-                : (prev.averagePrice - fillPrice) / TICK_SIZE;
-            realized = closeQty * tickDiff * TICK_VALUE;
-            setRealizedPnLTotal((t) => t + realized);
-          }
-        }
-
-        let newAvg = prev.averagePrice;
-        if (newQty === 0) newAvg = 0;
-        else if (
-          (prev.quantity >= 0 && side === "BUY") ||
-          (prev.quantity <= 0 && side === "SELL")
-        ) {
-          const prevAbs = Math.abs(prev.quantity);
-          const totalQty = prevAbs + quantity;
-          const prevVal = prev.averagePrice * prevAbs;
-          const addVal = fillPrice * quantity;
-          newAvg = totalQty > 0 ? (prevVal + addVal) / totalQty : fillPrice;
-        } else {
-          newAvg = fillPrice;
-        }
-
-        return {
-          ...prev,
-          quantity: newQty,
-          averagePrice: newAvg,
-          marketPrice: fillPrice,
-        };
-      });
-
-      setCurrentPrice(fillPrice);
-
-      const t: Trade = {
-        id: `mkt-${Date.now()}-${Math.random()}`,
-        timestamp: Date.now(),
-        price: fillPrice,
-        size: quantity,
-        aggressor: side,
-      };
-      setTimeAndSales((prev) => [t, ...prev.slice(0, 99)]);
-
-      const grid = roundToGrid(fillPrice);
-      setVolumeByPrice((prev) => {
-        const next = new Map(prev);
-        next.set(grid, (next.get(grid) ?? 0) + quantity);
-        return next;
-      });
-
-      setTrades((prev) => [
-        ...prev,
-        { timestamp: new Date(), price: fillPrice, size: quantity, aggressor: side },
-      ]);
-    },
-    [currentOrderBookData, currentPrice, orderBookProcessor]
-  );
-
-  const cancelOrdersAtPrice = useCallback((price: number) => {
-    setOrders((prev) => prev.filter((o) => Math.abs(o.price - price) >= 0.125));
-  }, []);
-
-  useEffect(() => {
-    const tickDiff = (currentPrice - position.averagePrice) / TICK_SIZE;
-    const unrealized = position.quantity * tickDiff * TICK_VALUE;
-    setPnl({
-      unrealized,
-      realized: realizedPnLTotal,
-      total: unrealized + realizedPnLTotal,
-    });
-  }, [position, currentPrice, realizedPnLTotal]);
-
-  // filet de sécurité : exécute LIMIT si le "last" traverse
-  useEffect(() => {
-    if (currentPrice <= 0) return;
-    setOrders((prev) => {
-      const updated = [...prev];
-      for (let i = updated.length - 1; i >= 0; i--) {
-        const o = updated[i];
-        const hit =
-          (o.side === "BUY" && currentPrice <= o.price) ||
-          (o.side === "SELL" && currentPrice >= o.price);
-        if (!hit) continue;
-
-        const qty = o.quantity - o.filled;
-        if (qty <= 0) continue;
-        const fillPrice = o.price;
-
-        setPosition((prevPos) => {
-          const newQty = prevPos.quantity + (o.side === "BUY" ? qty : -qty);
-          let realized = 0;
-          if (prevPos.quantity !== 0) {
-            const closing =
-              (prevPos.quantity > 0 && o.side === "SELL") ||
-              (prevPos.quantity < 0 && o.side === "BUY");
-            if (closing) {
-              const closeQty = Math.min(qty, Math.abs(prevPos.quantity));
-              const tickDiff =
-                prevPos.quantity > 0
-                  ? (fillPrice - prevPos.averagePrice) / TICK_SIZE
-                  : (prevPos.averagePrice - fillPrice) / TICK_SIZE;
-              realized = closeQty * tickDiff * TICK_VALUE;
-              setRealizedPnLTotal((t) => t + realized);
-            }
-          }
-          let newAvg = prevPos.averagePrice;
-          if (newQty === 0) newAvg = 0;
-          else if (
-            (prevPos.quantity > 0 && o.side === "BUY") ||
-            (prevPos.quantity < 0 && o.side === "SELL")
-          ) {
-            const prevAbs = Math.abs(prevPos.quantity);
-            const total = prevAbs + qty;
-            const prevVal = prevPos.averagePrice * prevAbs;
-            const addVal = fillPrice * qty;
-            newAvg = total > 0 ? (prevVal + addVal) / total : fillPrice;
-          } else if (Math.sign(newQty) !== Math.sign(prevPos.quantity)) {
-            newAvg = fillPrice;
-          }
-          return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
-        });
-
-        setTimeAndSales((prev) => [
-          {
-            id: `limit-trade-${Date.now()}-${i}`,
-            timestamp: Date.now(),
-            price: fillPrice,
-            size: qty,
-            aggressor: o.side,
-          },
-          ...prev,
-        ]);
-
-        const grid = roundToGrid(fillPrice);
-        setVolumeByPrice((prevMap) => {
-          const next = new Map(prevMap);
-          next.set(grid, (next.get(grid) ?? 0) + qty);
-          return next;
-        });
-
-        setTrades((prevTrades) => [
-          ...prevTrades,
-          { timestamp: new Date(), price: fillPrice, size: qty, aggressor: o.side },
-        ]);
-
-        updated.splice(i, 1);
-      }
-      return updated;
-    });
-  }, [currentPrice]);
-
+  // ---------- PLAYBACK ----------
   useEffect(() => {
     if (isPlaying && currentEventIndex < marketData.length) {
       const cur = marketData[currentEventIndex];
@@ -774,7 +651,71 @@ export function useTradingEngine() {
     };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent]);
 
+  // ---------- COMMANDES ----------
   const togglePlayback = useCallback(() => setIsPlaying((p) => !p), []);
+  const setPlaybackSpeedSafe = useCallback((v: number) => setPlaybackSpeed(v), []);
+
+  const placeLimitOrder = useCallback((side: Side, price: number, quantity: number) => {
+    const newOrder: Order = {
+      id: `order-${++orderIdCounter.current}`,
+      side,
+      price,
+      quantity,
+      filled: 0,
+      timestamp: Date.now(),
+    };
+    setOrders((prev) => [...prev, newOrder]);
+  }, []);
+
+  const placeMarketOrder = useCallback(
+    (side: Side, quantity: number) => {
+      const bestAsk = currentOrderBookData?.book_ask_prices?.[0];
+      const bestBid = currentOrderBookData?.book_bid_prices?.[0];
+      const fillPrice =
+        side === "BUY" ? (bestAsk ?? currentPrice) : (bestBid ?? currentPrice);
+      applyFill(side, fillPrice, quantity, "market");
+    },
+    [currentOrderBookData, currentPrice, applyFill]
+  );
+
+  const cancelOrdersAtPrice = useCallback((price: number) => {
+    setOrders((prev) => prev.filter((o) => Math.abs(o.price - price) >= 0.125));
+  }, []);
+
+  // ---------- PnL latent ----------
+  useEffect(() => {
+    const tickDiff = (currentPrice - position.averagePrice) / TICK_SIZE;
+    const unrealized = position.quantity * tickDiff * TICK_VALUE;
+    setPnl({
+      unrealized,
+      realized: realizedPnLTotal,
+      total: unrealized + realizedPnLTotal,
+    });
+  }, [position, currentPrice, realizedPnLTotal]);
+
+  // ---------- Filet de sécurité LIMIT vs last ----------
+  useEffect(() => {
+    if (currentPrice <= 0) return;
+
+    const hits: Array<{ side: Side; price: number; qty: number }> = [];
+    setOrders((prev) => {
+      const remaining: Order[] = [];
+      for (const o of prev) {
+        const rest = o.quantity - o.filled;
+        if (rest <= 0) continue;
+        const cross =
+          (o.side === "BUY" && currentPrice <= o.price) ||
+          (o.side === "SELL" && currentPrice >= o.price);
+        if (cross) hits.push({ side: o.side, price: o.price, qty: rest });
+        else remaining.push(o);
+      }
+      return remaining;
+    });
+
+    for (const h of hits) {
+      applyFill(h.side, h.price, h.qty, "limit-last");
+    }
+  }, [currentPrice, applyFill]);
 
   return {
     marketData,
@@ -789,7 +730,7 @@ export function useTradingEngine() {
     orders,
     loadMarketData,
     togglePlayback,
-    setPlaybackSpeed,
+    setPlaybackSpeed: setPlaybackSpeedSafe,
     placeLimitOrder,
     placeMarketOrder,
     cancelOrdersAtPrice,
