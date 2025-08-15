@@ -44,30 +44,30 @@ export const TickLadder = memo(function TickLadder({
   disabled = false,
   position,
 }: TickLadderProps) {
-
-  // Get orders for a specific price level
-  const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') => {
-    return orders.filter(order =>
-      order.side === side &&
-      Math.abs(order.price - price) < 0.125 &&
-      order.quantity > order.filled
+  const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
+    orders.filter(
+      (o) =>
+        o.side === side &&
+        Math.abs(o.price - price) < 0.125 &&
+        o.quantity > o.filled
     );
-  };
 
-  // (facultatif) moyennes d’exécution par côté
+  // (facultatif) calculs moyens côté buy/sell – non utilisés pour l’encadré
   const averagePrices = useMemo(() => {
-    const filledBuyOrders = orders.filter(o => o.side === 'BUY' && o.filled > 0);
-    const filledSellOrders = orders.filter(o => o.side === 'SELL' && o.filled > 0);
+    const buys = orders.filter((o) => o.side === 'BUY' && o.filled > 0);
+    const sells = orders.filter((o) => o.side === 'SELL' && o.filled > 0);
 
-    const avgBuyPrice = filledBuyOrders.length > 0
-      ? filledBuyOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) /
-        filledBuyOrders.reduce((sum, o) => sum + o.filled, 0)
-      : null;
+    const avgBuyPrice =
+      buys.length > 0
+        ? buys.reduce((s, o) => s + o.price * o.filled, 0) /
+          buys.reduce((s, o) => s + o.filled, 0)
+        : null;
 
-    const avgSellPrice = filledSellOrders.length > 0
-      ? filledSellOrders.reduce((sum, o) => sum + (o.price * o.filled), 0) /
-        filledSellOrders.reduce((sum, o) => sum + o.filled, 0)
-      : null;
+    const avgSellPrice =
+      sells.length > 0
+        ? sells.reduce((s, o) => s + o.price * o.filled, 0) /
+          sells.reduce((s, o) => s + o.filled, 0)
+        : null;
 
     return { avgBuyPrice, avgSellPrice };
   }, [orders]);
@@ -75,22 +75,16 @@ export const TickLadder = memo(function TickLadder({
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
 
-    const isAboveCurrentPrice = price > currentPrice;
-    const isBelowCurrentPrice = price < currentPrice;
-    const isAtCurrentPrice = Math.abs(price - currentPrice) < 0.125;
+    const isAbove = price > currentPrice;
+    const isBelow = price < currentPrice;
+    const isAt = Math.abs(price - currentPrice) < 0.125;
 
     if (column === 'bid') {
-      if (isAboveCurrentPrice || isAtCurrentPrice) {
-        onMarketOrder('BUY', 1);
-      } else {
-        onLimitOrder('BUY', price, 1);
-      }
+      if (isAbove || isAt) onMarketOrder('BUY', 1);
+      else onLimitOrder('BUY', price, 1);
     } else {
-      if (isBelowCurrentPrice || isAtCurrentPrice) {
-        onMarketOrder('SELL', 1);
-      } else {
-        onLimitOrder('SELL', price, 1);
-      }
+      if (isBelow || isAt) onMarketOrder('SELL', 1);
+      else onLimitOrder('SELL', price, 1);
     }
   };
 
@@ -99,7 +93,7 @@ export const TickLadder = memo(function TickLadder({
     onCancelOrders(price);
   };
 
-  if (!tickLadder || !tickLadder.levels || tickLadder.levels.length === 0) {
+  if (!tickLadder || !tickLadder.levels?.length) {
     return (
       <div className="h-full flex items-center justify-center bg-card">
         <div className="text-muted-foreground">
@@ -124,104 +118,119 @@ export const TickLadder = memo(function TickLadder({
 
       {/* Ladder Rows */}
       <div className="flex-1 overflow-y-auto trading-scroll">
-        {(tickLadder?.levels ?? []).slice().reverse().map((level, index) => {
-          const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
+        {tickLadder.levels
+          .slice()
+          .reverse()
+          .map((level) => {
+            const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
+            const isAvgPositionPrice =
+              position.quantity !== 0 &&
+              Math.abs(level.price - position.averagePrice) < 0.125;
 
-          // 👉 Seulement cette condition sert à encadrer la cellule "Price"
-          const isAvgPositionPrice =
-            position.quantity !== 0 &&
-            Math.abs(level.price - position.averagePrice) < 0.125;
+            const buyOrders = getOrdersAtPrice(level.price, 'BUY');
+            const sellOrders = getOrdersAtPrice(level.price, 'SELL');
+            const totalBuyQty = buyOrders.reduce(
+              (s, o) => s + (o.quantity - o.filled),
+              0
+            );
+            const totalSellQty = sellOrders.reduce(
+              (s, o) => s + (o.quantity - o.filled),
+              0
+            );
 
-          const buyOrders = getOrdersAtPrice(level.price, 'BUY');
-          const sellOrders = getOrdersAtPrice(level.price, 'SELL');
-          const totalBuyQuantity = buyOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
-          const totalSellQuantity = sellOrders.reduce((sum, order) => sum + (order.quantity - order.filled), 0);
-
-          // (placeholder) coloration size
-          const isDominantBuy = level.sizeWindow > 0;
-          const isDominantSell = level.sizeWindow > 0;
-
-          return (
-            <div
-              key={level.tick}
-              className={cn(
-                "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6",
-                isLastPrice && "bg-ladder-last/20",
-                // ❌ on NE met plus de bordure ici (sur toute la row)
-                "hover:bg-ladder-row-hover transition-colors"
-              )}
-            >
-              {/* Size (Window) */}
-              <div className={cn(
-                "flex items-center justify-center border-r border-border/50",
-                level.sizeWindow > 0 && "font-medium",
-                isDominantBuy && level.sizeWindow > 0 && "text-trading-buy",
-                isDominantSell && level.sizeWindow > 0 && "text-trading-sell"
-              )}>
-                {formatSize(level.sizeWindow)}
-              </div>
-
-              {/* Bids */}
+            return (
               <div
+                key={level.tick}
                 className={cn(
-                  "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
-                  level.price <= currentPrice && "hover:bg-trading-buy/10",
-                  totalBuyQuantity > 0 && "ring-2 ring-trading-buy/50"
-                )}
-                onClick={() => totalBuyQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
-              >
-                {level.price <= currentPrice && (
-                  <>
-                    <span>{formatSize(level.bidSize)}</span>
-                    {totalBuyQuantity > 0 && <span className="ml-1 text-xs">({totalBuyQuantity})</span>}
-                  </>
-                )}
-              </div>
-
-              {/* Price (👉 c’est ICI qu’on encadre uniquement la cellule quand c’est le prix moyen) */}
-              <div
-                className={cn(
-                  "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
-                  isLastPrice && "text-trading-average font-bold"
+                  // ⬇️ IMPORTANT : on ne met PLUS de fond jaune sur toute la row
+                  "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6",
+                  "hover:bg-ladder-row-hover transition-colors"
                 )}
               >
-                <span
+                {/* Size */}
+                <div className="flex items-center justify-center border-r border-border/50">
+                  {formatSize(level.sizeWindow)}
+                </div>
+
+                {/* Bids */}
+                <div
                   className={cn(
-                    "px-1 rounded-sm",
-                    // Encadrement jaune uniquement sur la cellule Price quand level == avg position
-                    isAvgPositionPrice && "outline outline-2 outline-[hsl(var(--trading-average))]"
+                    "flex items-center justify-center cursor-pointer border-r border-border/50",
+                    level.price <= currentPrice &&
+                      level.bidSize > 0 &&
+                      "bg-ladder-bid text-trading-buy",
+                    level.price <= currentPrice && "hover:bg-trading-buy/10",
+                    totalBuyQty > 0 && "ring-2 ring-trading-buy/50"
+                  )}
+                  onClick={() =>
+                    totalBuyQty > 0
+                      ? handleOrderClick(level.price)
+                      : handleCellClick(level.price, 'bid')
+                  }
+                >
+                  {level.price <= currentPrice && (
+                    <>
+                      <span>{formatSize(level.bidSize)}</span>
+                      {totalBuyQty > 0 && (
+                        <span className="ml-1 text-xs">({totalBuyQty})</span>
+                      )}
+                    </>
+                  )}
+                </div>
+
+                {/* Price — seul endroit avec les highlights */}
+                <div
+                  className={cn(
+                    "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price"
                   )}
                 >
-                  {formatPrice(level.price)}
-                </span>
-              </div>
+                  <span
+                    className={cn(
+                      "px-1 rounded-sm",
+                      // ⬇️ Dernier prix : petit fond jaune MAIS UNIQUEMENT dans la cellule Price
+                      isLastPrice && "bg-ladder-last/20",
+                      // ⬇️ Prix moyen en position : encadré jaune (outline) UNIQUEMENT dans la cellule Price
+                      isAvgPositionPrice &&
+                        "outline outline-2 outline-[hsl(var(--trading-average))]"
+                    )}
+                  >
+                    {formatPrice(level.price)}
+                  </span>
+                </div>
 
-              {/* Asks */}
-              <div
-                className={cn(
-                  "flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
-                  level.price >= currentPrice && "hover:bg-trading-sell/10",
-                  totalSellQuantity > 0 && "ring-2 ring-trading-sell/50"
-                )}
-                onClick={() => totalSellQuantity > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
-              >
-                {level.price >= currentPrice && (
-                  <>
-                    <span>{formatSize(level.askSize)}</span>
-                    {totalSellQuantity > 0 && <span className="ml-1 text-xs">({totalSellQuantity})</span>}
-                  </>
-                )}
-              </div>
+                {/* Asks */}
+                <div
+                  className={cn(
+                    "flex items-center justify-center cursor-pointer border-r border-border/50",
+                    level.price >= currentPrice &&
+                      level.askSize > 0 &&
+                      "bg-ladder-ask text-trading-sell",
+                    level.price >= currentPrice && "hover:bg-trading-sell/10",
+                    totalSellQty > 0 && "ring-2 ring-trading-sell/50"
+                  )}
+                  onClick={() =>
+                    totalSellQty > 0
+                      ? handleOrderClick(level.price)
+                      : handleCellClick(level.price, 'ask')
+                  }
+                >
+                  {level.price >= currentPrice && (
+                    <>
+                      <span>{formatSize(level.askSize)}</span>
+                      {totalSellQty > 0 && (
+                        <span className="ml-1 text-xs">({totalSellQty})</span>
+                      )}
+                    </>
+                  )}
+                </div>
 
-              {/* Volume (Cumulative) */}
-              <div className="flex items-center justify-center text-muted-foreground">
-                {formatSize(level.volumeCumulative)}
+                {/* Volume */}
+                <div className="flex items-center justify-center text-muted-foreground">
+                  {formatSize(level.volumeCumulative)}
+                </div>
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
       </div>
     </div>
   );
