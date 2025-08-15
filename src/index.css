@@ -134,9 +134,7 @@
   .ladder-price-shadow {
     box-shadow: -1px 0 0 hsl(var(--border)), 1px 0 0 hsl(var(--border));
   }
-  .bg-ladder-last/20 {
-  background-color: color-mix(in hsl, hsl(var(--ladder-last)) 20%, transparent);
-  }
+
   /* Custom scrollbars for trading interface */
   .trading-scroll::-webkit-scrollbar { width: 6px; }
   .trading-scroll::-webkit-scrollbar-track { background: hsl(var(--muted)); }
