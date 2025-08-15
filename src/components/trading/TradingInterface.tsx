@@ -14,23 +14,21 @@ export function TradingInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     marketData,
+    currentLadder,
+    currentPrice,
+    orders,
     position,
-    pnl,
-    timeAndSales,
+    originTick,
     isPlaying,
     playbackSpeed,
-    currentPrice,
-    orderBook,
-    currentOrderBookData,
-    orders,
+    timeAndSales,
+    pnl,
     loadMarketData,
     togglePlayback,
     setPlaybackSpeed,
-    placeLimitOrder,
-    placeMarketOrder,
-    cancelOrdersAtPrice,
-    currentTickLadder,
-    orderEngine
+    handleLimitOrder,
+    handleMarketOrder,
+    handleCancelOrders
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -82,15 +80,11 @@ export function TradingInterface() {
           <PositionPanel
             position={{
               symbol: 'NQ',
-              quantity: orderEngine.position.contracts,
-              averagePrice: orderEngine.position.averagePrice,
+              quantity: position.pos,
+              averagePrice: position.avg,
               marketPrice: currentPrice
             }}
-            pnl={{
-              unrealized: orderEngine.position.unrealizedPnL,
-              realized: orderEngine.position.realizedPnL,
-              total: orderEngine.position.totalPnL
-            }}
+            pnl={pnl}
             currentPrice={currentPrice}
             className="flex-shrink-0"
           />
@@ -128,15 +122,16 @@ export function TradingInterface() {
         {/* Center Panel - Tick Ladder */}
         <div className="flex-1 bg-background">
           <TickLadder
-            tickLadder={currentTickLadder}
+            tickLadder={currentLadder}
             currentPrice={currentPrice}
-            orders={orderEngine.orders}
-            position={orderEngine.position}
-            onLimitOrder={placeLimitOrder}
-            onMarketOrder={placeMarketOrder}
-            onCancelOrders={cancelOrdersAtPrice}
+            orders={orders}
+            position={position}
+            originTick={originTick}
+            onLimitOrder={handleLimitOrder}
+            onMarketOrder={handleMarketOrder}
+            onCancelOrders={handleCancelOrders}
             disabled={!isPlaying && marketData.length === 0}
-            toTick={orderEngine.toTick}
+            tickSize={0.25}
           />
         </div>
 
