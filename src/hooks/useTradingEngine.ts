@@ -1,18 +1,23 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
-import Papa from 'papaparse';
+// src/hooks/useTradingEngine.ts
+// Lecture CSV, horloge de replay, PnL, ordres, ancrage du ladder et synchro L2+prix
+
+import { useState, useCallback, useRef, useEffect } from "react";
+import Papa from "papaparse";
 import {
   OrderBookProcessor,
   ParsedOrderBook,
   Trade as OrderBookTrade,
-  TickLadder
-} from '@/lib/orderbook';
+  TickLadder,
+} from "@/lib/orderbook";
+
+type Side = "BUY" | "SELL";
 
 interface MarketEvent {
   timestamp: number;
-  eventType: 'TRADE' | 'BBO' | 'ORDERBOOK';
+  eventType: "TRADE" | "BBO" | "ORDERBOOK";
   tradePrice?: number;
   tradeSize?: number;
-  aggressor?: 'BUY' | 'SELL';
+  aggressor?: Side;
   bidPrice?: number;
   bidSize?: number;
   askPrice?: number;
@@ -28,7 +33,7 @@ interface Trade {
   timestamp: number;
   price: number;
   size: number;
-  aggressor: 'BUY' | 'SELL';
+  aggressor: Side;
   aggregatedCount?: number;
 }
 
@@ -36,21 +41,19 @@ interface OrderBookLevel {
   price: number;
   bidSize: number;
   askSize: number;
-  bidOrders?: number;
-  askOrders?: number;
   volume?: number;
 }
 
 interface Order {
   id: string;
-  side: 'BUY' | 'SELL';
+  side: Side;
   price: number;
   quantity: number;
   filled: number;
   timestamp: number;
 }
 
-export interface Position {
+interface Position {
   symbol: string;
   quantity: number;
   averagePrice: number;
@@ -64,6 +67,7 @@ interface PnL {
 }
 
 export function useTradingEngine() {
+  // ---- state principal ----
   const [marketData, setMarketData] = useState<MarketEvent[]>([]);
   const [currentEventIndex, setCurrentEventIndex] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -75,132 +79,99 @@ export function useTradingEngine() {
     book_ask_prices: number[];
     book_bid_sizes: number[];
     book_ask_sizes: number[];
-    book_bid_orders?: number[];
-    book_ask_orders?: number[];
   } | null>(null);
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
-  const [aggregationBuffer, setAggregationBuffer] = useState<{
-    trades: Trade[];
-    lastTimestamp: number;
-    key: { price: number; aggressor: 'BUY' | 'SELL' };
-  } | null>(null);
   const [orders, setOrders] = useState<Order[]>([]);
   const [position, setPosition] = useState<Position>({
-    symbol: 'DEMO',
+    symbol: "DEMO",
     quantity: 0,
     averagePrice: 0,
-    marketPrice: 0
+    marketPrice: 0,
   });
   const [pnl, setPnl] = useState<PnL>({ unrealized: 0, realized: 0, total: 0 });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
-  const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
+  const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(
+    new Map()
+  );
 
-  // Order book processor / data
-  const [orderBookSnapshots, setOrderBookSnapshots] = useState<ParsedOrderBook[]>([]);
+  // Données pour le ladder robuste
+  const [orderBookSnapshots, setOrderBookSnapshots] = useState<
+    ParsedOrderBook[]
+  >([]);
   const [trades, setTrades] = useState<OrderBookTrade[]>([]);
-  const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder | null>(null);
+  const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder | null>(
+    null
+  );
   const [orderBookProcessor] = useState(() => new OrderBookProcessor(0.25));
 
-  // Refs pour éviter les states "stale"
+  // Refs anti-stale + ancre de centre
   const orderBookSnapshotsRef = useRef<ParsedOrderBook[]>([]);
   const tradesRef = useRef<OrderBookTrade[]>([]);
-  useEffect(() => { orderBookSnapshotsRef.current = orderBookSnapshots; }, [orderBookSnapshots]);
-  useEffect(() => { tradesRef.current = trades; }, [trades]);
+  const anchorRef = useRef<number | null>(null);
 
-  // Constantes NQ
+  useEffect(() => {
+    orderBookSnapshotsRef.current = orderBookSnapshots;
+  }, [orderBookSnapshots]);
+  useEffect(() => {
+    tradesRef.current = trades;
+  }, [trades]);
+
+  // Constantes PnL
   const TICK_SIZE = 0.25;
   const TICK_VALUE = 5.0;
-  const AGGREGATION_WINDOW_MS = 5;
+  const AGG_WINDOW_MS = 5;
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
 
-  // ----------------------- Utils -----------------------
+  // ---------- utils ----------
+  const roundToGrid = (price: number) => Math.round(price * 4) / 4;
+
   const parseTimestamp = (row: any): number => {
-    const fields = ['ts_exch_utc', 'ts_exch_madrid', 'ts_utc', 'ts_madrid'];
+    const fields = ["ts_exch_utc", "ts_utc", "ts_exch_madrid", "ts_madrid"];
     for (const f of fields) {
       if (row[f]) {
-        const ts = new Date(row[f]).getTime();
-        if (!isNaN(ts)) return ts;
+        const t = new Date(row[f]).getTime();
+        if (!isNaN(t)) return t;
       }
     }
     if (row.ssboe && row.usecs) {
-      const ssboe = parseInt(row.ssboe, 10);
-      const usecs = parseInt(row.usecs, 10);
-      if (!isNaN(ssboe) && !isNaN(usecs)) {
-        return ssboe * 1000 + Math.floor(usecs / 1000);
-      }
+      const ss = parseInt(row.ssboe, 10);
+      const us = parseInt(row.usecs, 10);
+      if (!isNaN(ss) && !isNaN(us)) return ss * 1000 + Math.floor(us / 1000);
     }
     return Date.now();
   };
 
   const parseArrayField = (value: string): number[] => {
-    if (!value || value === '[]' || value === '') return [];
+    if (!value || value === "[]" || value === "") return [];
     try {
-      if (value.startsWith('[') && value.endsWith(']')) {
-        const json = JSON.parse(value);
-        if (Array.isArray(json)) {
-          return json.map(v => parseFloat(v)).filter(v => !isNaN(v));
+      if (value.startsWith("[") && value.endsWith("]")) {
+        const j = JSON.parse(value);
+        if (Array.isArray(j)) {
+          return j.map((v) => parseFloat(v)).filter((n) => !isNaN(n));
         }
       }
-    } catch { /* ignore JSON fail */ }
-    const cleaned = value.replace(/^\[|\]$/g, '').trim();
+    } catch {}
+    const cleaned = value.replace(/^\[|\]$/g, "").trim();
     if (!cleaned) return [];
-    return cleaned.split(/[\s,]+/).map(v => parseFloat(v)).filter(v => !isNaN(v));
+    return cleaned
+      .split(/[\s,]+/)
+      .map((v) => parseFloat(v))
+      .filter((n) => !isNaN(n));
   };
 
-  const normalizeEventType = (eventType: string): string =>
-    eventType?.toString().toUpperCase().trim() || '';
+  const normalizeEventType = (s: string) =>
+    (s ?? "").toString().toUpperCase().trim();
 
-  const normalizeAggressor = (aggressor: string): 'BUY' | 'SELL' | undefined => {
-    const a = aggressor?.toString().toUpperCase().trim();
-    if (a === 'BUY' || a === 'B') return 'BUY';
-    if (a === 'SELL' || a === 'S') return 'SELL';
+  const normalizeAggressor = (s: string): Side | undefined => {
+    const a = (s ?? "").toString().toUpperCase().trim();
+    if (a === "BUY" || a === "B") return "BUY";
+    if (a === "SELL" || a === "S") return "SELL";
     return undefined;
   };
 
-  const roundToGrid = (price: number): number => Math.round(price * 4) / 4; // 0.25
-
-  // BBO robuste pour ordres market
-  const getBestPrices = useCallback((): { bestBid?: number; bestAsk?: number } => {
-    let bestBid = Number.NEGATIVE_INFINITY;
-    let bestAsk = Number.POSITIVE_INFINITY;
-
-    // 1) top-of-book conservé (BBO)
-    if (currentOrderBookData?.book_bid_prices?.length) {
-      const bids = currentOrderBookData.book_bid_prices;
-      const sizes = currentOrderBookData.book_bid_sizes || [];
-      for (let i = 0; i < bids.length; i++) {
-        const p = bids[i];
-        const s = sizes[i] ?? 0;
-        if (Number.isFinite(p) && s > 0) bestBid = Math.max(bestBid, p);
-      }
-    }
-    if (currentOrderBookData?.book_ask_prices?.length) {
-      const asks = currentOrderBookData.book_ask_prices;
-      const sizes = currentOrderBookData.book_ask_sizes || [];
-      for (let i = 0; i < asks.length; i++) {
-        const p = asks[i];
-        const s = sizes[i] ?? 0;
-        if (Number.isFinite(p) && s > 0) bestAsk = Math.min(bestAsk, p);
-      }
-    }
-
-    // 2) fallback : ladder local
-    if (!Number.isFinite(bestBid) || !Number.isFinite(bestAsk)) {
-      for (const lvl of orderBook) {
-        if ((lvl.bidSize ?? 0) > 0) bestBid = Math.max(bestBid, lvl.price);
-        if ((lvl.askSize ?? 0) > 0) bestAsk = Math.min(bestAsk, lvl.price);
-      }
-    }
-
-    return {
-      bestBid: Number.isFinite(bestBid) ? bestBid : undefined,
-      bestAsk: Number.isFinite(bestAsk) ? bestAsk : undefined,
-    };
-  }, [currentOrderBookData, orderBook]);
-
-  // ----------------------- Load CSV -----------------------
+  // ---------- chargement fichier ----------
   const loadMarketData = useCallback((file: File) => {
     // reset
     setMarketData([]);
@@ -209,7 +180,11 @@ export function useTradingEngine() {
     setOrderBookSnapshots([]);
     setTrades([]);
     setCurrentTickLadder(null);
+    setCurrentOrderBookData(null);
+    setOrderBook([]);
     orderBookProcessor.resetVolume();
+    anchorRef.current = null;
+    orderBookProcessor.clearAnchor();
 
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -217,669 +192,514 @@ export function useTradingEngine() {
       Papa.parse(text, {
         header: true,
         skipEmptyLines: true,
-        worker: false,
         complete: (results) => {
-          try {
-            const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
-            const processedRows = new Set<string>();
-            const snaps: ParsedOrderBook[] = [];
-            const tEvents: OrderBookTrade[] = [];
+          const raw: Array<MarketEvent & { sortOrder: number }> = [];
+          const snaps: ParsedOrderBook[] = [];
+          const trs: OrderBookTrade[] = [];
 
-            results.data.forEach((row: any) => {
-              if (!row || Object.keys(row).length === 0) return;
-              const key = JSON.stringify(row);
-              if (processedRows.has(key)) return;
-              processedRows.add(key);
+          results.data.forEach((row: any) => {
+            if (!row) return;
+            const ts = parseTimestamp(row);
+            const type = normalizeEventType(row.event_type);
+            let sortOrder = 0;
+            if (type === "ORDERBOOK") sortOrder = 0;
+            else if (type === "BBO") sortOrder = 1;
+            else if (type === "TRADE") sortOrder = 2;
 
-              const timestamp = parseTimestamp(row);
-              const eventType = normalizeEventType(row.event_type);
+            if (type === "TRADE") {
+              const p = parseFloat(row.trade_price);
+              const s = parseFloat(row.trade_size);
+              const a = normalizeAggressor(row.aggressor);
+              if (!isFinite(p) || p <= 0 || !isFinite(s) || s <= 0 || !a) return;
+              const t = orderBookProcessor.parseTrade(row);
+              if (t) trs.push(t);
+              raw.push({
+                timestamp: ts,
+                sortOrder,
+                eventType: "TRADE",
+                tradePrice: p,
+                tradeSize: s,
+                aggressor: a,
+              });
+            } else if (type === "BBO") {
+              const bp = parseFloat(row.bid_price);
+              const ap = parseFloat(row.ask_price);
+              const bs = parseFloat(row.bid_size);
+              const asz = parseFloat(row.ask_size);
+              const hasBid = isFinite(bp) && bp > 0;
+              const hasAsk = isFinite(ap) && ap > 0;
+              if (!hasBid && !hasAsk) return;
+              raw.push({
+                timestamp: ts,
+                sortOrder,
+                eventType: "BBO",
+                bidPrice: hasBid ? bp : undefined,
+                askPrice: hasAsk ? ap : undefined,
+                bidSize: hasBid && isFinite(bs) ? bs : undefined,
+                askSize: hasAsk && isFinite(asz) ? asz : undefined,
+              });
+            } else if (type === "ORDERBOOK" || type === "ORDERBOOK_FULL") {
+              const bP = parseArrayField(row.book_bid_prices);
+              const bS = parseArrayField(row.book_bid_sizes);
+              const aP = parseArrayField(row.book_ask_prices);
+              const aS = parseArrayField(row.book_ask_sizes);
+              if (bP.length === 0 && aP.length === 0) return;
 
-              let sortOrder = 0;
-              if (eventType === 'ORDERBOOK') sortOrder = 0;
-              else if (eventType === 'BBO') sortOrder = 1;
-              else if (eventType === 'TRADE') sortOrder = 2;
+              const snap: ParsedOrderBook = {
+                bidPrices: bP,
+                bidSizes: bS,
+                askPrices: aP,
+                askSizes: aS,
+                bidOrders: [],
+                askOrders: [],
+                timestamp: new Date(ts),
+              };
+              snaps.push(snap);
+              raw.push({
+                timestamp: ts,
+                sortOrder,
+                eventType: "ORDERBOOK",
+                bookBidPrices: bP,
+                bookBidSizes: bS,
+                bookAskPrices: aP,
+                bookAskSizes: aS,
+              });
+            }
+          });
 
-              if (eventType === 'TRADE') {
-                const price = parseFloat(row.trade_price);
-                const size = parseFloat(row.trade_size);
-                const aggressor = normalizeAggressor(row.aggressor);
-                if (isNaN(price) || price <= 0 || isNaN(size) || size <= 0 || !aggressor) return;
-
-                const t = orderBookProcessor.parseTrade(row);
-                if (t) tEvents.push(t);
-
-                rawEvents.push({ timestamp, sortOrder, eventType: 'TRADE', tradePrice: price, tradeSize: size, aggressor });
-              } else if (eventType === 'BBO') {
-                const bidPrice = parseFloat(row.bid_price);
-                const askPrice = parseFloat(row.ask_price);
-                const bidSize = parseFloat(row.bid_size);
-                const askSize = parseFloat(row.ask_size);
-                const hasBid = !isNaN(bidPrice) && bidPrice > 0;
-                const hasAsk = !isNaN(askPrice) && askPrice > 0;
-                if (!hasBid && !hasAsk) return;
-
-                rawEvents.push({
-                  timestamp, sortOrder, eventType: 'BBO',
-                  bidPrice: hasBid ? bidPrice : undefined,
-                  askPrice: hasAsk ? askPrice : undefined,
-                  bidSize: hasBid && !isNaN(bidSize) ? bidSize : undefined,
-                  askSize: hasAsk && !isNaN(askSize) ? askSize : undefined
-                });
-              } else if (eventType === 'ORDERBOOK' || eventType === 'ORDERBOOK_FULL') {
-                const bidPrices = parseArrayField(row.book_bid_prices);
-                const bidSizes = parseArrayField(row.book_bid_sizes);
-                const bidOrders = parseArrayField(row.book_bid_orders);
-                const askPrices = parseArrayField(row.book_ask_prices);
-                const askSizes = parseArrayField(row.book_ask_sizes);
-                const askOrders = parseArrayField(row.book_ask_orders);
-
-                const bidValid = bidPrices.length === bidSizes.length &&
-                  (bidOrders.length === 0 || bidOrders.length === bidPrices.length);
-                const askValid = askPrices.length === askSizes.length &&
-                  (askOrders.length === 0 || askOrders.length === askPrices.length);
-                if (!bidValid || !askValid) return;
-                if (bidPrices.length === 0 && askPrices.length === 0) return;
-
-                const snap = orderBookProcessor.parseOrderBookSnapshot(row);
-                if (snap) snaps.push(snap);
-
-                rawEvents.push({
-                  timestamp, sortOrder, eventType: 'ORDERBOOK',
-                  bookBidPrices: bidPrices, bookAskPrices: askPrices,
-                  bookBidSizes: bidSizes, bookAskSizes: askSizes
-                });
-              }
-            });
-
-            rawEvents.sort((a, b) => a.timestamp !== b.timestamp
+          raw.sort((a, b) =>
+            a.timestamp !== b.timestamp
               ? a.timestamp - b.timestamp
-              : a.sortOrder - b.sortOrder);
+              : a.sortOrder - b.sortOrder
+          );
+          const events: MarketEvent[] = raw.map(({ sortOrder, ...e }) => e);
 
-            const events: MarketEvent[] = rawEvents.map(({ sortOrder, ...e }) => e);
+          // tick size
+          const allPrices = [
+            ...snaps.flatMap((s) => [...s.bidPrices, ...s.askPrices]),
+            ...trs.map((t) => t.price),
+          ];
+          if (allPrices.length > 0) {
+            orderBookProcessor.setTickSize(
+              orderBookProcessor.inferTickSize(allPrices)
+            );
+          }
 
-            // tick size
-            const allPrices = [
-              ...tEvents.map(t => t.price),
-              ...snaps.flatMap(s => [...s.bidPrices, ...s.askPrices])
-            ];
-            if (allPrices.length > 0) {
-              const inferred = orderBookProcessor.inferTickSize(allPrices);
-              orderBookProcessor.setTickSize(inferred);
-            }
-
-            snaps.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-            tEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
-
-            // initial price
-            let initialPrice = 19300;
-            const firstTrade = events.find(e => e.eventType === 'TRADE' && e.tradePrice && e.tradePrice > 0);
-            if (firstTrade?.tradePrice) {
-              initialPrice = firstTrade.tradePrice;
-            } else {
-              const firstPriceEvent = events.find(e =>
-                (e.eventType === 'ORDERBOOK' && ((e.bookBidPrices?.length ?? 0) > 0 || (e.bookAskPrices?.length ?? 0) > 0)) ||
-                (e.eventType === 'BBO' && (e.bidPrice || e.askPrice))
-              );
-              if (firstPriceEvent) {
-                if (firstPriceEvent.eventType === 'ORDERBOOK') {
-                  if (firstPriceEvent.bookBidPrices?.length) initialPrice = firstPriceEvent.bookBidPrices[0];
-                  else if (firstPriceEvent.bookAskPrices?.length) initialPrice = firstPriceEvent.bookAskPrices[0];
-                } else if (firstPriceEvent.eventType === 'BBO') {
-                  initialPrice = firstPriceEvent.bidPrice || firstPriceEvent.askPrice || initialPrice;
-                }
+          // prix initial
+          let initialPrice = 19300;
+          const ft = events.find(
+            (e) => e.eventType === "TRADE" && e.tradePrice && e.tradePrice > 0
+          );
+          if (ft?.tradePrice) initialPrice = ft.tradePrice;
+          else {
+            const f = events.find(
+              (e) =>
+                (e.eventType === "ORDERBOOK" &&
+                  ((e.bookBidPrices && e.bookBidPrices.length) ||
+                    (e.bookAskPrices && e.bookAskPrices.length))) ||
+                (e.eventType === "BBO" && (e.bidPrice || e.askPrice))
+            );
+            if (f) {
+              if (f.eventType === "ORDERBOOK") {
+                if (f.bookBidPrices?.length) initialPrice = f.bookBidPrices[0]!;
+                else if (f.bookAskPrices?.length)
+                  initialPrice = f.bookAskPrices[0]!;
+              } else if (f.eventType === "BBO") {
+                initialPrice = f.bidPrice ?? f.askPrice ?? initialPrice;
               }
             }
-
-            setCurrentPrice(initialPrice);
-            setMarketData(events);
-            setOrderBookSnapshots(snaps);
-            setTrades(tEvents);
-
-            if (snaps.length > 0) {
-              const initialLadder = orderBookProcessor.createTickLadder(snaps[0], tEvents);
-              setCurrentTickLadder(initialLadder);
-            }
-          } catch (err) {
-            console.error('CSV processing error:', err);
-            throw err;
           }
-        }
+
+          // ancre fixe
+          anchorRef.current = initialPrice;
+          orderBookProcessor.setAnchorByPrice(initialPrice);
+
+          // states
+          setCurrentPrice(initialPrice);
+          setMarketData(events);
+          setOrderBookSnapshots(snaps.sort((a, b) => +a.timestamp - +b.timestamp));
+          setTrades(trs.sort((a, b) => +a.timestamp - +b.timestamp));
+
+          // ladder initial
+          if (snaps.length) {
+            const ladder = orderBookProcessor.createTickLadder(snaps[0], trs);
+            setCurrentTickLadder(ladder);
+          }
+        },
       });
     };
-    reader.readAsText(file, 'UTF-8');
+    reader.readAsText(file, "UTF-8");
   }, [orderBookProcessor]);
 
-  // ---------------- Flush TAS aggregation ----------------
-  const flushAggregationBuffer = useCallback(() => {
-    setAggregationBuffer(prev => {
-      if (!prev || prev.trades.length === 0) return null;
-      const aggregatedTrade: Trade = {
-        id: `agg-${Date.now()}-${Math.random()}`,
-        timestamp: prev.trades[prev.trades.length - 1].timestamp,
-        price: prev.key.price,
-        size: prev.trades.reduce((s, t) => s + t.size, 0),
-        aggressor: prev.key.aggressor,
-        aggregatedCount: prev.trades.length
-      };
-      setTimeAndSales(prevTAS => [aggregatedTrade, ...prevTAS.slice(0, 99)]);
-      return null;
-    });
-  }, []);
+  // ---------- exécution d’événements ----------
+  const processEvent = useCallback(
+    (event: MarketEvent) => {
+      switch (event.eventType) {
+        case "TRADE": {
+          if (event.tradePrice && event.tradeSize && event.aggressor) {
+            // last
+            setCurrentPrice(event.tradePrice);
 
-  // ---------------- Core event processor ----------------
-  const processEvent = useCallback((event: MarketEvent) => {
-    switch (event.eventType) {
-      case 'TRADE': {
-        if (event.tradePrice && event.tradeSize && event.aggressor) {
-          const trade: Trade = {
-            id: `trade-${Date.now()}-${Math.random()}`,
-            timestamp: event.timestamp,
-            price: event.tradePrice,
-            size: event.tradeSize,
-            aggressor: event.aggressor
-          };
+            // TAS (sans sur-aggrégation ici)
+            const t: Trade = {
+              id: `trade-${Date.now()}-${Math.random()}`,
+              timestamp: event.timestamp,
+              price: event.tradePrice,
+              size: event.tradeSize,
+              aggressor: event.aggressor,
+            };
+            setTimeAndSales((prev) => [t, ...prev.slice(0, 99)]);
 
-          // aggregation TAS
-          setAggregationBuffer(prev => {
-            const key = { price: event.tradePrice!, aggressor: event.aggressor! };
-            const shouldAggregate =
-              prev &&
-              prev.key.price === key.price &&
-              prev.key.aggressor === key.aggressor &&
-              (event.timestamp - prev.lastTimestamp) <= AGGREGATION_WINDOW_MS;
+            // Volume par prix (grille 0.25)
+            const grid = roundToGrid(event.tradePrice);
+            setVolumeByPrice((prev) => {
+              const next = new Map(prev);
+              next.set(grid, (next.get(grid) ?? 0) + event.tradeSize!);
+              return next;
+            });
 
-            if (shouldAggregate) {
-              return { trades: [...prev.trades, trade], lastTimestamp: event.timestamp, key };
-            } else {
-              if (prev && prev.trades.length > 0) {
-                const aggregatedTrade: Trade = {
-                  id: `agg-${Date.now()}-${Math.random()}`,
-                  timestamp: prev.trades[prev.trades.length - 1].timestamp,
-                  price: prev.key.price,
-                  size: prev.trades.reduce((s, t) => s + t.size, 0),
-                  aggressor: prev.key.aggressor,
-                  aggregatedCount: prev.trades.length
-                };
-                setTimeAndSales(prevTAS => [aggregatedTrade, ...prevTAS.slice(0, 99)]);
+            // Partiels LIMIT basés sur prints (optionnel)
+            setOrders((prev) =>
+              prev.map((o) => {
+                if (o.filled >= o.quantity) return o;
+                const hit =
+                  (o.side === "BUY" && event.tradePrice! <= o.price) ||
+                  (o.side === "SELL" && event.tradePrice! >= o.price);
+                if (!hit) return o;
+                const add = Math.min(o.quantity - o.filled, event.tradeSize!);
+                return { ...o, filled: o.filled + add };
+              })
+            );
+
+            // historise pour ladder
+            setTrades((prev) => [
+              ...prev,
+              {
+                timestamp: new Date(event.timestamp),
+                price: event.tradePrice!,
+                size: event.tradeSize!,
+                aggressor: event.aggressor!,
+              },
+            ]);
+          }
+          break;
+        }
+
+        case "BBO": {
+          // met à jour le mini-book + reconstruit le ladder dans **le même frame**
+          setCurrentOrderBookData((prev) => {
+            const next = {
+              book_bid_prices: event.bidPrice ? [event.bidPrice] : prev?.book_bid_prices ?? [],
+              book_ask_prices: event.askPrice ? [event.askPrice] : prev?.book_ask_prices ?? [],
+              book_bid_sizes:  event.bidSize  ? [event.bidSize]  : prev?.book_bid_sizes  ?? [],
+              book_ask_sizes:  event.askSize  ? [event.askSize]  : prev?.book_ask_sizes  ?? [],
+            };
+
+            // Reconstruit ladder tout de suite, même ancre
+            const snap: ParsedOrderBook = {
+              bidPrices: next.book_bid_prices,
+              bidSizes: next.book_bid_sizes,
+              askPrices: next.book_ask_prices,
+              askSizes: next.book_ask_sizes,
+              bidOrders: [],
+              askOrders: [],
+              timestamp: new Date(event.timestamp),
+            };
+            if (anchorRef.current != null)
+              orderBookProcessor.setAnchorByPrice(anchorRef.current);
+            const ladder = orderBookProcessor.createTickLadder(
+              snap,
+              tradesRef.current
+            );
+            setCurrentTickLadder(ladder);
+
+            // alimente la vue “10 niveaux” locale
+            const newBook: OrderBookLevel[] = [];
+            const add = (p?: number, s?: number, side?: "bid" | "ask") => {
+              if (!p || !s || p <= 0 || s <= 0) return;
+              const gp = roundToGrid(p);
+              const i = newBook.findIndex((l) => Math.abs(l.price - gp) < 0.125);
+              if (i >= 0) {
+                if (side === "bid") newBook[i] = { ...newBook[i], bidSize: s };
+                else newBook[i] = { ...newBook[i], askSize: s };
+              } else {
+                newBook.push({
+                  price: gp,
+                  bidSize: side === "bid" ? s : 0,
+                  askSize: side === "ask" ? s : 0,
+                  volume: volumeByPrice.get(gp) || 0,
+                });
               }
-              return { trades: [trade], lastTimestamp: event.timestamp, key };
-            }
-          });
+            };
+            add(event.bidPrice, event.bidSize, "bid");
+            add(event.askPrice, event.askSize, "ask");
+            newBook.sort((a, b) => b.price - a.price);
+            setOrderBook(newBook);
 
-          // last
-          setCurrentPrice(event.tradePrice);
-
-          // volume cumulé par prix
-          const gridPrice = roundToGrid(event.tradePrice);
-          setVolumeByPrice(prev => {
-            const next = new Map(prev);
-            next.set(gridPrice, (next.get(gridPrice) ?? 0) + event.tradeSize);
             return next;
           });
-
-          // UI volume
-          setOrderBook(prev => prev.map(level =>
-            Math.abs(level.price - gridPrice) < 0.125
-              ? { ...level, volume: (level.volume || 0) + event.tradeSize! }
-              : level
-          ));
-
-          // filets de sécurité : remplir des limites via prints
-          setOrders(prevOrders =>
-            prevOrders.map(order => {
-              if (order.filled >= order.quantity) return order;
-              const shouldFill =
-                (order.side === 'BUY' && event.tradePrice! <= order.price) ||
-                (order.side === 'SELL' && event.tradePrice! >= order.price);
-              if (!shouldFill) return order;
-              const fillSize = Math.min(order.quantity - order.filled, event.tradeSize!);
-              return { ...order, filled: order.filled + fillSize };
-            })
-          );
-        }
-        break;
-      }
-
-      case 'BBO': {
-        // mini-book
-        if (event.bidPrice || event.askPrice) {
-          setOrderBook(prev => {
-            const book = [...prev];
-            if (event.bidPrice && event.bidPrice > 0) {
-              const p = roundToGrid(event.bidPrice);
-              const i = book.findIndex(l => Math.abs(l.price - p) < 0.125);
-              if (i >= 0) book[i] = { ...book[i], bidSize: event.bidSize || 0 };
-              else book.push({ price: p, bidSize: event.bidSize || 0, askSize: 0, volume: volumeByPrice.get(p) || 0 });
-            }
-            if (event.askPrice && event.askPrice > 0) {
-              const p = roundToGrid(event.askPrice);
-              const i = book.findIndex(l => Math.abs(l.price - p) < 0.125);
-              if (i >= 0) book[i] = { ...book[i], askSize: event.askSize || 0 };
-              else book.push({ price: p, bidSize: 0, askSize: event.askSize || 0, volume: volumeByPrice.get(p) || 0 });
-            }
-            book.sort((a, b) => b.price - a.price);
-            return book;
-          });
+          break;
         }
 
-        // top-of-book → limite
-        const bestBid = event.bidPrice;
-        const bestAsk = event.askPrice;
-
-        if (Number.isFinite(bestBid as number) || Number.isFinite(bestAsk as number)) {
-          setOrders(prev => {
-            const updated: Order[] = [];
-
-            for (const order of prev) {
-              let shouldExecute = false;
-              if (order.side === 'BUY' && Number.isFinite(bestAsk as number) && (bestAsk as number) <= order.price) {
-                shouldExecute = true;
-              }
-              if (order.side === 'SELL' && Number.isFinite(bestBid as number) && (bestBid as number) >= order.price) {
-                shouldExecute = true;
-              }
-              if (!shouldExecute) { updated.push(order); continue; }
-
-              const qty = order.quantity - order.filled;
-              if (qty <= 0) continue;
-              const fillPrice = order.price;
-
-              // Position + realized
-              setPosition(prevPos => {
-                const newQty = prevPos.quantity + (order.side === 'BUY' ? qty : -qty);
-                let realized = 0;
-                if (prevPos.quantity !== 0) {
-                  const closing = (prevPos.quantity > 0 && order.side === 'SELL') || (prevPos.quantity < 0 && order.side === 'BUY');
-                  if (closing) {
-                    const closeQty = Math.min(qty, Math.abs(prevPos.quantity));
-                    const tickDiff =
-                      prevPos.quantity > 0
-                        ? (fillPrice - prevPos.averagePrice) / TICK_SIZE
-                        : (prevPos.averagePrice - fillPrice) / TICK_SIZE;
-                    realized = closeQty * tickDiff * TICK_VALUE;
-                    setRealizedPnLTotal(t => t + realized);
-                  }
-                }
-
-                let newAvg = prevPos.averagePrice;
-                if (newQty === 0) newAvg = 0;
-                else if ((prevPos.quantity >= 0 && order.side === 'BUY') || (prevPos.quantity <= 0 && order.side === 'SELL')) {
-                  const prevAbs = Math.abs(prevPos.quantity);
-                  const total = prevAbs + qty;
-                  const prevVal = prevPos.averagePrice * prevAbs;
-                  const addVal = fillPrice * qty;
-                  newAvg = total > 0 ? (prevVal + addVal) / total : fillPrice;
-                } else {
-                  newAvg = fillPrice;
-                }
-
-                return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
-              });
-
-              setCurrentPrice(fillPrice);
-
-              // TAS synthétique
-              const t: Trade = {
-                id: `limit-bbo-${Date.now()}-${Math.random()}`,
-                timestamp: Date.now(),
-                price: fillPrice,
-                size: qty,
-                aggressor: order.side
-              };
-              setTimeAndSales(prevTnS => [t, ...prevTnS.slice(0, 99)]);
-
-              // Volume cumulé
-              const grid = roundToGrid(fillPrice);
-              setVolumeByPrice(prevMap => {
-                const next = new Map(prevMap);
-                next.set(grid, (next.get(grid) ?? 0) + qty);
-                return next;
-              });
-
-              // Ladder avec trade synthétique
-              setTrades(prevTrades => {
-                const nextTrades = [
-                  ...prevTrades,
-                  { timestamp: new Date(), price: fillPrice, size: qty, aggressor: order.side }
-                ];
-                const snaps = orderBookSnapshotsRef.current;
-                if (snaps.length > 0) {
-                  const lastSnap = snaps[snaps.length - 1];
-                  const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-                  setCurrentTickLadder(ladder);
-                }
-                return nextTrades;
-              });
-              // (ordre rempli ⇒ on ne le remet pas)
-            }
-
-            return updated;
-          });
-
-          setPosition(prev => ({ ...prev })); // force rerender
-        }
-
-        // Maintenir currentOrderBookData pour market @ BBO
-        setCurrentOrderBookData(prevData => ({
-          book_bid_prices: event.bidPrice ? [event.bidPrice] : (prevData?.book_bid_prices ?? []),
-          book_ask_prices: event.askPrice ? [event.askPrice] : (prevData?.book_ask_prices ?? []),
-          book_bid_sizes: event.bidSize ? [event.bidSize] : (prevData?.book_bid_sizes ?? []),
-          book_ask_sizes: event.askSize ? [event.askSize] : (prevData?.book_ask_sizes ?? [])
-        }));
-
-        break;
-      }
-
-      case 'ORDERBOOK': {
-        if (event.bookBidPrices || event.bookAskPrices) {
-          // garder 20 niveaux
-          setCurrentOrderBookData({
-            book_bid_prices: event.bookBidPrices?.slice(0, 20) || [],
-            book_ask_prices: event.bookAskPrices?.slice(0, 20) || [],
-            book_bid_sizes: event.bookBidSizes?.slice(0, 20) || [],
-            book_ask_sizes: event.bookAskSizes?.slice(0, 20) || []
-          });
-
-          // ladder depuis snapshot le plus proche
-          const currentSnapshot = orderBookSnapshotsRef.current.find(s =>
-            Math.abs(s.timestamp.getTime() - event.timestamp) < 1000
-          );
-
-          if (currentSnapshot) {
-            const list = orderBookSnapshotsRef.current;
-            const idx = list.findIndex(s => s === currentSnapshot);
-            const prevSnap = idx > 0 ? list[idx - 1] : undefined;
-            const ladder = orderBookProcessor.createTickLadder(currentSnapshot, tradesRef.current, prevSnap?.timestamp);
-            setCurrentTickLadder(ladder);
-          } else {
+        case "ORDERBOOK": {
+          if (event.bookBidPrices || event.bookAskPrices) {
             const snap: ParsedOrderBook = {
-              bidPrices: event.bookBidPrices || [],
-              bidSizes: event.bookBidSizes || [],
+              bidPrices: event.bookBidPrices ?? [],
+              bidSizes: event.bookBidSizes ?? [],
               bidOrders: [],
-              askPrices: event.bookAskPrices || [],
-              askSizes: event.bookAskSizes || [],
+              askPrices: event.bookAskPrices ?? [],
+              askSizes: event.bookAskSizes ?? [],
               askOrders: [],
-              timestamp: new Date(event.timestamp)
+              timestamp: new Date(event.timestamp),
             };
-            const ladder = orderBookProcessor.createTickLadder(snap, tradesRef.current);
+
+            if (anchorRef.current != null)
+              orderBookProcessor.setAnchorByPrice(anchorRef.current);
+            const ladder = orderBookProcessor.createTickLadder(
+              snap,
+              tradesRef.current
+            );
             setCurrentTickLadder(ladder);
-          }
 
-          // mini-book local (10 niveaux)
-          const newBook: OrderBookLevel[] = [];
-          const priceMap = new Map<number, OrderBookLevel>();
+            // stocke 20 niveaux pour l’UI
+            setCurrentOrderBookData({
+              book_bid_prices: (event.bookBidPrices ?? []).slice(0, 20),
+              book_ask_prices: (event.bookAskPrices ?? []).slice(0, 20),
+              book_bid_sizes: (event.bookBidSizes ?? []).slice(0, 20),
+              book_ask_sizes: (event.bookAskSizes ?? []).slice(0, 20),
+            });
 
-          if (event.bookBidPrices && event.bookBidSizes) {
-            for (let i = 0; i < Math.min(event.bookBidPrices.length, 10); i++) {
-              const bp = event.bookBidPrices[i];
-              const bs = event.bookBidSizes[i] || 0;
-              if (bp > 0 && bs > 0) {
-                const gp = roundToGrid(bp);
+            // reconstruit la vue locale 10 niveaux (affichage)
+            const priceMap = new Map<number, OrderBookLevel>();
+            const list: OrderBookLevel[] = [];
+            const fillSide = (
+              prices?: number[],
+              sizes?: number[],
+              side?: "bid" | "ask"
+            ) => {
+              if (!prices || !sizes) return;
+              const N = Math.min(prices.length, 10);
+              for (let i = 0; i < N; i++) {
+                const p = prices[i];
+                const s = sizes[i] ?? 0;
+                if (!(p > 0 && s > 0)) continue;
+                const gp = roundToGrid(p);
                 const ex = priceMap.get(gp);
-                if (ex) ex.bidSize = bs;
-                else {
+                if (ex) {
+                  if (side === "bid") ex.bidSize = s;
+                  else ex.askSize = s;
+                } else {
                   const level: OrderBookLevel = {
-                    price: gp, bidSize: bs, askSize: 0,
-                    volume: volumeByPrice.get(gp) || 0
+                    price: gp,
+                    bidSize: side === "bid" ? s : 0,
+                    askSize: side === "ask" ? s : 0,
+                    volume: volumeByPrice.get(gp) || 0,
                   };
                   priceMap.set(gp, level);
-                  newBook.push(level);
+                  list.push(level);
                 }
               }
-            }
+            };
+            fillSide(event.bookBidPrices, event.bookBidSizes, "bid");
+            fillSide(event.bookAskPrices, event.bookAskSizes, "ask");
+            list.sort((a, b) => b.price - a.price);
+            setOrderBook(list);
           }
-
-          if (event.bookAskPrices && event.bookAskSizes) {
-            for (let i = 0; i < Math.min(event.bookAskPrices.length, 10); i++) {
-              const ap = event.bookAskPrices[i];
-              const asz = event.bookAskSizes[i] || 0;
-              if (ap > 0 && asz > 0) {
-                const gp = roundToGrid(ap);
-                const ex = priceMap.get(gp);
-                if (ex) ex.askSize = asz;
-                else {
-                  const level: OrderBookLevel = {
-                    price: gp, bidSize: 0, askSize: asz,
-                    volume: volumeByPrice.get(gp) || 0
-                  };
-                  priceMap.set(gp, level);
-                  newBook.push(level);
-                }
-              }
-            }
-          }
-
-          newBook.sort((a, b) => b.price - a.price);
-          setOrderBook(newBook);
+          break;
         }
-        break;
       }
-    }
-  }, [AGGREGATION_WINDOW_MS, orderBookProcessor, volumeByPrice]);
+    },
+    [orderBookProcessor, volumeByPrice]
+  );
 
-  // ---------------- Playback toggle ----------------
-  const togglePlayback = useCallback(() => {
-    setIsPlaying(prev => {
-      if (prev) flushAggregationBuffer();
-      return !prev;
-    });
-  }, [flushAggregationBuffer]);
-
-  // ---------------- Place LIMIT ----------------
-  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
+  // ---------- ordres ----------
+  const placeLimitOrder = useCallback((side: Side, price: number, quantity: number) => {
     const newOrder: Order = {
       id: `order-${++orderIdCounter.current}`,
-      side, price, quantity,
+      side,
+      price,
+      quantity,
       filled: 0,
-      timestamp: Date.now()
-    };
-    setOrders(prev => [...prev, newOrder]);
-  }, []);
-
-  // ---------------- Place MARKET @ BBO (fix) ----------------
-  const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number) => {
-    const { bestBid, bestAsk } = getBestPrices();
-
-    let fillPrice =
-      side === 'BUY'
-        ? (bestAsk ?? currentPrice)
-        : (bestBid ?? currentPrice);
-
-    fillPrice = roundToGrid(fillPrice);
-
-    // Position + realized
-    setPosition(prev => {
-      const newQty = prev.quantity + (side === 'BUY' ? quantity : -quantity);
-
-      let realized = 0;
-      if (prev.quantity !== 0) {
-        const closing = (prev.quantity > 0 && side === 'SELL') || (prev.quantity < 0 && side === 'BUY');
-        if (closing) {
-          const closeQty = Math.min(quantity, Math.abs(prev.quantity));
-          const tickDiff =
-            prev.quantity > 0
-              ? (fillPrice - prev.averagePrice) / TICK_SIZE
-              : (prev.averagePrice - fillPrice) / TICK_SIZE;
-          realized = closeQty * tickDiff * TICK_VALUE;
-          setRealizedPnLTotal(t => t + realized);
-        }
-      }
-
-      let newAvg = prev.averagePrice;
-      if (newQty === 0) newAvg = 0;
-      else if ((prev.quantity >= 0 && side === 'BUY') || (prev.quantity <= 0 && side === 'SELL')) {
-        const prevAbs = Math.abs(prev.quantity);
-        const totalQty = prevAbs + quantity;
-        const prevVal = prev.averagePrice * prevAbs;
-        const addVal = fillPrice * quantity;
-        newAvg = totalQty > 0 ? (prevVal + addVal) / totalQty : fillPrice;
-      } else {
-        newAvg = fillPrice; // inversion
-      }
-
-      return { ...prev, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
-    });
-
-    setCurrentPrice(fillPrice);
-
-    const trade: Trade = {
-      id: `mkt-${Date.now()}-${Math.random()}`,
       timestamp: Date.now(),
-      price: fillPrice,
-      size: quantity,
-      aggressor: side
     };
-    setTimeAndSales(prev => [trade, ...prev.slice(0, 99)]);
-
-    const grid = roundToGrid(fillPrice);
-    setVolumeByPrice(prev => {
-      const next = new Map(prev);
-      next.set(grid, (next.get(grid) ?? 0) + quantity);
-      return next;
-    });
-
-    setTrades(prev => {
-      const nextTrades = [
-        ...prev,
-        { timestamp: new Date(), price: fillPrice, size: quantity, aggressor: side }
-      ];
-      const snaps = orderBookSnapshotsRef.current;
-      if (snaps.length > 0) {
-        const lastSnap = snaps[snaps.length - 1];
-        const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        setCurrentTickLadder(ladder);
-      }
-      return nextTrades;
-    });
-  }, [getBestPrices, currentPrice, orderBookProcessor]);
-
-  // ---------------- Cancel LIMIT @ price ----------------
-  const cancelOrdersAtPrice = useCallback((price: number) => {
-    setOrders(prev => prev.filter(order => Math.abs(order.price - price) >= 0.125));
+    setOrders((prev) => [...prev, newOrder]);
   }, []);
 
-  // ---------------- PnL (unrealized) ----------------
+  const placeMarketOrder = useCallback(
+    (side: Side, quantity: number) => {
+      const bestAsk = currentOrderBookData?.book_ask_prices?.[0];
+      const bestBid = currentOrderBookData?.book_bid_prices?.[0];
+      const fillPrice = side === "BUY" ? (bestAsk ?? currentPrice) : (bestBid ?? currentPrice);
+
+      setPosition((prev) => {
+        const newQty = prev.quantity + (side === "BUY" ? quantity : -quantity);
+
+        let realized = 0;
+        if (prev.quantity !== 0) {
+          const closing =
+            (prev.quantity > 0 && side === "SELL") ||
+            (prev.quantity < 0 && side === "BUY");
+          if (closing) {
+            const closeQty = Math.min(quantity, Math.abs(prev.quantity));
+            const tickDiff =
+              prev.quantity > 0
+                ? (fillPrice - prev.averagePrice) / TICK_SIZE
+                : (prev.averagePrice - fillPrice) / TICK_SIZE;
+            realized = closeQty * tickDiff * TICK_VALUE;
+            setRealizedPnLTotal((t) => t + realized);
+          }
+        }
+
+        let newAvg = prev.averagePrice;
+        if (newQty === 0) newAvg = 0;
+        else if (
+          (prev.quantity >= 0 && side === "BUY") ||
+          (prev.quantity <= 0 && side === "SELL")
+        ) {
+          const prevAbs = Math.abs(prev.quantity);
+          const totalQty = prevAbs + quantity;
+          const prevVal = prev.averagePrice * prevAbs;
+          const addVal = fillPrice * quantity;
+          newAvg = totalQty > 0 ? (prevVal + addVal) / totalQty : fillPrice;
+        } else {
+          newAvg = fillPrice;
+        }
+
+        return {
+          ...prev,
+          quantity: newQty,
+          averagePrice: newAvg,
+          marketPrice: fillPrice,
+        };
+      });
+
+      setCurrentPrice(fillPrice);
+
+      const t: Trade = {
+        id: `mkt-${Date.now()}-${Math.random()}`,
+        timestamp: Date.now(),
+        price: fillPrice,
+        size: quantity,
+        aggressor: side,
+      };
+      setTimeAndSales((prev) => [t, ...prev.slice(0, 99)]);
+
+      const grid = roundToGrid(fillPrice);
+      setVolumeByPrice((prev) => {
+        const next = new Map(prev);
+        next.set(grid, (next.get(grid) ?? 0) + quantity);
+        return next;
+      });
+
+      // Ajoute aux trades pour que le ladder marque le lastTick
+      setTrades((prev) => [
+        ...prev,
+        { timestamp: new Date(), price: fillPrice, size: quantity, aggressor: side },
+      ]);
+    },
+    [currentOrderBookData, currentPrice, orderBookProcessor]
+  );
+
+  const cancelOrdersAtPrice = useCallback((price: number) => {
+    setOrders((prev) => prev.filter((o) => Math.abs(o.price - price) >= 0.125));
+  }, []);
+
+  // ---------- PnL ----------
   useEffect(() => {
     const tickDiff = (currentPrice - position.averagePrice) / TICK_SIZE;
     const unrealized = position.quantity * tickDiff * TICK_VALUE;
     setPnl({ unrealized, realized: realizedPnLTotal, total: unrealized + realizedPnLTotal });
   }, [position, currentPrice, realizedPnLTotal]);
 
-  // ---------------- Filet de sécu LIMIT via currentPrice ----------------
+  // ---------- exécution LIMIT par crossing du last (filet de sécurité) ----------
   useEffect(() => {
     if (currentPrice <= 0) return;
-
-    setOrders(prevOrders => {
-      const updated = [...prevOrders];
-
+    setOrders((prev) => {
+      const updated = [...prev];
       for (let i = updated.length - 1; i >= 0; i--) {
-        const order = updated[i];
-        let shouldExecute = false;
+        const o = updated[i];
+        const hit =
+          (o.side === "BUY" && currentPrice <= o.price) ||
+          (o.side === "SELL" && currentPrice >= o.price);
+        if (!hit) continue;
 
-        if (order.side === 'BUY' && currentPrice <= order.price) shouldExecute = true;
-        else if (order.side === 'SELL' && currentPrice >= order.price) shouldExecute = true;
+        const qty = o.quantity - o.filled;
+        if (qty <= 0) continue;
+        const fillPrice = o.price;
 
-        if (!shouldExecute) continue;
-
-        const fillPrice = order.price;
-        const quantity = order.quantity - order.filled;
-
-        setPosition(prev => {
-          const newQty = prev.quantity + (order.side === 'BUY' ? quantity : -quantity);
-
+        setPosition((prevPos) => {
+          const newQty = prevPos.quantity + (o.side === "BUY" ? qty : -qty);
           let realized = 0;
-          if (prev.quantity !== 0) {
-            const closing = (prev.quantity > 0 && order.side === 'SELL') || (prev.quantity < 0 && order.side === 'BUY');
+          if (prevPos.quantity !== 0) {
+            const closing =
+              (prevPos.quantity > 0 && o.side === "SELL") ||
+              (prevPos.quantity < 0 && o.side === "BUY");
             if (closing) {
-              const closeQty = Math.min(quantity, Math.abs(prev.quantity));
+              const closeQty = Math.min(qty, Math.abs(prevPos.quantity));
               const tickDiff =
-                prev.quantity > 0
-                  ? (fillPrice - prev.averagePrice) / TICK_SIZE
-                  : (prev.averagePrice - fillPrice) / TICK_SIZE;
+                prevPos.quantity > 0
+                  ? (fillPrice - prevPos.averagePrice) / TICK_SIZE
+                  : (prevPos.averagePrice - fillPrice) / TICK_SIZE;
               realized = closeQty * tickDiff * TICK_VALUE;
-              setRealizedPnLTotal(t => t + realized);
+              setRealizedPnLTotal((t) => t + realized);
             }
           }
-
-          let newAvg = prev.averagePrice;
+          let newAvg = prevPos.averagePrice;
           if (newQty === 0) newAvg = 0;
-          else if ((prev.quantity > 0 && order.side === 'BUY') || (prev.quantity < 0 && order.side === 'SELL')) {
-            const prevAbs = Math.abs(prev.quantity);
-            const total = prevAbs + quantity;
-            const prevVal = prev.averagePrice * prevAbs;
-            const addVal = fillPrice * quantity;
+          else if (
+            (prevPos.quantity > 0 && o.side === "BUY") ||
+            (prevPos.quantity < 0 && o.side === "SELL")
+          ) {
+            const prevAbs = Math.abs(prevPos.quantity);
+            const total = prevAbs + qty;
+            const prevVal = prevPos.averagePrice * prevAbs;
+            const addVal = fillPrice * qty;
             newAvg = total > 0 ? (prevVal + addVal) / total : fillPrice;
-          } else if (Math.sign(newQty) !== Math.sign(prev.quantity)) {
+          } else if (Math.sign(newQty) !== Math.sign(prevPos.quantity)) {
             newAvg = fillPrice;
           }
 
-          return { ...prev, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
+          return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: fillPrice };
         });
 
-        // TAS + volume + ladder
-        const t: Trade = {
-          id: `limit-trade-${Date.now()}-${i}`,
-          timestamp: Date.now(),
-          price: fillPrice,
-          size: quantity,
-          aggressor: order.side
-        };
-        setTimeAndSales(prev => [t, ...prev]);
-
-        const grid = roundToGrid(fillPrice);
-        setVolumeByPrice(prevMap => {
-          const next = new Map(prevMap);
-          next.set(grid, (next.get(grid) ?? 0) + quantity);
-          return next;
-        });
-
-        setTrades(prevTrades => {
-          const nextTrades = [
-            ...prevTrades,
-            { timestamp: new Date(), price: fillPrice, size: quantity, aggressor: order.side }
-          ];
-          const snaps = orderBookSnapshotsRef.current;
-          if (snaps.length > 0) {
-            const lastSnap = snaps[snaps.length - 1];
-            const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-            setCurrentTickLadder(ladder);
-          }
-          return nextTrades;
-        });
-
+        // book-keep
         updated.splice(i, 1);
-      }
 
+        // Trades synthétiques pour afficher le last dans le ladder
+        setTrades((prev) => [
+          ...prev,
+          { timestamp: new Date(), price: fillPrice, size: qty, aggressor: o.side },
+        ]);
+      }
       return updated;
     });
-  }, [currentPrice, orderBookProcessor]);
+  }, [currentPrice]);
 
-  // ---------------- Playback loop ----------------
+  // ---------- boucle de lecture ----------
   useEffect(() => {
     if (isPlaying && currentEventIndex < marketData.length) {
-      const currentEvent = marketData[currentEventIndex];
-      const nextEvent = marketData[currentEventIndex + 1];
-
-      if (nextEvent) {
-        const timeDiff = nextEvent.timestamp - currentEvent.timestamp;
-        const baseDelay = Math.min(timeDiff, 5000);
-        const adjusted = baseDelay / playbackSpeed;
-        const minDelay = playbackSpeed === 1 ? 0 : 1;
-        const delay = Math.max(minDelay, adjusted);
-
-        playbackTimerRef.current = setTimeout(() => {
-          processEvent(currentEvent);
-          setCurrentEventIndex(prev => prev + 1);
-        }, delay);
+      const cur = marketData[currentEventIndex];
+      const next = marketData[currentEventIndex + 1];
+      const tick = () => {
+        processEvent(cur);
+        setCurrentEventIndex((i) => i + 1);
+      };
+      if (next) {
+        const dt = next.timestamp - cur.timestamp;
+        const base = Math.min(dt, 5000);
+        const delay = Math.max(playbackSpeed === 1 ? 0 : 1, base / playbackSpeed);
+        playbackTimerRef.current = setTimeout(tick, delay);
       } else {
-        processEvent(currentEvent);
-        flushAggregationBuffer();
+        tick();
         setIsPlaying(false);
       }
     }
+    return () => {
+      if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    };
+  }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent]);
 
-    return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
-  }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
+  const togglePlayback = useCallback(() => setIsPlaying((p) => !p), []);
 
   return {
     marketData,
@@ -898,9 +718,10 @@ export function useTradingEngine() {
     placeLimitOrder,
     placeMarketOrder,
     cancelOrdersAtPrice,
+    // pour le DOM
     orderBookSnapshots,
     trades,
     currentTickLadder,
-    orderBookProcessor
+    orderBookProcessor,
   };
 }
