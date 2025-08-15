@@ -96,16 +96,17 @@ export function TradingInterface() {
           onKeyDown={onSpaceToCenter}
         >
           <TickLadder
-            ref={ladderRef}
-            tickLadder={currentTickLadder}
-            currentPrice={currentPrice}
-            orders={orders}
-            position={position}
-            onLimitOrder={placeLimitOrder}
-            onMarketOrder={placeMarketOrder}
-            onCancelOrders={cancelOrdersAtPrice}
-            disabled={!isPlaying && marketData.length === 0}
-          />
+  tickLadder={currentTickLadder}
+  currentPrice={currentPrice}
+  orders={orders}
+  onLimitOrder={placeLimitOrder}
+  onMarketOrder={placeMarketOrder}
+  onCancelOrders={cancelOrdersAtPrice}
+  disabled={!isPlaying && marketData.length === 0}
+  position={position}                // 👈 ajoute ceci
+  tickSize={0.25}                    // 👈 optionnel : explicite
+  extraTicksEachSide={1000}          // 👈 optionnel : “taille” du scroll
+/>
         </div>
 
         {/* Right Panel — Time & Sales */}
