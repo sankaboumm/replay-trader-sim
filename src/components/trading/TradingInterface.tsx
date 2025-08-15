@@ -1,16 +1,17 @@
 import { useState, useRef, useCallback } from 'react';
+import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { PositionPanel } from './PositionPanel';
+import { Input } from '@/components/ui/input';
+import { DOMladder } from './DOMladder';
+import { TickLadder } from './TickLadder';
 import { TimeAndSales } from './TimeAndSales';
 import { PlaybackControls } from './PlaybackControls';
+import { PositionPanel } from './PositionPanel';
 import { FileUpload } from './FileUpload';
-import { TickLadder } from './TickLadder';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
 
 export function TradingInterface() {
-  const centerPaneRef = useRef<HTMLDivElement>(null);
-  const ladderRef = useRef<{ centerOnPrice: (p: number) => void } | null>(null);
-
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     marketData,
     position,
@@ -28,22 +29,35 @@ export function TradingInterface() {
     placeLimitOrder,
     placeMarketOrder,
     cancelOrdersAtPrice,
-    currentTickLadder,
+    currentTickLadder
   } = useTradingEngine();
 
-  const onSpaceToCenter = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Espace = recentrer le ladder sur le prix courant
-    if (e.code === 'Space') {
-      e.preventDefault();
-      ladderRef.current?.centerOnPrice(currentPrice);
-    }
-  }, [currentPrice]);
+  // --- Status position ---
+  const positionLabel =
+    position.quantity === 0 ? 'FLAT' : position.quantity > 0 ? 'LONG' : 'SHORT';
 
-  const onClickCenter = useCallback(() => {
-    ladderRef.current?.centerOnPrice(currentPrice);
-    // on force le focus pour que la touche Espace marche sans cliquer ailleurs
-    centerPaneRef.current?.focus();
-  }, [currentPrice]);
+  // Petite aide pour l’affichage si tu n’as pas de formateur de prix ici :
+  const fmt = (n: number | undefined) =>
+    typeof n === 'number' && Number.isFinite(n) ? n.toFixed(2) : '-';
+  
+  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      loadMarketData(file);
+    }
+  }, [loadMarketData]);
+
+  const handleDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (file) {
+      loadMarketData(file);
+    }
+  }, [loadMarketData]);
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+  }, []);
 
   return (
     <div className="h-screen bg-background text-foreground overflow-hidden">
@@ -51,12 +65,12 @@ export function TradingInterface() {
       <div className="h-16 bg-card border-b border-border flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">Trading Simulator</h1>
-          <FileUpload onFileSelect={loadMarketData} disabled={isPlaying} />
-          <Button variant="outline" size="sm" onClick={onClickCenter}>
-            Center Price (Space)
-          </Button>
+          <FileUpload 
+            onFileSelect={loadMarketData}
+            disabled={isPlaying}
+          />
         </div>
-
+        
         <div className="flex items-center gap-4">
           <PlaybackControls
             isPlaying={isPlaying}
@@ -68,9 +82,9 @@ export function TradingInterface() {
         </div>
       </div>
 
-      {/* Main */}
+      {/* Main Trading Interface */}
       <div className="h-[calc(100vh-4rem)] flex">
-        {/* Left Panel */}
+        {/* Left Panel - Position & Controls */}
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <PositionPanel
             position={position}
@@ -78,39 +92,57 @@ export function TradingInterface() {
             currentPrice={currentPrice}
             className="flex-shrink-0"
           />
-          {!marketData.length && (
-            <div className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground">
+          
+          {/* File Drop Zone when no data */}
+          {marketData.length === 0 && (
+            <div 
+              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground hover:border-primary/50 transition-colors"
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+            >
               <div className="text-center p-8">
-                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier CSV</h3>
-                <p className="text-sm">Glissez-déposez un fichier d’événements pour démarrer</p>
-          </div>
+                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier Parquet</h3>
+                <p className="text-sm mb-4">
+                  Glissez-déposez un fichier de données de marché pour commencer le trading
+                </p>
+                <Button 
+                  variant="outline" 
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Choisir un fichier
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".parquet,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </div>
             </div>
           )}
         </div>
 
-        {/* Center Panel — Tick Ladder */}
-        <div
-          ref={centerPaneRef}
-          className="flex-1 bg-background outline-none"
-          tabIndex={0}
-          onKeyDown={onSpaceToCenter}
-        >
+        {/* Center Panel - Tick Ladder */}
+        <div className="flex-1 bg-background">
           <TickLadder
-            ref={ladderRef}
             tickLadder={currentTickLadder}
             currentPrice={currentPrice}
             orders={orders}
-            position={position}
             onLimitOrder={placeLimitOrder}
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
+            position={position}
           />
         </div>
 
-        {/* Right Panel — Time & Sales */}
+        {/* Right Panel - Time & Sales */}
         <div className="w-80 bg-card border-l border-border">
-          <TimeAndSales trades={timeAndSales} currentPrice={currentPrice} />
+          <TimeAndSales 
+            trades={timeAndSales}
+            currentPrice={currentPrice}
+          />
         </div>
       </div>
     </div>
