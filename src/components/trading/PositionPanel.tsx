@@ -1,5 +1,3 @@
-import { memo } from 'react';
-import { Card } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
 interface Position {
@@ -15,124 +13,84 @@ interface PnL {
   total: number;
 }
 
-interface PositionPanelProps {
+interface Props {
   position: Position;
   pnl: PnL;
   currentPrice: number;
+  // nouveaux props
+  bestBid?: number;
+  bestAsk?: number;
+  spread?: number;
+  spreadTicks?: number;
   className?: string;
 }
 
-function formatPrice(price: number): string {
-  return price.toFixed(2).replace('.', ',');
-}
+const fmt = (n: number | undefined) =>
+  typeof n === 'number' && Number.isFinite(n) ? n.toFixed(2) : '-';
 
-function formatPnL(value: number): string {
-  const formatted = Math.abs(value).toFixed(2).replace('.', ',');
-  return value >= 0 ? `+${formatted}` : `-${formatted}`;
-}
-
-export const PositionPanel = memo(function PositionPanel({
+export function PositionPanel({
   position,
   pnl,
   currentPrice,
+  bestBid,
+  bestAsk,
+  spread,
+  spreadTicks,
   className
-}: PositionPanelProps) {
-  const isLong = position.quantity > 0;
-  const isShort = position.quantity < 0;
-  const isFlat = position.quantity === 0;
+}: Props) {
+  const label =
+    position.quantity === 0 ? 'FLAT' : position.quantity > 0 ? 'LONG' : 'SHORT';
 
   return (
-    <Card className={cn("p-4 space-y-4", className)}>
-      {/* Position Summary */}
-      <div>
-        <h3 className="text-sm font-semibold text-muted-foreground mb-3">Position</h3>
-        
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Symbol</span>
-            <span className="font-mono font-medium">{position.symbol || 'N/A'}</span>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Quantity</span>
-            <span className={cn(
-              "font-mono font-bold",
-              isLong && "text-trading-buy",
-              isShort && "text-trading-sell",
-              isFlat && "text-muted-foreground"
-            )}>
-              {position.quantity}
-            </span>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Avg Price</span>
-            <span className="font-mono">
-              {position.quantity !== 0 ? formatPrice(position.averagePrice) : '--'}
-            </span>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Market Price</span>
-            <span className="font-mono font-medium text-yellow-400">
-              {currentPrice > 0 ? formatPrice(currentPrice) : '--'}
-            </span>
-          </div>
-        </div>
+    <div className={cn('p-4 space-y-3 border-b border-border', className)}>
+      <div className="text-sm text-muted-foreground">Position</div>
+      <div className="flex items-center justify-between">
+        <div className="text-xs text-muted-foreground">Status</div>
+        <div className="font-semibold">{label}</div>
       </div>
 
-      {/* PnL Summary */}
-      <div className="border-t border-border pt-4">
-        <h3 className="text-sm font-semibold text-muted-foreground mb-3">P&L</h3>
-        
-        <div className="space-y-2">
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Non réalisé</span>
-            <span className={cn(
-              "font-mono font-bold",
-              pnl.unrealized >= 0 ? "text-trading-profit" : "text-trading-loss"
-            )}>
-              {formatPnL(pnl.unrealized)} €
-            </span>
-          </div>
-          
-          <div className="flex justify-between items-center">
-            <span className="text-sm text-muted-foreground">Réalisé</span>
-            <span className={cn(
-              "font-mono font-bold",
-              pnl.realized >= 0 ? "text-trading-profit" : "text-trading-loss"
-            )}>
-              {formatPnL(pnl.realized)} €
-            </span>
-          </div>
-          
-          <div className="flex justify-between items-center border-t border-border pt-2">
-            <span className="text-sm font-semibold">Total</span>
-            <span className={cn(
-              "font-mono font-bold text-lg",
-              pnl.total >= 0 ? "text-trading-profit" : "text-trading-loss"
-            )}>
-              {formatPnL(pnl.total)} €
-            </span>
-          </div>
-        </div>
-      </div>
+      <div className="grid grid-cols-2 gap-2 text-sm">
+        <div className="text-muted-foreground">Quantity</div>
+        <div className="text-right font-semibold">{position.quantity}</div>
 
-      {/* Position Status */}
-      <div className="border-t border-border pt-4">
-        <div className="flex items-center justify-center p-3 rounded-md">
-          <span className={cn(
-            "text-sm font-semibold",
-            isLong && "text-trading-buy",
-            isShort && "text-trading-sell",
-            isFlat && "text-muted-foreground"
-          )}>
-            {isLong && `LONG ${Math.abs(position.quantity)}`}
-            {isShort && `SHORT ${Math.abs(position.quantity)}`}
-            {isFlat && 'FLAT'}
-          </span>
+        <div className="text-muted-foreground">Avg Price</div>
+        <div className="text-right font-semibold">{fmt(position.averagePrice)}</div>
+
+        <div className="text-muted-foreground">Market Price</div>
+        <div className="text-right font-semibold">{fmt(currentPrice)}</div>
+
+        {/* SPREAD temps réel sous Market Price */}
+        <div className="text-muted-foreground">Spread</div>
+        <div className="text-right font-semibold">
+          {bestBid !== undefined && bestAsk !== undefined && spread !== undefined && spreadTicks !== undefined
+            ? `${fmt(bestAsk)} - ${fmt(bestBid)} = ${spread.toFixed(2)}  (${spreadTicks} ticks)`
+            : '—'}
+        </div>
+
+        <div className="text-muted-foreground">Unrealized</div>
+        <div className={cn(
+          'text-right font-semibold',
+          pnl.unrealized > 0 ? 'text-trading-buy' : pnl.unrealized < 0 ? 'text-trading-sell' : ''
+        )}>
+          {pnl.unrealized.toFixed(2)}
+        </div>
+
+        <div className="text-muted-foreground">Realized</div>
+        <div className={cn(
+          'text-right font-semibold',
+          pnl.realized > 0 ? 'text-trading-buy' : pnl.realized < 0 ? 'text-trading-sell' : ''
+        )}>
+          {pnl.realized.toFixed(2)}
+        </div>
+
+        <div className="text-muted-foreground">Total PnL</div>
+        <div className={cn(
+          'text-right font-bold',
+          pnl.total > 0 ? 'text-trading-buy' : pnl.total < 0 ? 'text-trading-sell' : ''
+        )}>
+          {pnl.total.toFixed(2)}
         </div>
       </div>
-    </Card>
+    </div>
   );
-});
+}
