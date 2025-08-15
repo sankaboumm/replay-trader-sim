@@ -104,7 +104,7 @@ export const TickLadder = memo(function TickLadder({
     <div className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
-        <div className="grid grid-cols-5 text-xs font-semibold text-muted-foreground">
+        <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
           <div className="p-2 text-center border-r border-border">Price</div>
@@ -137,7 +137,7 @@ export const TickLadder = memo(function TickLadder({
             <div 
               key={level.tick}
               className={cn(
-                "grid grid-cols-5 text-xs border-b border-border/50 h-6",
+                "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6",
                 isLastPrice && "bg-ladder-last/20",
                 (isAvgBuyPrice || isAvgSellPrice) && "border-2 border-trading-average",
                 "hover:bg-ladder-row-hover transition-colors"
@@ -172,18 +172,12 @@ export const TickLadder = memo(function TickLadder({
               </div>
 
               {/* Price */}
-<div
-  className={cn(
-    // garde le style de base
-    "flex items-center justify-center font-mono font-medium border-r border-border/50",
-    // 👇 AJOUT magique pour la fixer vraiment au centre :
-    "sticky left-1/2 -translate-x-1/2 z-30",
-    // 👇 fond léger pour recouvrir ce qui défile dessous
-    "bg-white/90 dark:bg-neutral-900/90 backdrop-blur"
-  )}
->
-  {formatPrice(level.price)}
-</div>
+              <div className={cn(
+                "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
+                isLastPrice && "text-trading-average font-bold"
+              )}>
+                {formatPrice(level.price)}
+              </div>
 
               {/* Asks - only show if price is above or at current price */}
               <div 
