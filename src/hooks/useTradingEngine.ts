@@ -748,9 +748,12 @@ export function useTradingEngine() {
                 ...prevPos,
                 quantity: newQuantity,
                 averagePrice: newAveragePrice,
-                marketPrice: fillPrice
+                marketPrice: fillPrice // <— IMPORTANT : on fixe aussi le “marketPrice”/“currentPrice”
               };
             });
+
+            // Met à jour le “currentPrice” de l’UI au prix d'exécution
+            setCurrentPrice(fillPrice);
 
             // Time & Sales synthétique pour l’UI
             const trade = {
@@ -769,6 +772,9 @@ export function useTradingEngine() {
           // Supprime les ordres complètement remplis
           return updated.filter(o => o.filled < o.quantity);
         });
+
+        // ⚠️ Forcer un rerender de la position (au cas où l'UI lit un ref/objet muté autre part)
+        setPosition(prev => ({ ...prev }));
 
         return book;
       });
