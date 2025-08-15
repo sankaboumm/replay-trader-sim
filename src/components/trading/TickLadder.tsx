@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useState, useEffect, useCallback } from 'react';
+import { memo, useMemo, useState, useEffect, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -27,7 +27,7 @@ interface TickLadderProps {
   onMarketOrder: (side: Side, quantity: number) => void;
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
-  position: Position; // 🔶 requis pour entourer le prix moyen en jaune
+  position: Position; // pour entourer le prix moyen
 }
 
 function formatPrice(price: number): string {
@@ -47,7 +47,6 @@ export const TickLadder = memo(function TickLadder({
   disabled = false,
   position,
 }: TickLadderProps) {
-  // ---- Sécurité : si pas de données
   if (!tickLadder || !tickLadder.levels || tickLadder.levels.length === 0) {
     return (
       <div className="h-full flex items-center justify-center bg-card">
@@ -58,11 +57,34 @@ export const TickLadder = memo(function TickLadder({
     );
   }
 
-  // ==== 1) Préparation données ====
+  // === Ticks & centre ===
   const tickSize = tickLadder.tickSize ?? 0.25;
-  const midTick = tickLadder.midTick ?? Math.round(currentPrice / tickSize);
 
-  // Crée un index rapide price -> {bidSize, askSize, volumeCumulative}
+  // “mid” vivant issu du prix courant ; fallback sur midTick reçu si besoin
+  const liveMidTick =
+    Number.isFinite(currentPrice) && currentPrice > 0
+      ? Math.round(currentPrice / tickSize)
+      : (tickLadder.midTick ?? 0);
+
+  // On sépare : 
+  // - baseCenterTick : point d’ancrage du centre (ne suit PAS automatiquement le marché)
+  // - offsetTicks    : décalage utilisateur via scroll/clavier
+  const [baseCenterTick, setBaseCenterTick] = useState<number>(liveMidTick);
+  const [offsetTicks, setOffsetTicks] = useState<number>(0);
+  const [autoCenter, setAutoCenter] = useState<boolean>(true);
+
+  // Quand autoCenter est actif, on suit le prix : baseCenterTick suit liveMidTick
+  useEffect(() => {
+    if (autoCenter) {
+      setBaseCenterTick(liveMidTick);
+      setOffsetTicks(0);
+    }
+  }, [liveMidTick, autoCenter]);
+
+  // Centre effectif affiché
+  const centerTick = baseCenterTick + offsetTicks;
+
+  // === Index price -> sizes/volume ===
   const levelMap = useMemo(() => {
     const m = new Map<number, { bidSize: number; askSize: number; vol: number }>();
     for (const lv of tickLadder.levels) {
@@ -75,34 +97,38 @@ export const TickLadder = memo(function TickLadder({
     return m;
   }, [tickLadder.levels]);
 
-  // === 2) “Scroll infini” logique (sans dépendances) ===
-  // On ne scrolle pas la div : on déplace une “fenêtre” d’affichage de ticks autour du centre.
-  // Molette = décalage de +/- 1 tick (Shift = +/-10)
-  const [offsetTicks, setOffsetTicks] = useState(0);
-  // Nombre de lignes affichées (garde large pour donner la sensation d’infini)
-  const ROW_COUNT = 120; // 120 lignes visibles
+  // === Fenêtre d’affichage “scroll infini” ===
+  const ROW_COUNT = 120;
   const HALF = Math.floor(ROW_COUNT / 2);
 
   const onWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
     const step = e.shiftKey ? 10 : 1;
-    const dir = Math.sign(e.deltaY); // +1 si on scrolle vers le bas
-    // Vers le bas => prix doit DIMINUER dans l’affichage => on ajoute des ticks NEGATIFS côté top
+    const dir = Math.sign(e.deltaY); // +1 vers le bas
+    setAutoCenter(false);            // sortir du mode auto
     setOffsetTicks((o) => o + dir * step);
   }, []);
 
-  // Recentrer la “fenêtre” dès que le prix bouge beaucoup (évite de “perdre” le centre)
-  useEffect(() => {
-    setOffsetTicks(0);
-  }, [midTick]);
+  // Flèches ↑/↓ pour bouger 1 tick ; barre d’espace pour recentrer
+  const onKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'ArrowUp') {
+      setAutoCenter(false);
+      setOffsetTicks((o) => o - 1);
+    } else if (e.key === 'ArrowDown') {
+      setAutoCenter(false);
+      setOffsetTicks((o) => o + 1);
+    } else if (e.key === ' ') {
+      // RECENTRAGE EXPLICITE SUR PRIX ACTUEL
+      e.preventDefault();
+      setAutoCenter(true);
+      setBaseCenterTick(liveMidTick);
+      setOffsetTicks(0);
+    }
+  }, [liveMidTick]);
 
-  // Génère les lignes : du plus HAUT au plus BAS (descendant),
-  // et “Price” au MILIEU de la grille.
+  // Reconstruire les lignes du plus haut au plus bas
   const displayedRows = useMemo(() => {
-    // On veut la ligne centrale alignée avec le “midTick + offset”
-    const centerTick = midTick + offsetTicks;
-    // Start (haut) plus grand, puis on descend
-    const startTick = centerTick + HALF;
+    const startTick = centerTick + HALF; // top = plus haut
     const rows: Array<{
       price: number;
       bidSize: number;
@@ -113,7 +139,7 @@ export const TickLadder = memo(function TickLadder({
     }> = [];
 
     for (let i = 0; i < ROW_COUNT; i++) {
-      const tick = startTick - i; // descend
+      const tick = startTick - i; // on descend
       const price = tick * tickSize;
       const lv = levelMap.get(price) ?? { bidSize: 0, askSize: 0, vol: 0 };
       const isLastPrice = Math.abs(price - currentPrice) < tickSize / 2;
@@ -131,9 +157,9 @@ export const TickLadder = memo(function TickLadder({
       });
     }
     return rows;
-  }, [HALF, ROW_COUNT, currentPrice, levelMap, midTick, offsetTicks, position.averagePrice, position.quantity, tickSize]);
+  }, [HALF, ROW_COUNT, centerTick, currentPrice, levelMap, position.averagePrice, position.quantity, tickSize]);
 
-  // ---- commandes utilisateur : clics pour ordres ----
+  // === interactions cellules ===
   const getOrdersAtPrice = useCallback(
     (price: number, side: Side) =>
       orders.filter(
@@ -150,36 +176,26 @@ export const TickLadder = memo(function TickLadder({
     const isAboveCurrentPrice = price > currentPrice;
     const isBelowCurrentPrice = price < currentPrice;
     const isAtCurrentPrice = Math.abs(price - currentPrice) < tickSize / 2;
-
     if (column === 'bid') {
-      if (isAboveCurrentPrice || isAtCurrentPrice) {
-        onMarketOrder('BUY', 1);
-      } else {
-        onLimitOrder('BUY', price, 1);
-      }
+      if (isAboveCurrentPrice || isAtCurrentPrice) onMarketOrder('BUY', 1);
+      else onLimitOrder('BUY', price, 1);
     } else {
-      if (isBelowCurrentPrice || isAtCurrentPrice) {
-        onMarketOrder('SELL', 1);
-      } else {
-        onLimitOrder('SELL', price, 1);
-      }
+      if (isBelowCurrentPrice || isAtCurrentPrice) onMarketOrder('SELL', 1);
+      else onLimitOrder('SELL', price, 1);
     }
   };
-
   const handleOrderClick = (price: number) => {
     if (disabled) return;
     onCancelOrders(price);
   };
 
-  // ==== 3) Gabarit : colonnes à largeur FIXE + Price STICKY ====
-  // Taille colonnes (px) — IMPORTANT : on a besoin de ces valeurs fixes pour coller la colonne Price.
-  const COL_SIZE = 64;   // "Size"
-  const COL_BIDS = 96;   // "Bids"
-  const COL_PRICE = 88;  // "Price" (colonne qui sera sticky)
-  const COL_ASKS = 96;   // "Asks"
-  const COL_VOL = 64;    // "Volume"
-  const PRICE_LEFT = COL_SIZE + COL_BIDS; // offset à gauche (px) pour coller la colonne Price
-
+  // === Layout : colonnes fixes + Price sticky ===
+  const COL_SIZE = 64;
+  const COL_BIDS = 96;
+  const COL_PRICE = 88;
+  const COL_ASKS = 96;
+  const COL_VOL = 64;
+  const PRICE_LEFT = COL_SIZE + COL_BIDS;
   const gridTemplate = `${COL_SIZE}px ${COL_BIDS}px ${COL_PRICE}px ${COL_ASKS}px ${COL_VOL}px`;
 
   return (
@@ -193,9 +209,8 @@ export const TickLadder = memo(function TickLadder({
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
 
-          {/* Price sticky aussi dans le header */}
           <div
-            className="p-2 text-center border-r border-border bg-ladder-price z-20"
+            className="p-2 text-center border-r border-border bg-ladder-price ladder-price-shadow z-20"
             style={{ position: 'sticky', left: PRICE_LEFT }}
           >
             Price
@@ -206,21 +221,15 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Ladder Rows (sans scroll natif : onWheel pour “infini”) */}
+      {/* Ladder (focusable pour capter espace/↑/↓) */}
       <div
         className="flex-1 overflow-hidden trading-scroll"
         onWheel={onWheel}
-        // astuce clavier: ↑/↓ pour bouger par tick
-        onKeyDown={(e) => {
-          if (e.key === 'ArrowUp') setOffsetTicks((o) => o - 1);
-          if (e.key === 'ArrowDown') setOffsetTicks((o) => o + 1);
-        }}
-        tabIndex={0} // pour capter le clavier
+        onKeyDown={onKeyDown}
+        tabIndex={0}
+        title={"Molette ±1 tick (Shift=±10) • Espace = recentrer"}
       >
-        <div
-          className="h-full overflow-hidden"
-          style={{ willChange: 'transform' }}
-        >
+        <div className="h-full overflow-hidden" style={{ willChange: 'transform' }}>
           {displayedRows.map((row) => {
             const buyOrders = getOrdersAtPrice(row.price, 'BUY');
             const sellOrders = getOrdersAtPrice(row.price, 'SELL');
@@ -232,15 +241,11 @@ export const TickLadder = memo(function TickLadder({
             return (
               <div
                 key={row.price}
-                className={cn(
-                  "grid text-xs border-b border-border/50 h-6 hover:bg-ladder-row-hover transition-colors",
-                )}
+                className={cn("grid text-xs border-b border-border/50 h-6 hover:bg-ladder-row-hover transition-colors")}
                 style={{ gridTemplateColumns: gridTemplate }}
               >
-                {/* Size (fenêtre d’activité) — ici j’affiche juste vol instantané côté ligne si tu le calcules */}
-                <div className="flex items-center justify-center border-r border-border/50">
-                  {/* Optionnel: mettre un delta court terme si tu l’as */}
-                </div>
+                {/* Size (libre pour delta court terme si besoin) */}
+                <div className="flex items-center justify-center border-r border-border/50" />
 
                 {/* Bids */}
                 <div
@@ -266,18 +271,14 @@ export const TickLadder = memo(function TickLadder({
                   )}
                 </div>
 
-                {/* Price — STICKY */}
+                {/* Price sticky */}
                 <div
                   className={cn(
-                    "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
+                    "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price ladder-price-shadow",
                     row.isLastPrice && "text-trading-average font-bold",
-                    position.quantity !== 0 && row.isAvgPrice && "ring-2 ring-yellow-400" // 🔶 entoure le prix moyen
+                    position.quantity !== 0 && row.isAvgPrice && "ring-2 ring-yellow-400"
                   )}
-                  style={{
-                    position: 'sticky',
-                    left: PRICE_LEFT,
-                    zIndex: 10,
-                  }}
+                  style={{ position: 'sticky', left: PRICE_LEFT, zIndex: 10 }}
                 >
                   {formatPrice(row.price)}
                 </div>
@@ -306,7 +307,7 @@ export const TickLadder = memo(function TickLadder({
                   )}
                 </div>
 
-                {/* Volume cumulé (total des lots négociés à ce prix) */}
+                {/* Volume cumulé */}
                 <div className="flex items-center justify-center text-muted-foreground">
                   {formatSize(row.vol)}
                 </div>
@@ -316,10 +317,10 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Barre d’aide pour le scroll infini */}
+      {/* Barre d’aide */}
       <div className="h-6 text-[11px] text-muted-foreground px-2 flex items-center justify-between border-t border-border">
-        <span>Molette : ±1 tick • Shift+Molette : ±10 ticks • ↑/↓ : ±1 tick</span>
-        <span>Centre: {formatPrice((midTick + offsetTicks) * tickSize)}</span>
+        <span>Molette: ±1 tick • Shift+Molette: ±10 • ↑/↓: ±1 • <b>Espace</b>: recentrer</span>
+        <span>Centre: {formatPrice(centerTick * tickSize)}</span>
       </div>
     </div>
   );
