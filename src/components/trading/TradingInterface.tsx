@@ -1,16 +1,14 @@
-import { useState, useRef, useCallback } from 'react';
+import { useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { PositionPanel } from './PositionPanel';
-import { TimeAndSales } from './TimeAndSales';
-import { PlaybackControls } from './PlaybackControls';
 import { FileUpload } from './FileUpload';
+import { PlaybackControls } from './PlaybackControls';
+import { PositionPanel } from './PositionPanel';
 import { TickLadder } from './TickLadder';
+import { TimeAndSales } from './TimeAndSales';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
 
 export function TradingInterface() {
-  const centerPaneRef = useRef<HTMLDivElement>(null);
-  const ladderRef = useRef<{ centerOnPrice: (p: number) => void } | null>(null);
-
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     marketData,
     position,
@@ -29,21 +27,27 @@ export function TradingInterface() {
     placeMarketOrder,
     cancelOrdersAtPrice,
     currentTickLadder,
+    // nouveaux dérivés
+    bestBid,
+    bestAsk,
+    spread,
+    spreadTicks
   } = useTradingEngine();
 
-  const onSpaceToCenter = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    // Espace = recentrer le ladder sur le prix courant
-    if (e.code === 'Space') {
-      e.preventDefault();
-      ladderRef.current?.centerOnPrice(currentPrice);
-    }
-  }, [currentPrice]);
+  const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) loadMarketData(file);
+  }, [loadMarketData]);
 
-  const onClickCenter = useCallback(() => {
-    ladderRef.current?.centerOnPrice(currentPrice);
-    // on force le focus pour que la touche Espace marche sans cliquer ailleurs
-    centerPaneRef.current?.focus();
-  }, [currentPrice]);
+  const handleDrop = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+    const file = event.dataTransfer.files[0];
+    if (file) loadMarketData(file);
+  }, [loadMarketData]);
+
+  const handleDragOver = useCallback((event: React.DragEvent) => {
+    event.preventDefault();
+  }, []);
 
   return (
     <div className="h-screen bg-background text-foreground overflow-hidden">
@@ -52,9 +56,6 @@ export function TradingInterface() {
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">Trading Simulator</h1>
           <FileUpload onFileSelect={loadMarketData} disabled={isPlaying} />
-          <Button variant="outline" size="sm" onClick={onClickCenter}>
-            Center Price (Space)
-          </Button>
         </div>
 
         <div className="flex items-center gap-4">
@@ -76,39 +77,53 @@ export function TradingInterface() {
             position={position}
             pnl={pnl}
             currentPrice={currentPrice}
+            bestBid={bestBid}
+            bestAsk={bestAsk}
+            spread={spread}
+            spreadTicks={spreadTicks}
             className="flex-shrink-0"
           />
-          {!marketData.length && (
-            <div className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground">
+
+          {/* Drop Zone */}
+          {marketData.length === 0 && (
+            <div
+              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground"
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
+            >
               <div className="text-center p-8">
-                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier CSV</h3>
-                <p className="text-sm">Glissez-déposez un fichier d’événements pour démarrer</p>
-          </div>
+                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier</h3>
+                <p className="text-sm mb-4">Glissez un CSV/Parquet pour démarrer</p>
+                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                  Choisir un fichier
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".parquet,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
+              </div>
             </div>
           )}
         </div>
 
-        {/* Center Panel — Tick Ladder */}
-        <div
-          ref={centerPaneRef}
-          className="flex-1 bg-background outline-none"
-          tabIndex={0}
-          onKeyDown={onSpaceToCenter}
-        >
+        {/* Center - Tick Ladder */}
+        <div className="flex-1 bg-background">
           <TickLadder
-            ref={ladderRef}
             tickLadder={currentTickLadder}
             currentPrice={currentPrice}
             orders={orders}
-            position={position}
             onLimitOrder={placeLimitOrder}
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
+            position={position}
           />
         </div>
 
-        {/* Right Panel — Time & Sales */}
+        {/* Right - Time & Sales */}
         <div className="w-80 bg-card border-l border-border">
           <TimeAndSales trades={timeAndSales} currentPrice={currentPrice} />
         </div>
