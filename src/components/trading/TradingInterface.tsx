@@ -32,6 +32,14 @@ export function TradingInterface() {
     currentTickLadder
   } = useTradingEngine();
 
+  // --- Status position ---
+const positionLabel =
+  position.quantity === 0 ? 'FLAT' : position.quantity > 0 ? 'LONG' : 'SHORT';
+
+// Petite aide pour l’affichage si tu n’as pas de formateur de prix ici :
+const fmt = (n: number | undefined) =>
+  typeof n === 'number' && Number.isFinite(n) ? n.toFixed(2) : '-';
+  
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
