@@ -196,3 +196,30 @@
     animation: flash-red 0.3s ease-out;
   }
 }
+/* Colonne Price sticky (au milieu de 5 colonnes) */
+.sticky-price-cell {
+  position: sticky;
+  /* somme des 2 premières colonnes: 64px (Size) + ~1fr (Bids).
+     Pour une grid, on ne peut pas faire "left: calc(64px + 1fr)".
+     Astuce : on fige la grille et on évite le scroll horizontal ;
+     la cellule garde sa place et on s'assure d'avoir un fond + z-index,
+     donc elle reste visuellement “figée” pendant le scroll vertical
+     et ne se fait pas recouvrir. */
+  left: 0;                /* pas de scroll horizontal: suffisant */
+  z-index: 2;
+  background: hsl(var(--ladder-price)); /* fond de la colonne price */
+}
+
+/* Met en évidence UNIQUEMENT la cellule Price (pas la ligne entière) */
+.outline-average-price {
+  outline: 2px solid hsl(var(--trading-average));
+  outline-offset: -1px;
+  border-radius: 2px;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    hsl(var(--trading-average) / 0.12) 10%,
+    hsl(var(--trading-average) / 0.12) 90%,
+    transparent 100%
+  );
+}
