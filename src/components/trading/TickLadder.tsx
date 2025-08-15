@@ -97,7 +97,7 @@ export const TickLadder = memo(function TickLadder({
 
       {/* Rows */}
       <div className="flex-1 overflow-y-auto">
-        {(tickLadder.levels).slice().reverse().map((level) => {
+        {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
           const isAvgPrice  = avgPrice !== null && Math.abs(level.price - avgPrice!) < 0.125;
 
