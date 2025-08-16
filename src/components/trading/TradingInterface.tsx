@@ -31,10 +31,10 @@ export function TradingInterface() {
     bestBid,
     bestAsk,
     spread,
-    spreadTicks,
+    spreadTicks
+  ,
     scrollLadderUp,
-    scrollLadderDown
-  } = useTradingEngine();
+    scrollLadderDown} = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -77,18 +77,12 @@ export function TradingInterface() {
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <PositionPanel
             position={position}
-            onScrollUp={scrollLadderUp}
-            onScrollDown={scrollLadderDown}
             pnl={pnl}
             currentPrice={currentPrice}
             bestBid={bestBid}
             bestAsk={bestAsk}
             spread={spread}
-            spreadTicks,
-    scrollLadderUp,
-    scrollLadderDown={spreadTicks,
-    scrollLadderUp,
-    scrollLadderDown}
+            spreadTicks={spreadTicks}
             className="flex-shrink-0"
           />
 
@@ -128,6 +122,8 @@ export function TradingInterface() {
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
             position={position}
+            spread={spread}
+            spreadTicks={spreadTicks}
             onScrollUp={scrollLadderUp}
             onScrollDown={scrollLadderDown}
           />
