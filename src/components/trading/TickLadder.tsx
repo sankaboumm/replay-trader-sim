@@ -57,22 +57,52 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
+  const computeBasePrice = () => {
+    if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
+    if (tickLadder?.levels?.length) {
+      const first = tickLadder.levels[0].price;
+      const last  = tickLadder.levels[tickLadder.levels.length - 1].price;
+      return (first + last) / 2;
+    }
+    return currentPrice;
+  };
+
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice || !tickLadder) return;
     e.preventDefault();
-    wheelRemainderRef.current += e.deltaY;
+
+    const deltaY = e.deltaY;
+    const mode = (e.nativeEvent as any)?.deltaMode ?? 0; // 0: pixel, 1: line, 2: page
     let steps = 0;
-    while (Math.abs(wheelRemainderRef.current) >= ROW_HEIGHT_PX) {
-      if (wheelRemainderRef.current > 0) { steps += 1; wheelRemainderRef.current -= ROW_HEIGHT_PX; }
-      else { steps -= 1; wheelRemainderRef.current += ROW_HEIGHT_PX; }
+
+    if (mode === 1) {
+      // LINE mode: 1 line = 1 tick, invert sign so: up (deltaY<0) => +ticks (price up)
+      const lines = Math.max(1, Math.abs(Math.round(deltaY)));
+      steps = -Math.sign(deltaY) * lines;
+    } else {
+      // PIXEL mode: accumulate by row height, invert sign mapping for price direction
+      wheelRemainderRef.current += deltaY;
+      while (Math.abs(wheelRemainderRef.current) >= ROW_HEIGHT_PX) {
+        if (wheelRemainderRef.current > 0) {
+          steps -= 1; // scroll down -> steps negative -> price down
+          wheelRemainderRef.current -= ROW_HEIGHT_PX;
+        } else {
+          steps += 1; // scroll up -> steps positive -> price up
+          wheelRemainderRef.current += ROW_HEIGHT_PX;
+        }
+      }
     }
+
     if (steps !== 0) {
-      const nextPrice = (tickLadder as any).midPrice + steps * tickSize;
+      const base = computeBasePrice();
+      const nextPrice = base + steps * tickSize;
       setViewAnchorPrice(nextPrice);
+
+      // lock native scroll
       const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
       if (inner) inner.scrollTop = 0;
     }
-  }, [setViewAnchorPrice, tickLadder, tickSize]);
+  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
