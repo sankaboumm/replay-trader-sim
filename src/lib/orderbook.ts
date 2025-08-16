@@ -76,7 +76,24 @@ export class OrderBookProcessor {
   }
   public clearAnchor() { this.anchorTick = null; }
 
-  public priceToTick(price: number) { return this.toTick(price); }
+  
+  /** Déplace l'ancre du ladder d'un nombre de ticks (positif = vers le haut) */
+  public scrollAnchor(deltaTicks: number) {
+    if (!Number.isFinite(deltaTicks) || !deltaTicks) return;
+    const d = Math.trunc(deltaTicks);
+    if (this.anchorTick == null) {
+      this.anchorTick = 0;
+    }
+    this.anchorTick = (this.anchorTick ?? 0) + d;
+  }
+
+  /** Fixe l'ancre directement en nombre de ticks (optionnel) */
+  public setAnchorByTick(tick: number) {
+    if (Number.isFinite(tick)) this.anchorTick = Math.trunc(tick);
+  }
+
+  public getAnchorTick(): number | null { return this.anchorTick; }
+public priceToTick(price: number) { return this.toTick(price); }
 
   private toTick(price: number): number {
     return Math.round(price / this.tickSize);

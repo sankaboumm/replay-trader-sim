@@ -1,4 +1,4 @@
-import { memo, useMemo } from 'react';
+import { memo, useMemo, useRef, useEffect, useState, UIEvent } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -26,6 +26,8 @@ interface TickLadderProps {
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
   position: Position;
+  onScrollUp?: () => void;
+  onScrollDown?: () => void;
 }
 
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
@@ -45,6 +47,37 @@ export const TickLadder = memo(function TickLadder({
     orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
 
   const avgPrice = position.quantity !== 0 ? position.averagePrice : null;
+
+
+  const containerRef = useRef<HTMLDivElement>(null);
+  const priceHeaderRef = useRef<HTMLDivElement>(null);
+  const [priceLeft, setPriceLeft] = useState<number>(0);
+
+  useEffect(() => {
+    const computeLeft = () => {
+      if (priceHeaderRef.current && containerRef.current) {
+        const rect = priceHeaderRef.current.getBoundingClientRect();
+        const parentRect = containerRef.current.getBoundingClientRect();
+        setPriceLeft(rect.left - parentRect.left);
+      }
+    };
+    computeLeft();
+    window.addEventListener('resize', computeLeft);
+    return () => window.removeEventListener('resize', computeLeft);
+  }, []);
+
+  const handleWheel = (e: React.WheelEvent) => {
+    if (disabled) return;
+    e.preventDefault();
+    if (e.deltaY < 0) onScrollUp?.();
+    else if (e.deltaY > 0) onScrollDown?.();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (disabled) return;
+    if (e.key === 'ArrowUp' || e.key === 'PageUp') { e.preventDefault(); onScrollUp?.(); }
+    if (e.key === 'ArrowDown' || e.key === 'PageDown') { e.preventDefault(); onScrollDown?.(); }
+  };
 
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
@@ -85,18 +118,22 @@ export const TickLadder = memo(function TickLadder({
   return (
     <div className="h-full flex flex-col bg-card trading-no-anim">
       {/* Header */}
-      <div className="bg-ladder-header border-b border-border">
+      <div className="bg-ladder-header border-b border-border" ref={containerRef}>
         <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
+          <div className="absolute right-2 top-1 flex gap-1">
+            <button className="px-2 py-1 rounded border text-xs" onClick={onScrollUp} aria-label="Scroll up">↑</button>
+            <button className="px-2 py-1 rounded border text-xs" onClick={onScrollDown} aria-label="Scroll down">↓</button>
+          </div>
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
-          <div className="p-2 text-center border-r border-border">Price</div>
+          <div ref={priceHeaderRef} className="p-2 text-center border-r border-border" style={{ position: "sticky", left: priceLeft, zIndex: 5,  }}>Price</div>
           <div className="p-2 text-center border-r border-border">Asks</div>
           <div className="p-2 text-center">Volume</div>
         </div>
       </div>
 
       {/* Rows */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto" onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
         {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
           const isAvgPrice  = avgPrice !== null && Math.abs(level.price - avgPrice!) < 0.125;
@@ -109,7 +146,7 @@ export const TickLadder = memo(function TickLadder({
           return (
             <div
               key={`${level.price}-${level.tick}`}
-              className={cn(
+              className={cn("bg-card", 
                 "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6"
               )}
             >
@@ -120,7 +157,7 @@ export const TickLadder = memo(function TickLadder({
 
               {/* Bids */}
               <div
-                className={cn(
+                className={cn("bg-card", 
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
                   level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid"
                 )}
@@ -136,7 +173,7 @@ export const TickLadder = memo(function TickLadder({
 
               {/* Price */}
               <div
-                className={cn(
+                className={cn("bg-card", 
                   "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
                   isLastPrice && "text-trading-average font-bold",
                   // Encadrer uniquement la cellule Price quand on a une position
@@ -148,7 +185,7 @@ export const TickLadder = memo(function TickLadder({
 
               {/* Asks */}
               <div
-                className={cn(
+                className={cn("bg-card", 
                   "flex items-center justify-center cursor-pointer border-r border-border/50",
                   level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask"
                 )}
