@@ -68,6 +68,11 @@ const TICK_VALUE = 5.0;   // $/tick
 const AGGREGATION_WINDOW_MS = 5;
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
+
+// Directional snapping to avoid any float drift across the spread
+const toBidTick = (p: number) => Math.floor((p + 1e-9) / TICK_SIZE) * TICK_SIZE;
+const toAskTick = (p: number) => Math.ceil((p - 1e-9) / TICK_SIZE) * TICK_SIZE;
+
 const roundToGrid = (p: number) => Math.round(p * 4) / 4;
 // [ADDED]: decorate ladder with cumulative volume by price
 const decorateLadderWithVolume = (ladder: TickLadder, volumeMap: Map<number, number>) : TickLadder => {
@@ -538,13 +543,13 @@ export function useTradingEngine() {
           setOrderBook(prev => {
             const book = [...prev];
             if (event.bidPrice && event.bidPrice > 0) {
-              const p = toTick(event.bidPrice);
+              const p = toBidTick(event.bidPrice);
               const i = book.findIndex(l => Math.abs(l.price - p) < 0.125);
               if (i >= 0) book[i] = { ...book[i], bidSize: event.bidSize || 0 };
               else book.push({ price: p, bidSize: event.bidSize || 0, askSize: 0, volume: volumeByPrice.get(p) || 0 });
             }
             if (event.askPrice && event.askPrice > 0) {
-              const p = toTick(event.askPrice);
+              const p = toAskTick(event.askPrice);
               const i = book.findIndex(l => Math.abs(l.price - p) < 0.125);
               if (i >= 0) book[i] = { ...book[i], askSize: event.askSize || 0 };
               else book.push({ price: p, bidSize: 0, askSize: event.askSize || 0, volume: volumeByPrice.get(p) || 0 });
@@ -555,8 +560,8 @@ export function useTradingEngine() {
         }
 
         // Exécution LIMIT si top-of-book touche le prix limite
-        const bb = event.bidPrice !== undefined ? toTick(event.bidPrice) : undefined;
-        const ba = event.askPrice !== undefined ? toTick(event.askPrice) : undefined;
+        const bb = event.bidPrice !== undefined ? toBidTick(event.bidPrice) : undefined;
+        const ba = event.askPrice !== undefined ? toAskTick(event.askPrice) : undefined;
 
         if (bb !== undefined || ba !== undefined) {
           setOrders(prev => {
@@ -578,8 +583,8 @@ export function useTradingEngine() {
 
         // maintenir best bid/ask pour market
         setCurrentOrderBookData(prevData => ({
-          book_bid_prices: event.bidPrice ? [toTick(event.bidPrice)] : (prevData?.book_bid_prices ?? []),
-          book_ask_prices: event.askPrice ? [toTick(event.askPrice)] : (prevData?.book_ask_prices ?? []),
+          book_bid_prices: event.bidPrice ? [toBidTick(event.bidPrice)] : (prevData?.book_bid_prices ?? []),
+          book_ask_prices: event.askPrice ? [toAskTick(event.askPrice)] : (prevData?.book_ask_prices ?? []),
           book_bid_sizes:  event.bidSize  ? [event.bidSize]  : (prevData?.book_bid_sizes ?? []),
           book_ask_sizes:  event.askSize  ? [event.askSize]  : (prevData?.book_ask_sizes ?? []),
         }));
@@ -591,8 +596,8 @@ export function useTradingEngine() {
         if (event.bookBidPrices || event.bookAskPrices) {
           // store 20 levels pour affichage
           setCurrentOrderBookData({
-            book_bid_prices: (event.bookBidPrices || []).slice(0, 20).map(toTick),
-            book_ask_prices: (event.bookAskPrices || []).slice(0, 20).map(toTick),
+            book_bid_prices: (event.bookBidPrices || []).slice(0, 20).map(toBidTick),
+            book_ask_prices: (event.bookAskPrices || []).slice(0, 20).map(toAskTick),
             book_bid_sizes:  (event.bookBidSizes  || []).slice(0, 20),
             book_ask_sizes:  (event.bookAskSizes  || []).slice(0, 20),
           });
@@ -609,10 +614,10 @@ export function useTradingEngine() {
             setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
           } else {
             const eventSnapshot: ParsedOrderBook = {
-              bidPrices: (event.bookBidPrices || []).map(toTick),
+              bidPrices: (event.bookBidPrices || []).map(toBidTick),
               bidSizes:  event.bookBidSizes || [],
               bidOrders: [],
-              askPrices: (event.bookAskPrices || []).map(toTick),
+              askPrices: (event.bookAskPrices || []).map(toAskTick),
               askSizes:  event.bookAskSizes || [],
               askOrders: [],
               timestamp: new Date(event.timestamp)
@@ -627,7 +632,7 @@ export function useTradingEngine() {
 
           if (event.bookBidPrices && event.bookBidSizes) {
             for (let i = 0; i < Math.min(event.bookBidPrices.length, 10); i++) {
-              const bp = toTick(event.bookBidPrices[i]);
+              const bp = toBidTick(event.bookBidPrices[i]);
               const bs = event.bookBidSizes[i] || 0;
               if (bp > 0 && bs >= 0) {
                 const ex = priceMap.get(bp);
@@ -643,7 +648,7 @@ export function useTradingEngine() {
 
           if (event.bookAskPrices && event.bookAskSizes) {
             for (let i = 0; i < Math.min(event.bookAskPrices.length, 10); i++) {
-              const ap = toTick(event.bookAskPrices[i]);
+              const ap = toAskTick(event.bookAskPrices[i]);
               const asz = event.bookAskSizes[i] || 0;
               if (ap > 0 && asz >= 0) {
                 const ex = priceMap.get(ap);
