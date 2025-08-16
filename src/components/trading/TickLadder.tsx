@@ -107,7 +107,7 @@ export const TickLadder = memo(function TickLadder({
               <div
                 className={cn(
                   "relative flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid"
+                  level.bidSize > 0 && "bg-ladder-bid"
                 )}
                 onClick={() => handleCellClick(level.price, 'bid')}
               >
@@ -131,7 +131,7 @@ export const TickLadder = memo(function TickLadder({
               <div
                 className={cn(
                   "relative flex items-center justify-center cursor-pointer border-r border-border/50",
-                  level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask"
+                  level.askSize > 0 && "bg-ladder-ask"
                 )}
                 onClick={() => handleCellClick(level.price, 'ask')}
               >
