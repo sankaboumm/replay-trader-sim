@@ -30,9 +30,8 @@ interface TickLadderProps {
 }
 
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
-const fmtSize = (s: number) => (s > 0 ? s.toString() : '');
+const fmtSize = (s: number) => (s || s === 0 ? String(s) : '');
 
-const WINDOW = 100; // display window size (±100)
 const ROW_HEIGHT_PX = 24;
 const EPS = 1e-8;
 
@@ -56,44 +55,41 @@ const LadderRow = memo(function LadderRow({
   onCancelOrders: (price: number) => void;
   onDoubleClickPrice: () => void;
 }) {
-  const price = level.price;
+  const price = (level as any).price as number;
   const bidSize = (level as any).bidSize ?? 0;
   const askSize = (level as any).askSize ?? 0;
   const sizeWindow = (level as any).sizeWindow ?? 0;
   const volumeCumulative = (level as any).volumeCumulative ?? 0;
 
   const isLastPrice = Math.abs(price - currentPrice) < 0.125;
-  const showBid = price <= currentPrice;
-  const showAsk = price >= currentPrice;
 
   return (
     <div
       key={(level as any).tick as number}
-      className={cn('grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6 orderbook-ladder-row')}
+      className={cn('grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
     >
       {/* Size (window) */}
-      <div className="orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center border-r border-border/50">
-        {fmtSize(sizeWindow)}
-      </div>
+      <div className="flex items-center justify-center border-r border-border/50">{fmtSize(sizeWindow)}</div>
 
       {/* Bids */}
       <div
         className={cn(
-          'orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
           bidSize > 0 && 'bg-ladder-bid'
         )}
         onClick={() => (buyTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'bid'))}
+        title={`Bid ${bidSize}`}
       >
-        {bidSize > 0 ? fmtSize(bidSize) : ''}
-        {buyTotal > 0 && <span className='ml-1 text-xs'>({buyTotal})</span>}
+        {fmtSize(bidSize)}
+        {buyTotal > 0 && <span className="ml-1 text-xs">({buyTotal})</span>}
       </div>
 
       {/* Price */}
       <div
         className={cn(
-          'orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
+          'flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price sticky-price-cell',
           isLastPrice && 'text-trading-average font-bold',
-          isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
+          isAvgPrice && 'outline-average-price'
         )}
         onDoubleClick={onDoubleClickPrice}
         title="Double-clique pour recentrer"
@@ -104,19 +100,18 @@ const LadderRow = memo(function LadderRow({
       {/* Asks */}
       <div
         className={cn(
-          'orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
           askSize > 0 && 'bg-ladder-ask'
         )}
         onClick={() => (sellTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'ask'))}
+        title={`Ask ${askSize}`}
       >
-        {askSize > 0 ? fmtSize(askSize) : ''}
-        {sellTotal > 0 && <span className='ml-1 text-xs'>({sellTotal})</span>}
+        {fmtSize(askSize)}
+        {sellTotal > 0 && <span className="ml-1 text-xs">({sellTotal})</span>}
       </div>
 
       {/* Volume cumulé */}
-      <div className="orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center text-muted-foreground">
-        {fmtSize(volumeCumulative)}
-      </div>
+      <div className="flex items-center justify-center text-muted-foreground">{fmtSize(volumeCumulative)}</div>
     </div>
   );
 }, (a, b) => (
@@ -149,10 +144,10 @@ export const TickLadder = memo(function TickLadder({
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
       let best: number | null = null;
       for (let i = 0; i < tickLadder.levels.length - 1; i++) {
-        const a = tickLadder.levels[i];
-        const b = tickLadder.levels[i + 1];
-        if ((a as any).tick !== (b as any).tick) {
-          const dTick = Math.abs((a as any).tick - (b as any).tick);
+        const a = tickLadder.levels[i] as any;
+        const b = tickLadder.levels[i + 1] as any;
+        if (a.tick !== b.tick) {
+          const dTick = Math.abs(a.tick - b.tick);
           const dPrice = Math.abs(a.price - b.price);
           const cand = dPrice / dTick;
           if (cand > 0) best = best == null ? cand : Math.min(best, cand);
@@ -163,80 +158,28 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
-  // Stable reference point to avoid drift
-  const refPoint = useMemo(() => {
-    if (tickLadder?.levels?.length) {
-      const mid = tickLadder.levels[Math.floor(tickLadder.levels.length / 2)] as any;
-      return { refTick: mid.tick as number, refPrice: mid.price as number };
+  // Visible window size (max rows we draw)
+  const WINDOW = 100;
+
+  // engine-provided levels sorted by tick desc (as in createTickLadder)
+  const levels = useMemo(() => {
+    const arr = (tickLadder?.levels ?? []).slice();
+    arr.sort((a: any, b: any) => b.tick - a.tick);
+    return arr;
+  }, [tickLadder?.levels]);
+
+  // Index of center price within provided levels (closest by tick)
+  const centerIndex = useMemo(() => {
+    if (!levels.length) return 0;
+    const midTick = (tickLadder as any)?.midTick as number | undefined;
+    if (typeof midTick === 'number') {
+      const idx = Math.max(0, Math.min(levels.length - 1, levels.findIndex((lv: any) => lv.tick === midTick)));
+      return idx >= 0 ? idx : Math.floor(levels.length / 2);
     }
-    return { refTick: 0, refPrice: 0 };
-  }, [tickLadder]);
+    return Math.floor(levels.length / 2);
+  }, [levels, tickLadder]);
 
-  const priceToTick = useCallback((price: number) => {
-    const raw = (price - refPoint.refPrice + EPS) / tickSize + refPoint.refTick;
-    return Math.round(raw);
-  }, [refPoint, tickSize]);
-
-  const tickToPrice = useCallback((idx: number) => {
-    const p = refPoint.refPrice + (idx - refPoint.refTick) * tickSize;
-    return +p.toFixed(8);
-  }, [refPoint, tickSize]);
-
-  // Map levels by tick
-  const levelByTick = useMemo(() => {
-    const m = new Map<number, TickLevel>();
-    if (tickLadder?.levels) {
-      for (const lvl of tickLadder.levels as any[]) {
-        m.set((lvl as any).tick as number, lvl as any);
-      }
-    }
-    return m;
-  }, [tickLadder]);
-
-  // Aggregate orders by tick
-  const buyTotals = useMemo(() => {
-    const m = new Map<number, number>();
-    for (const o of orders) {
-      if (o.side === 'BUY' && o.quantity > o.filled) {
-        const idx = priceToTick(o.price);
-        m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
-      }
-    }
-    return m;
-  }, [orders, priceToTick]);
-
-  const sellTotals = useMemo(() => {
-    const m = new Map<number, number>();
-    for (const o of orders) {
-      if (o.side === 'SELL' && o.quantity > o.filled) {
-        const idx = priceToTick(o.price);
-        m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
-      }
-    }
-    return m;
-  }, [orders, priceToTick]);
-
-  // Base tick from engine or current price
-  const baseTick = useMemo(() => {
-    if (tickLadder && (tickLadder as any).midTick != null) return (tickLadder as any).midTick as number;
-    if (tickLadder && (tickLadder as any).midPrice != null) return priceToTick((tickLadder as any).midPrice as number);
-    if (tickLadder?.levels?.length) {
-      const hi = (tickLadder.levels[0] as any).tick as number;
-      const lo = (tickLadder.levels[tickLadder.levels.length - 1] as any).tick as number;
-      return Math.round((hi + lo) / 2);
-    }
-    return priceToTick(currentPrice);
-  }, [tickLadder, currentPrice, priceToTick]);
-
-  // Engine half-width (≈40); page when reaching this threshold to keep rows backed by real levels
-  const ENGINE_HALF = useMemo(() => {
-    const n = tickLadder?.levels?.length ?? 81;
-    return Math.max(1, Math.floor((n - 1) / 2));
-  }, [tickLadder?.levels?.length]);
-
-  const PAGE = ENGINE_HALF;
-
-  // offset in ticks (UI window ±100)
+  // UI offset in rows relative to centerIndex
   const offsetRef = useRef(0);
   const [nonce, setNonce] = useState(0);
   const rafIdRef = useRef<number | null>(null);
@@ -248,48 +191,45 @@ export const TickLadder = memo(function TickLadder({
     });
   };
 
+  // When approaching array edges, ask engine to page anchor (FIFO scroll)
   const pageAnchorIfNeeded = useCallback(() => {
-    if (!setViewAnchorPrice) return;
+    if (!setViewAnchorPrice || !levels.length) return;
     const off = offsetRef.current;
-    if (off >= PAGE || off <= -PAGE) {
-      const pages = off > 0 ? Math.floor(off / PAGE) : Math.ceil(off / PAGE);
-      const nextTick = baseTick + pages * PAGE;
-      const nextPrice = tickToPrice(nextTick);
-      offsetRef.current = off - pages * PAGE;
+    const idx = centerIndex + off;
+    const PAD = Math.max(10, Math.floor(levels.length / 4)); // when 1/4 from an edge, page
+    if (idx <= PAD || idx >= levels.length - 1 - PAD) {
+      const target = levels[Math.min(levels.length - 1, Math.max(0, idx))] as any;
+      const nextPrice = (target?.price as number) ?? (levels[Math.floor(levels.length/2)] as any).price;
+      offsetRef.current = 0; // reset offset after paging
       setViewAnchorPrice(nextPrice);
     }
-  }, [setViewAnchorPrice, baseTick, tickToPrice, PAGE]);
-
-  const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
-  }, []);
+  }, [levels, centerIndex, setViewAnchorPrice]);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!tickLadder) return;
+    if (!levels.length) return;
+    // don't block page scroll unless over the component
     e.preventDefault();
-
-    const mode = (e.nativeEvent as any)?.deltaMode ?? 0; // 0 pixel, 1 line
+    const mode = (e.nativeEvent as any)?.deltaMode ?? 0;
     let steps = 0;
     if (mode === 1) {
       const lines = Math.max(1, Math.abs(Math.round(e.deltaY)));
-      steps = -Math.sign(e.deltaY) * lines; // up -> +, down -> -
+      steps = -Math.sign(e.deltaY) * lines;
     } else {
-      // pixel mode: 1 tick = 24px
+      // pixel mode
       let accum = (offsetRef as any)._pxAccum ?? 0;
       accum += e.deltaY;
       while (Math.abs(accum) >= ROW_HEIGHT_PX) {
-        if (accum > 0) { steps -= 1; accum -= ROW_HEIGHT_PX; } // down
-        else { steps += 1; accum += ROW_HEIGHT_PX; }           // up
+        if (accum > 0) { steps -= 1; accum -= ROW_HEIGHT_PX; }
+        else { steps += 1; accum += ROW_HEIGHT_PX; }
       }
       (offsetRef as any)._pxAccum = accum;
     }
-
     if (steps !== 0) {
       offsetRef.current += steps;
       pageAnchorIfNeeded();
       requestRender();
     }
-  }, [tickLadder, pageAnchorIfNeeded]);
+  }, [levels, pageAnchorIfNeeded]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
@@ -302,29 +242,7 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice]);
 
-  // Average price marker
-  const avgPrice: number | null = position.quantity !== 0 ? position.averagePrice : null;
-
-  // Build 201 rows around center tick
-  const centerTick = baseTick + offsetRef.current;
-  const rows = useMemo(() => {
-    const out: TickLevel[] = [];
-    for (let i = WINDOW; i >= -WINDOW; i--) {
-      const idx = centerTick + i;
-      const lvl = levelByTick.get(idx) ?? ({
-        tick: idx,
-        price: tickToPrice(idx),
-        bidSize: 0,
-        askSize: 0,
-        sizeWindow: 0,
-        volumeCumulative: 0,
-      } as any);
-      out.push(lvl as TickLevel);
-    }
-    return out;
-  }, [levelByTick, centerTick, tickToPrice, nonce]);
-
-  if (!tickLadder || !tickLadder.levels?.length) {
+  if (!levels.length) {
     return (
       <div className="h-full flex items-center justify-center bg-card">
         <div className="text-muted-foreground">
@@ -333,6 +251,33 @@ export const TickLadder = memo(function TickLadder({
       </div>
     );
   }
+
+  // Visible slice indices, clamped to available levels
+  const center = centerIndex + offsetRef.current;
+  const start = Math.max(0, Math.min(levels.length - 1, center - WINDOW));
+  const end   = Math.max(0, Math.min(levels.length,     center + WINDOW + 1));
+  const rows = levels.slice(start, end);
+
+  // Aggregate user's working orders by tick (optional badges)
+  const priceToTick = useCallback((price: number) => Math.round(price / tickSize), [tickSize]);
+  const buyTotals = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of orders) if (o.side === 'BUY' && o.quantity > o.filled) {
+      const idx = priceToTick(o.price);
+      m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
+    }
+    return m;
+  }, [orders, priceToTick]);
+  const sellTotals = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of orders) if (o.side === 'SELL' && o.quantity > o.filled) {
+      const idx = priceToTick(o.price);
+      m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
+    }
+    return m;
+  }, [orders, priceToTick]);
+
+  const avgPrice: number | null = position.quantity !== 0 ? position.averagePrice : null;
 
   const onCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
@@ -365,16 +310,13 @@ export const TickLadder = memo(function TickLadder({
       <div
         ref={wrapperRef}
         onWheel={handleWheel}
-        onWheelCapture={handleWheelCapture}
         onKeyDown={handleKeyDown}
         tabIndex={0}
-        onMouseEnter={() => wrapperRef.current?.focus()}
-        onClick={() => wrapperRef.current?.focus()}
       >
         <div className="flex-1 overflow-y-hidden">
-          {rows.map((lvl) => {
-            const idx = (lvl as any).tick as number;
-            const price = (lvl as any).price as number;
+          {rows.map((lvl: any) => {
+            const idx = lvl.tick as number;
+            const price = lvl.price as number;
             const buyTotal = buyTotals.get(idx) ?? 0;
             const sellTotal = sellTotals.get(idx) ?? 0;
             const isAvg = avgPrice != null && Math.abs(price - (avgPrice as number)) <= tickSize / 2 + EPS;
