@@ -139,7 +139,7 @@ export const TickLadder = memo(function TickLadder({
 }: TickLadderProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
-  // Déterminer un tickSize fiable à partir des niveaux existants (utilise les ticks fournis)
+  // tickSize fiable via niveaux existants
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
       let best: number | null = null;
@@ -158,56 +158,70 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
-  const toTickIndex = useCallback((price: number) => Math.round((price + EPS) / tickSize), [tickSize]);
-  const fromTickIndex = useCallback((idx: number) => +(idx * tickSize).toFixed(8), [tickSize]);
+  // Point de référence stable (évite dérive haute)
+  const refPoint = useMemo(() => {
+    if (tickLadder?.levels?.length) {
+      const mid = tickLadder.levels[Math.floor(tickLadder.levels.length / 2)];
+      return { refTick: mid.tick, refPrice: mid.price };
+    }
+    return { refTick: 0, refPrice: 0 };
+  }, [tickLadder]);
 
-  // Table par tick (en utilisant level.tick fourni par le moteur)
-  const rowByTick = useMemo(() => {
+  const priceToTick = useCallback((price: number) => {
+    const raw = (price - refPoint.refPrice + EPS) / tickSize + refPoint.refTick;
+    return Math.round(raw);
+  }, [refPoint, tickSize]);
+
+  const tickToPrice = useCallback((idx: number) => {
+    const p = refPoint.refPrice + (idx - refPoint.refTick) * tickSize;
+    return +p.toFixed(8);
+  }, [refPoint, tickSize]);
+
+  // Table par tick (via level.tick fourni par le moteur)
+  const levelByTick = useMemo(() => {
     const m = new Map<number, TickLevel>();
     if (tickLadder?.levels) {
-      for (const lvl of tickLadder.levels) {
-        m.set(lvl.tick, lvl);
-      }
+      for (const lvl of tickLadder.levels) m.set(lvl.tick, lvl);
     }
     return m;
   }, [tickLadder]);
 
-  // Totaux d'ordres par tickIndex (epsilon-safe)
+  // Totaux d'ordres par tick (référence commune)
   const buyTotals = useMemo(() => {
     const m = new Map<number, number>();
     for (const o of orders) {
       if (o.side === 'BUY' && o.quantity > o.filled) {
-        const idx = Math.round((o.price + EPS) / tickSize);
+        const idx = priceToTick(o.price);
         m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
       }
     }
     return m;
-  }, [orders, tickSize]);
+  }, [orders, priceToTick]);
   const sellTotals = useMemo(() => {
     const m = new Map<number, number>();
     for (const o of orders) {
       if (o.side === 'SELL' && o.quantity > o.filled) {
-        const idx = Math.round((o.price + EPS) / tickSize);
+        const idx = priceToTick(o.price);
         m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
       }
     }
     return m;
-  }, [orders, tickSize]);
+  }, [orders, priceToTick]);
 
-  // Base (milieu) + offset virtuel en ticks (fenêtre 201 lignes)
+  // Base tick + offset virtuel
   const computeBaseTick = () => {
     if (tickLadder && (tickLadder as any).midTick != null) return (tickLadder as any).midTick as number;
-    if (tickLadder && (tickLadder as any).midPrice != null) return toTickIndex((tickLadder as any).midPrice as number);
+    if (tickLadder && (tickLadder as any).midPrice != null) return priceToTick((tickLadder as any).midPrice as number);
     if (tickLadder?.levels?.length) {
       const hi = tickLadder.levels[0].tick;
       const lo = tickLadder.levels[tickLadder.levels.length - 1].tick;
       return Math.round((hi + lo) / 2);
     }
-    return toTickIndex(currentPrice);
+    return priceToTick(currentPrice);
   };
   const baseTick = computeBaseTick();
 
-  const offsetRef = useRef(0); // en ticks
+  const offsetRef = useRef(0);
   const [nonce, setNonce] = useState(0);
   const rafIdRef = useRef<number | null>(null);
   const requestRender = () => {
@@ -224,11 +238,11 @@ export const TickLadder = memo(function TickLadder({
     if (off >= WINDOW || off <= -WINDOW) {
       const pages = off > 0 ? Math.floor(off / WINDOW) : Math.ceil(off / WINDOW);
       const nextTick = baseTick + pages * WINDOW;
-      const nextPrice = fromTickIndex(nextTick);
+      const nextPrice = tickToPrice(nextTick);
       offsetRef.current = off - pages * WINDOW;
       setViewAnchorPrice(nextPrice);
     }
-  }, [setViewAnchorPrice, baseTick, fromTickIndex]);
+  }, [setViewAnchorPrice, baseTick, tickToPrice]);
 
   const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -272,15 +286,15 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice]);
 
-  // Construire la fenêtre de ticks (à partir des vrais ticks si dispo, sinon synthèse)
+  // Fenêtre de ticks (utilise les vrais niveaux si présents, sinon niveau synthétique)
   const centerTick = baseTick + offsetRef.current;
   const rows = useMemo(() => {
     const out: TickLevel[] = [];
     for (let i = WINDOW; i >= -WINDOW; i--) {
       const idx = centerTick + i;
-      const lvl = rowByTick.get(idx) ?? ({
+      const lvl = levelByTick.get(idx) ?? ({
         tick: idx,
-        price: fromTickIndex(idx),
+        price: tickToPrice(idx),
         bidSize: 0,
         askSize: 0,
         sizeWindow: 0,
@@ -289,7 +303,7 @@ export const TickLadder = memo(function TickLadder({
       out.push(lvl);
     }
     return out;
-  }, [rowByTick, centerTick, fromTickIndex, nonce]);
+  }, [levelByTick, centerTick, tickToPrice, nonce]);
 
   if (!tickLadder || !tickLadder.levels?.length) {
     return (
