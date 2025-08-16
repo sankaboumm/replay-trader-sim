@@ -406,7 +406,7 @@ export const TickLadder = memo(function TickLadder({
         <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
-          <div className="p-2 text-center border-r border-border">Price</div>
+          <div className="p-2 text-center border-r border-border sticky-price-cell">Price</div>
           <div className="p-2 text-center border-r border-border">Asks</div>
           <div className="p-2 text-center">Volume</div>
         </div>
@@ -455,7 +455,7 @@ export const TickLadder = memo(function TickLadder({
                 {/* Price */}
                 <div
                   className={cn(
-                    "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
+                    "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price sticky-price-cell",
                     isLastPrice && "text-trading-average font-bold",
                     isAvgPrice && "ring-2 ring-trading-average rounded-sm"
                   )}

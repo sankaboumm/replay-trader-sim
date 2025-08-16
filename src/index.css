@@ -208,6 +208,8 @@
   left: 0;                /* pas de scroll horizontal: suffisant */
   z-index: 2;
   background: hsl(var(--ladder-price)); /* fond de la colonne price */
+  backface-visibility: hidden; /* évite certains artefacts pendant le scroll GPU */
+  contain: paint;              /* isole le paint de la cellule sticky */
 }
 
 /* Met en évidence UNIQUEMENT la cellule Price (pas la ligne entière) */
