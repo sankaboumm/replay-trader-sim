@@ -17,17 +17,19 @@ export interface ParsedOrderBook {
   askPrices: number[];
   askSizes: number[];
   askOrders?: number[];
+  timestamp: Date;
 }
 
 export interface TickLevel {
-  tick: number;
-  price: number;
+  tick: number;             // index en ticks (0.25 pour le NQ)
+  price: number;            // prix calculé depuis tick
   bidSize: number;
   askSize: number;
   bidOrders?: number;
   askOrders?: number;
-  sizeWindow: number;       // réservé (peut être utilisé pour cumuls)
-  volumeCumulative: number; // réservé
+  // champs optionnels utilisés par l'UI
+  sizeWindow?: number;
+  volumeCumulative?: number;
 }
 
 export interface TickLadder {
@@ -41,7 +43,6 @@ export interface TickLadder {
 export class OrderBookProcessor {
   private tickSize = 0.25;
   private anchorTick: number | null = null;
-  private windowHalf: number = 300; // par défaut ±300 ticks (600 de hauteur logique)
 
   constructor(tickSize = 0.25) {
     this.tickSize = tickSize;
@@ -49,24 +50,6 @@ export class OrderBookProcessor {
 
   public setTickSize(size: number) {
     if (size > 0) this.tickSize = size;
-  }
-
-  public setWindowHalf(n: number) {
-    if (Number.isFinite(n) && n > 0) this.windowHalf = Math.floor(n);
-  }
-
-  public toTick(price: number): number {
-    return Math.round(price / this.tickSize);
-  }
-
-  public fromTick(tick: number): number {
-    return +(tick * this.tickSize).toFixed(8);
-  }
-
-  public setAnchorByPrice(price: number) {
-    if (Number.isFinite(price)) {
-      this.anchorTick = this.toTick(price);
-    }
   }
 
   public inferTickSize(prices: number[]): number {
@@ -83,13 +66,26 @@ export class OrderBookProcessor {
     let bestErr = Math.abs(minDiff - best);
     for (const c of candidates) {
       const err = Math.abs(minDiff - c);
-      if (err < bestErr) { bestErr = err; best = c; }
+      if (err < bestErr) { best = c; bestErr = err; }
     }
-    this.tickSize = best;
     return best;
   }
 
-  // Parse une ligne CSV orderbook_* en arrays numériques (supporte JSON, listes séparées par virgules/espaces)
+  public setAnchorByPrice(price: number) {
+    this.anchorTick = this.toTick(price);
+  }
+  public clearAnchor() { this.anchorTick = null; }
+
+  public priceToTick(price: number) { return this.toTick(price); }
+
+  private toTick(price: number): number {
+    return Math.round(price / this.tickSize);
+  }
+  private fromTick(tick: number): number {
+    return +(tick * this.tickSize).toFixed(8);
+  }
+
+  /** Optionnel : parse d’un snapshot depuis une ligne CSV déjà chargée */
   public parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
     const arr = (v: any): number[] => {
       if (v == null) return [];
@@ -120,15 +116,31 @@ export class OrderBookProcessor {
                 (askOrders.length === 0 || askOrders.length === askPrices.length);
     if (!okB || !okA) return null;
 
-    return { bidPrices, bidSizes, bidOrders, askPrices, askSizes, askOrders };
+    const ts = row.ts_exch_utc ?? row.ts_utc ?? Date.now();
+    const timestamp = new Date(ts);
+
+    return { bidPrices, bidSizes, bidOrders, askPrices, askSizes, askOrders, timestamp };
   }
 
-  // Construit un ladder ancré et figé autour d’un centre
-  public makeTickLadder(
+  /** Optionnel : parse d’un trade depuis une ligne CSV */
+  public parseTrade(row: any): Trade | null {
+    const p = Number(row.trade_price);
+    const s = Number(row.trade_size);
+    const aRaw = (row.aggressor ?? "").toString().toUpperCase();
+    const a: Side | null = aRaw === "BUY" || aRaw === "B" ? "BUY"
+                        : aRaw === "SELL" || aRaw === "S" ? "SELL" : null;
+    if (!isFinite(p) || p <= 0 || !isFinite(s) || s <= 0 || !a) return null;
+    const ts = row.ts_exch_utc ?? row.ts_utc ?? Date.now();
+    return { timestamp: new Date(ts), price: p, size: s, aggressor: a };
+  }
+
+  /** Génére un ladder anti-jitter : centre ancré, niveaux par tick */
+  public createTickLadder(
     snapshot: ParsedOrderBook,
-    trades: Trade[] = []
+    trades: Trade[] = [],
+    _prevTs?: Date
   ): TickLadder {
-    // 1) indexation par tick
+    // 1) regroupe par tick (évite doublons/arrondis)
     const bidByTick = new Map<number, { size: number; orders?: number }>();
     const askByTick = new Map<number, { size: number; orders?: number }>();
 
@@ -146,12 +158,10 @@ export class OrderBookProcessor {
     // 2) centre ancré (ne bouge pas tout seul)
     let centerTick = this.anchorTick;
     if (centerTick == null) {
-      // priorité : dernier trade s'il existe au moment du premier render
       const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
       if (lastTrade) {
         centerTick = this.toTick(lastTrade.price);
       } else {
-        // sinon, milieu simple entre meilleur bid/ask si cohérent
         const bestBid = Math.max(...Array.from(bidByTick.keys()).concat([-Infinity]));
         const bestAsk = Math.min(...Array.from(askByTick.keys()).concat([+Infinity]));
         centerTick = isFinite(bestBid) && isFinite(bestAsk) && bestBid <= bestAsk
@@ -161,8 +171,8 @@ export class OrderBookProcessor {
       this.anchorTick = centerTick;
     }
 
-    // 3) fenêtre autour du centre (large, l’UI peut en afficher une partie)
-    const HALF = this.windowHalf;          // fenêtre ±windowHalf ticks
+    // 3) fenêtre autour du centre (large, l’UI en affiche 20)
+    const HALF = 40;                       // fenêtre ±40 ticks
     const minTick = centerTick - HALF;
     const maxTick = centerTick + HALF;
 
@@ -194,5 +204,6 @@ export class OrderBookProcessor {
     };
   }
 
+  // (facultatif) Remise à zéro de compteurs internes si vous en ajoutez plus tard
   public resetVolume() { /* no-op pour l’instant */ }
 }
