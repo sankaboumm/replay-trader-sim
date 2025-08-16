@@ -32,6 +32,123 @@ interface TickLadderProps {
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
 const fmtSize = (s: number) => (s > 0 ? s.toString() : '');
 
+// Row component, memoized with custom comparator to avoid re-rendering unchanged rows
+interface RowProps {
+  price: number;
+  bidSize: number;
+  askSize: number;
+  sizeWindow: number;
+  volumeCumulative: number;
+  isLastPrice: boolean;
+  isAvgPrice: boolean;
+  showBid: boolean;
+  showAsk: boolean;
+  totalBuy: number;
+  totalSell: number;
+  onClickBid: (price: number, hasOrders: boolean) => void;
+  onClickAsk: (price: number, hasOrders: boolean) => void;
+  onDoubleClickPrice?: () => void;
+}
+
+const LadderRow = memo(function LadderRow({
+  price,
+  bidSize,
+  askSize,
+  sizeWindow,
+  volumeCumulative,
+  isLastPrice,
+  isAvgPrice,
+  showBid,
+  showAsk,
+  totalBuy,
+  totalSell,
+  onClickBid,
+  onClickAsk,
+  onDoubleClickPrice
+}: RowProps) {
+  return (
+    <div
+      key={price}
+      className={cn(
+        'grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6'
+      )}
+      style={{ willChange: 'opacity, transform', backfaceVisibility: 'hidden' as any }}
+    >
+      {/* Size (window) */}
+      <div className="flex items-center justify-center border-r border-border/50">
+        {fmtSize(sizeWindow ?? 0)}
+      </div>
+
+      {/* Bids */}
+      <div
+        className={cn(
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
+          showBid && bidSize > 0 && 'bg-ladder-bid'
+        )}
+        onClick={() => onClickBid(price, totalBuy > 0)}
+        style={{ willChange: 'opacity' }}
+      >
+        <span className={cn(!showBid && 'opacity-0')}>
+          {fmtSize(bidSize ?? 0)}
+        </span>
+        {totalBuy > 0 && (
+          <span className={cn('ml-1 text-xs', !showBid && 'opacity-0')}>
+            ({totalBuy})
+          </span>
+        )}
+      </div>
+
+      {/* Price */}
+      <div
+        className={cn(
+          'flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
+          isLastPrice && 'text-trading-average font-bold',
+          isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
+        )}
+        onDoubleClick={onDoubleClickPrice}
+      >
+        {fmtPrice(price)}
+      </div>
+
+      {/* Asks */}
+      <div
+        className={cn(
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
+          showAsk && askSize > 0 && 'bg-ladder-ask'
+        )}
+        onClick={() => onClickAsk(price, totalSell > 0)}
+        style={{ willChange: 'opacity' }}
+      >
+        <span className={cn(!showAsk && 'opacity-0')}>
+          {fmtSize(askSize ?? 0)}
+        </span>
+        {totalSell > 0 && (
+          <span className={cn('ml-1 text-xs', !showAsk && 'opacity-0')}>
+            ({totalSell})
+          </span>
+        )}
+      </div>
+
+      {/* Volume cumulé à ce prix */}
+      <div className="flex items-center justify-center text-muted-foreground">
+        {fmtSize(volumeCumulative ?? 0)}
+      </div>
+    </div>
+  );
+}, (prev, next) => (
+  prev.price === next.price &&
+  prev.bidSize === next.bidSize &&
+  prev.askSize === next.askSize &&
+  prev.sizeWindow === next.sizeWindow &&
+  prev.volumeCumulative === next.volumeCumulative &&
+  prev.isLastPrice === next.isLastPrice &&
+  prev.isAvgPrice === next.isAvgPrice &&
+  prev.showBid === next.showBid &&
+  prev.showAsk === next.showAsk &&
+  prev.totalBuy === next.totalBuy &&
+  prev.totalSell === next.totalSell
+));
+
 export const TickLadder = memo(function TickLadder({
   tickLadder,
   currentPrice,
@@ -43,18 +160,14 @@ export const TickLadder = memo(function TickLadder({
   position,
   setViewAnchorPrice
 }: TickLadderProps) {
-  const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
-    orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
-
-  // FIFO scroll state
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
   const wheelRemainderRef = useRef(0);
   const pendingStepsRef = useRef(0);
   const rafIdRef = useRef<number | null>(null);
-  const anchorRef = useRef<number | null>(null); // local running anchor to avoid big jumps
-  const ROW_HEIGHT_PX = 24; // Tailwind h-6
-  const MAX_STEPS_PER_FRAME = 6; // smooth large deltas
+  const anchorRef = useRef<number | null>(null);
+  const ROW_HEIGHT_PX = 24;
+  const MAX_STEPS_PER_FRAME = 6;
 
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
@@ -66,6 +179,27 @@ export const TickLadder = memo(function TickLadder({
   const sortedLevels = useMemo(() => {
     return tickLadder ? tickLadder.levels.slice().sort((a, b) => b.price - a.price) : [];
   }, [tickLadder]);
+
+  // Precompute order totals per price (prevents recomputation per row)
+  const buyTotals = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of orders) {
+      if (o.side === 'BUY' && o.quantity > o.filled) {
+        m.set(o.price, (m.get(o.price) ?? 0) + (o.quantity - o.filled));
+      }
+    }
+    return m;
+  }, [orders]);
+
+  const sellTotals = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of orders) {
+      if (o.side === 'SELL' && o.quantity > o.filled) {
+        m.set(o.price, (m.get(o.price) ?? 0) + (o.quantity - o.filled));
+      }
+    }
+    return m;
+  }, [orders]);
 
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
@@ -89,7 +223,6 @@ export const TickLadder = memo(function TickLadder({
     anchorRef.current = (anchorRef.current as number) + step * tickSize;
 
     setViewAnchorPrice(anchorRef.current);
-
     if (innerRef.current && innerRef.current.scrollTop !== 0) innerRef.current.scrollTop = 0;
 
     rafIdRef.current = requestAnimationFrame(pump);
@@ -115,11 +248,9 @@ export const TickLadder = memo(function TickLadder({
     let steps = 0;
 
     if (mode === 1) {
-      // LINE mode: up (deltaY<0) -> +ticks (price up), down (deltaY>0) -> -ticks
       const lines = Math.max(1, Math.abs(Math.round(deltaY)));
-      steps = -Math.sign(deltaY) * lines;
+      steps = -Math.sign(deltaY) * lines; // up -> +ticks; down -> -ticks
     } else {
-      // PIXEL mode: accumulate by row height; up -> +steps, down -> -steps
       wheelRemainderRef.current += deltaY;
       while (Math.abs(wheelRemainderRef.current) >= ROW_HEIGHT_PX) {
         if (wheelRemainderRef.current > 0) {
@@ -140,7 +271,7 @@ export const TickLadder = memo(function TickLadder({
     if (e.code === 'Space') {
       e.preventDefault();
       setViewAnchorPrice(null);
-      anchorRef.current = null; // reset local anchor reference
+      anchorRef.current = null;
     }
   }, [setViewAnchorPrice]);
 
@@ -190,86 +321,42 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Body - wrap with listeners (capture+bubble) to avoid native scroll flicker */}
+      {/* Body */}
       <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto" ref={innerRef}>
           {sortedLevels.map((level) => {
-            const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
-            const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
-            const showBid = level.price <= currentPrice;
-            const showAsk = level.price >= currentPrice;
+            const price = level.price as number;
+            const bidSize = (level as any).bidSize ?? 0;
+            const askSize = (level as any).askSize ?? 0;
+            const sizeWindow = (level as any).sizeWindow ?? 0;
+            const volumeCumulative = (level as any).volumeCumulative ?? 0;
 
-            const buyOrders  = getOrdersAtPrice(level.price, 'BUY');
-            const sellOrders = getOrdersAtPrice(level.price, 'SELL');
-            const totalBuy   = buyOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
-            const totalSell  = sellOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
+            const isLastPrice = Math.abs(price - currentPrice) < 0.125;
+            const isAvgPrice  = avgPrice !== null && Math.abs(price - (avgPrice as number)) < 0.125;
+            const showBid = price <= currentPrice;
+            const showAsk = price >= currentPrice;
+
+            const totalBuy = buyTotals.get(price) ?? 0;
+            const totalSell = sellTotals.get(price) ?? 0;
 
             return (
-              <div
-                key={level.price} // stable key to avoid remount flicker
-                className={cn(
-                  "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6"
-                )}
-              >
-                {/* Size (window) */}
-                <div className="flex items-center justify-center border-r border-border/50">
-                  {fmtSize((level as any).sizeWindow ?? 0)}
-                </div>
-
-                {/* Bids */}
-                <div
-                  className={cn(
-                    "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    showBid && (level as any).bidSize > 0 && "bg-ladder-bid"
-                  )}
-                  onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
-                >
-                  <span className={cn(!showBid && "invisible")}>
-                    {fmtSize((level as any).bidSize ?? 0)}
-                  </span>
-                  {totalBuy > 0 && (
-                    <span className={cn("ml-1 text-xs", !showBid && "invisible")}>
-                      ({totalBuy})
-                    </span>
-                  )}
-                </div>
-
-                {/* Price */}
-                <div
-                  className={cn(
-                    "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
-                    isLastPrice && "text-trading-average font-bold",
-                    isAvgPrice && "ring-2 ring-trading-average rounded-sm"
-                  )}
-                  onDoubleClick={() => setViewAnchorPrice && setViewAnchorPrice(null)}
-                  title="Double-clique pour recentrer"
-                >
-                  {fmtPrice(level.price)}
-                </div>
-
-                {/* Asks */}
-                <div
-                  className={cn(
-                    "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    showAsk && (level as any).askSize > 0 && "bg-ladder-ask"
-                  )}
-                  onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
-                >
-                  <span className={cn(!showAsk && "invisible")}>
-                    {fmtSize((level as any).askSize ?? 0)}
-                  </span>
-                  {totalSell > 0 && (
-                    <span className={cn("ml-1 text-xs", !showAsk && "invisible")}>
-                      ({totalSell})
-                    </span>
-                  )}
-                </div>
-
-                {/* Volume cumulé à ce prix */}
-                <div className="flex items-center justify-center text-muted-foreground">
-                  {fmtSize((level as any).volumeCumulative ?? 0)}
-                </div>
-              </div>
+              <LadderRow
+                key={price}
+                price={price}
+                bidSize={bidSize}
+                askSize={askSize}
+                sizeWindow={sizeWindow}
+                volumeCumulative={volumeCumulative}
+                isLastPrice={isLastPrice}
+                isAvgPrice={isAvgPrice}
+                showBid={showBid}
+                showAsk={showAsk}
+                totalBuy={totalBuy}
+                totalSell={totalSell}
+                onClickBid={(p, hasOrders) => hasOrders ? handleOrderClick(p) : handleCellClick(p, 'bid')}
+                onClickAsk={(p, hasOrders) => hasOrders ? handleOrderClick(p) : handleCellClick(p, 'ask')}
+                onDoubleClickPrice={() => setViewAnchorPrice && setViewAnchorPrice(null)}
+              />
             );
           })}
         </div>
