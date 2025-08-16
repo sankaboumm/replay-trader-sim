@@ -163,6 +163,68 @@ export const TickLadder = memo(function TickLadder({
   }, [scrollWrapperRef, normalizePriceKey]);
   // === End extra handler ===
 
+
+  // === Added: robust EU/US price parsing + element-target handler + secondary apply effect ===
+  const getPriceKeyFromCellRobust = useCallback((cell: HTMLElement) => {
+    // Extract visible text (e.g., "15.234,50" or "15234.50")
+    let txt = (cell.innerText || cell.textContent || "").trim();
+    if (!txt) return "";
+    // Keep only digits, comma, dot
+    let s = txt.replace(/[^0-9,\.]/g, "");
+    // Case: both '.' and ',' -> assume '.' = thousands, ',' = decimal
+    if (s.includes('.') && s.includes(',')) {
+      s = s.replace(/\./g, "").replace(/,/g, ".");
+    } else if (s.includes(',') && !s.includes('.')) {
+      // Only comma -> decimal comma
+      s = s.replace(/,/g, ".");
+    }
+    const n = Number(s);
+    if (!Number.isFinite(n)) return "";
+    return n.toFixed(2);
+  }, []);
+
+  // Extra handler for element targets using robust parse (so the first handler can remain untouched)
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    const onMouseDownElem = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const me = e as MouseEvent & { metaKey?: boolean; ctrlKey?: boolean };
+      if (!(me.metaKey || me.ctrlKey)) return;
+      const target = e.target as HTMLElement | null;
+      if (!target || (target as any).nodeType !== 1) return; // only element nodes, text is handled by previous effect
+      const cell = target.closest('div.bg-ladder-price') as HTMLElement | null;
+      if (!cell) return;
+      e.preventDefault();
+      const key = getPriceKeyFromCellRobust(cell);
+      if (!key) return;
+      setHighlightedPriceKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    };
+    root.addEventListener('mousedown', onMouseDownElem);
+    return () => { root.removeEventListener('mousedown', onMouseDownElem); };
+  }, [scrollWrapperRef, getPriceKeyFromCellRobust]);
+
+  // Secondary apply effect using robust parsing, to ensure highlight even if text has thousands/locale
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
+    for (const cell of cells) {
+      const key = getPriceKeyFromCellRobust(cell);
+      if (key && highlightedPriceKeys.has(key)) {
+        cell.classList.add('tick-price--highlight');
+      } else {
+        cell.classList.remove('tick-price--highlight');
+      }
+    }
+  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
+  // === End robust additions ===
+
+
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
     if (tickLadder?.levels?.length) {
