@@ -32,9 +32,18 @@ interface TickLadderProps {
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
 const fmtSize = (s: number) => (s > 0 ? s.toString() : '');
 
-const WINDOW = 100; // 100 ticks au-dessus et en dessous (201 lignes)
+const WINDOW = 100; // display window size (±100) // 100 ticks au-dessus et en dessous (201 lignes)
 const ROW_HEIGHT_PX = 24;
 const EPS = 1e-8;
+
+  // Engine ladder half-width (derived from current ladder length: 2*HALF+1)
+  const ENGINE_HALF = useMemo(() => {
+    const n = tickLadder?.levels?.length ?? 81; // default 81 => HALF≈40
+    return Math.max(1, Math.floor((n - 1) / 2));
+  }, [tickLadder]);
+  // Anchor paging threshold: use engine half to avoid showing synthetic rows with zeros
+  const PAGE = ENGINE_HALF;
+
 
 // Ligne mémoïsée
 const LadderRow = memo(function LadderRow({
@@ -69,7 +78,7 @@ const LadderRow = memo(function LadderRow({
   return (
     <div
       key={level.tick}
-      className={cn('isolate grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
+      className={cn('grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
       style={{ willChange: 'opacity', backfaceVisibility: 'hidden' as any }}
     >
       {/* Size (window) */}
@@ -80,7 +89,7 @@ const LadderRow = memo(function LadderRow({
       {/* Bids */}
       <div
         className={cn(
-          'relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
           showBid && bidSize > 0 && 'bg-ladder-bid'
         )}
         onClick={() => (buyTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'bid'))}
@@ -92,7 +101,7 @@ const LadderRow = memo(function LadderRow({
       {/* Price */}
       <div
         className={cn(
-          'relative overflow-hidden bg-clip-padding flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
+          'flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
           isLastPrice && 'text-trading-average font-bold',
           isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
         )}
@@ -105,7 +114,7 @@ const LadderRow = memo(function LadderRow({
       {/* Asks */}
       <div
         className={cn(
-          'relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
           showAsk && askSize > 0 && 'bg-ladder-ask'
         )}
         onClick={() => (sellTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'ask'))}
@@ -239,11 +248,11 @@ export const TickLadder = memo(function TickLadder({
   const pageAnchorIfNeeded = useCallback(() => {
     if (!setViewAnchorPrice) return;
     const off = offsetRef.current;
-    if (off >= WINDOW || off <= -WINDOW) {
-      const pages = off > 0 ? Math.floor(off / WINDOW) : Math.ceil(off / WINDOW);
-      const nextTick = baseTick + pages * WINDOW;
+    if (off >= PAGE || off <= -PAGE) {
+      const pages = off > 0 ? Math.floor(off / PAGE) : Math.ceil(off / PAGE);
+      const nextTick = baseTick + pages * PAGE;
       const nextPrice = tickToPrice(nextTick);
-      offsetRef.current = off - pages * WINDOW;
+      offsetRef.current = off - pages * PAGE;
       setViewAnchorPrice(nextPrice);
     }
   }, [setViewAnchorPrice, baseTick, tickToPrice]);
@@ -353,7 +362,7 @@ export const TickLadder = memo(function TickLadder({
       </div>
 
       {/* Body */}
-      <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
+      <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0} onMouseEnter={() => wrapperRef.current?.focus()} onClick={() => wrapperRef.current?.focus()}>
         <div className="flex-1 overflow-y-hidden">
           {rows.map((lvl) => {
             const idx = (lvl as any).tick as number;
