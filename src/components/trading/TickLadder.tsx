@@ -69,7 +69,7 @@ const LadderRow = memo(function LadderRow({
   return (
     <div
       key={level.tick}
-      className={cn('grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
+      className={cn('isolate grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
       style={{ willChange: 'opacity', backfaceVisibility: 'hidden' as any }}
     >
       {/* Size (window) */}
@@ -80,7 +80,7 @@ const LadderRow = memo(function LadderRow({
       {/* Bids */}
       <div
         className={cn(
-          'relative z-0 flex items-center justify-center cursor-pointer border-r border-border/50',
+          'relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
           showBid && bidSize > 0 && 'bg-ladder-bid'
         )}
         onClick={() => (buyTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'bid'))}
@@ -92,7 +92,7 @@ const LadderRow = memo(function LadderRow({
       {/* Price */}
       <div
         className={cn(
-          'relative z-10 flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
+          'relative overflow-hidden bg-clip-padding flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
           isLastPrice && 'text-trading-average font-bold',
           isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
         )}
@@ -105,7 +105,7 @@ const LadderRow = memo(function LadderRow({
       {/* Asks */}
       <div
         className={cn(
-          'relative z-0 flex items-center justify-center cursor-pointer border-r border-border/50',
+          'relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
           showAsk && askSize > 0 && 'bg-ladder-ask'
         )}
         onClick={() => (sellTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'ask'))}
