@@ -225,6 +225,92 @@ export const TickLadder = memo(function TickLadder({
   // === End robust additions ===
 
 
+  // === Added: CLASSLESS FALLBACK — derive Price cell by row structure (grid with 5 columns) ===
+  const findPriceCellFromEvent = useCallback((target: EventTarget | null): HTMLElement | null => {
+    const root = scrollWrapperRef.current;
+    if (!root || !target) return null;
+    // Walk up through DOM nodes until root; find an ancestor that looks like a row (display: grid, 5 children)
+    let node: any = target as any;
+    while (node) {
+      // Get an Element to inspect
+      const el: HTMLElement | null = (node.nodeType === 1 ? node : node.parentElement) as HTMLElement | null;
+      if (el) {
+        try {
+          const cs = window.getComputedStyle(el);
+          if (cs && cs.display === 'grid' && el.children && el.children.length === 5) {
+            const priceEl = el.children[2] as HTMLElement;
+            if (priceEl) {
+              const key = getPriceKeyFromCellRobust(priceEl);
+              if (key) return priceEl;
+            }
+          }
+        } catch {}
+        if (el === root) break;
+      }
+      node = node.parentNode;
+    }
+    return null;
+  }, [scrollWrapperRef, getPriceKeyFromCellRobust]);
+
+  // Listener that uses the classless fallback if the class-based lookup fails
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    const onMouseDownFallback = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const me = e as MouseEvent & { metaKey?: boolean; ctrlKey?: boolean };
+      if (!(me.metaKey || me.ctrlKey)) return;
+      let cell = (e.target as HTMLElement | null)?.closest?.('div.bg-ladder-price') as HTMLElement | null;
+      if (!cell) cell = findPriceCellFromEvent(e.target);
+      if (!cell) return;
+      e.preventDefault();
+      const key = getPriceKeyFromCellRobust(cell);
+      if (!key) return;
+      setHighlightedPriceKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    };
+    root.addEventListener('mousedown', onMouseDownFallback, true); // capture to beat other handlers
+    return () => { root.removeEventListener('mousedown', onMouseDownFallback, true); };
+  }, [scrollWrapperRef, findPriceCellFromEvent, getPriceKeyFromCellRobust]);
+
+  // Apply effect using classless discovery if class selectors return 0 nodes
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    let cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
+    if (cells.length === 0) {
+      const allDivs = Array.from(root.querySelectorAll('div')) as HTMLElement[];
+      const priceCells: HTMLElement[] = [];
+      for (const el of allDivs) {
+        try {
+          const cs = window.getComputedStyle(el);
+          if (cs.display === 'grid' && el.children.length === 5) {
+            const priceEl = el.children[2] as HTMLElement;
+            if (priceEl) {
+              const key = getPriceKeyFromCellRobust(priceEl);
+              if (key) priceCells.push(priceEl);
+            }
+          }
+        } catch {}
+      }
+      cells = priceCells;
+    }
+    for (const cell of cells) {
+      const key = getPriceKeyFromCellRobust(cell);
+      if (key && highlightedPriceKeys.has(key)) {
+        cell.classList.add('tick-price--highlight');
+      } else {
+        cell.classList.remove('tick-price--highlight');
+      }
+    }
+  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
+  // === End CLASSLESS FALLBACK ===
+
+
+
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
     if (tickLadder?.levels?.length) {
