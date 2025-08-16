@@ -791,6 +791,58 @@ export function useTradingEngine() {
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
 
+
+  // ---------- View anchor control (FIFO scrolling) ----------
+  const setViewAnchorPrice = useCallback((price: number | null) => {
+    if (price == null) {
+      orderBookProcessor.clearAnchor();
+    } else {
+      orderBookProcessor.setAnchorByPrice(price);
+    }
+
+    // Recompute ladder from the latest available snapshot/trades
+    const snaps = orderBookSnapshotsRef.current;
+    const tradesLatest = tradesRef.current;
+
+    if (snaps.length > 0) {
+      const lastSnap = snaps[snaps.length - 1];
+      const ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
+      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+      return;
+    }
+
+    if (currentOrderBookData) {
+      const snapshot = {
+        bidPrices: (currentOrderBookData.book_bid_prices || []),
+        bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
+        bidOrders: (currentOrderBookData.book_bid_orders || []),
+        askPrices: (currentOrderBookData.book_ask_prices || []),
+        askSizes:  (currentOrderBookData.book_ask_sizes  || []),
+        askOrders: (currentOrderBookData.book_ask_orders || []),
+        timestamp: new Date()
+      } as ParsedOrderBook;
+      const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
+      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+      return;
+    }
+
+    if (orderBook.length > 0) {
+      // Fallback: build a minimal snapshot from mini-book
+      const bidLevels = orderBook.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
+      const askLevels = orderBook.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
+      const snapshot: ParsedOrderBook = {
+        bidPrices: bidLevels.map(l => l.price),
+        bidSizes:  bidLevels.map(l => l.bidSize || 0),
+        bidOrders: [],
+        askPrices: askLevels.map(l => l.price),
+        askSizes:  askLevels.map(l => l.askSize || 0),
+        askOrders: [],
+        timestamp: new Date()
+      };
+      const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
+      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+    }
+  }, [orderBookProcessor, currentOrderBookData, orderBook, volumeByPrice]);
   return {
     // data
     marketData,
@@ -821,6 +873,7 @@ export function useTradingEngine() {
     // file
     loadMarketData,
     // utils (si nécessaire)
-    orderBookProcessor
+    orderBookProcessor,
+    setViewAnchorPrice
   };
 }
