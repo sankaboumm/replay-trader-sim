@@ -1,5 +1,5 @@
 // src/lib/orderbook.ts
-// Moteur d’order book + génération d’un ladder ancré (anti-jitter)
+// Order book processor + anchored ladder (stable price column)
 
 export type Side = "BUY" | "SELL";
 
@@ -26,22 +26,22 @@ export interface TickLevel {
   askSize: number;
   bidOrders?: number;
   askOrders?: number;
-  sizeWindow: number;       // réservé (peut être utilisé pour cumuls)
-  volumeCumulative: number; // réservé
+  sizeWindow: number;
+  volumeCumulative: number;
 }
 
 export interface TickLadder {
-  midTick: number;          // tick d’ancrage (centre visuel)
+  midTick: number;
   midPrice: number;
-  lastTick?: number;        // dernier tick traded
+  lastTick?: number;
   lastPrice?: number;
-  levels: TickLevel[];      // du plus haut prix (index 0) au plus bas (dernier)
+  levels: TickLevel[];
 }
 
 export class OrderBookProcessor {
   private tickSize = 0.25;
   private anchorTick: number | null = null;
-  private windowHalf: number = 300; // par défaut ±300 ticks (600 de hauteur logique)
+  private windowHalf: number = 300;
 
   constructor(tickSize = 0.25) {
     this.tickSize = tickSize;
@@ -69,27 +69,7 @@ export class OrderBookProcessor {
     }
   }
 
-  public inferTickSize(prices: number[]): number {
-    const uniq = Array.from(new Set(prices.filter(Number.isFinite))).sort((a,b)=>a-b);
-    if (uniq.length < 2) return this.tickSize;
-    let minDiff = Infinity;
-    for (let i=1;i<uniq.length;i++) {
-      const d = +(uniq[i] - uniq[i-1]).toFixed(8);
-      if (d > 0 && d < minDiff) minDiff = d;
-    }
-    // mappe vers ticks usuels
-    const candidates = [0.01, 0.05, 0.1, 0.25, 0.5, 1];
-    let best = candidates[0];
-    let bestErr = Math.abs(minDiff - best);
-    for (const c of candidates) {
-      const err = Math.abs(minDiff - c);
-      if (err < bestErr) { bestErr = err; best = c; }
-    }
-    this.tickSize = best;
-    return best;
-  }
-
-  // Parse une ligne CSV orderbook_* en arrays numériques (supporte JSON, listes séparées par virgules/espaces)
+  // robust parser for arrays stored as JSON or comma/space sep
   public parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
     const arr = (v: any): number[] => {
       if (v == null) return [];
@@ -123,12 +103,7 @@ export class OrderBookProcessor {
     return { bidPrices, bidSizes, bidOrders, askPrices, askSizes, askOrders };
   }
 
-  // Construit un ladder ancré et figé autour d’un centre
-  public makeTickLadder(
-    snapshot: ParsedOrderBook,
-    trades: Trade[] = []
-  ): TickLadder {
-    // 1) indexation par tick
+  public makeTickLadder(snapshot: ParsedOrderBook, trades: Trade[] = []): TickLadder {
     const bidByTick = new Map<number, { size: number; orders?: number }>();
     const askByTick = new Map<number, { size: number; orders?: number }>();
 
@@ -143,15 +118,13 @@ export class OrderBookProcessor {
       askByTick.set(t, { size: s, orders: snapshot.askOrders?.[i] });
     }
 
-    // 2) centre ancré (ne bouge pas tout seul)
+    // choose anchor (fixed)
     let centerTick = this.anchorTick;
     if (centerTick == null) {
-      // priorité : dernier trade s'il existe au moment du premier render
       const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
       if (lastTrade) {
         centerTick = this.toTick(lastTrade.price);
       } else {
-        // sinon, milieu simple entre meilleur bid/ask si cohérent
         const bestBid = Math.max(...Array.from(bidByTick.keys()).concat([-Infinity]));
         const bestAsk = Math.min(...Array.from(askByTick.keys()).concat([+Infinity]));
         centerTick = isFinite(bestBid) && isFinite(bestAsk) && bestBid <= bestAsk
@@ -161,8 +134,7 @@ export class OrderBookProcessor {
       this.anchorTick = centerTick;
     }
 
-    // 3) fenêtre autour du centre (large, l’UI peut en afficher une partie)
-    const HALF = this.windowHalf;          // fenêtre ±windowHalf ticks
+    const HALF = this.windowHalf;
     const minTick = centerTick - HALF;
     const maxTick = centerTick + HALF;
 
@@ -194,5 +166,5 @@ export class OrderBookProcessor {
     };
   }
 
-  public resetVolume() { /* no-op pour l’instant */ }
+  public resetVolume() { /* reserved */ }
 }
