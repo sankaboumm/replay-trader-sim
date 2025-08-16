@@ -1,4 +1,5 @@
 import { memo, useMemo, useRef, useCallback } from 'react';
+import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -57,6 +58,77 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
+  
+  // === Added: Highlight Price cell with Cmd (Mac) / Ctrl (PC) + Left Click (additive only) ===
+  // Keep a set of highlighted price keys (two-decimal strings like "15324.50")
+  const [highlightedPriceKeys, setHighlightedPriceKeys] = useState<Set<string>>(new Set());
+
+  const normalizePriceKey = useCallback((txt: string) => {
+    const s = (txt || '').trim().replace(',', '.'); // fmtPrice uses comma, normalize back to dot
+    const n = Number(s);
+    if (Number.isFinite(n)) return n.toFixed(2);
+    return '';
+  }, []);
+
+  // Inject a CSS helper so yellow paint overrides any existing bg
+  useEffect(() => {
+    const id = 'tickladder-highlight-style';
+    if (!document.getElementById(id)) {
+      const style = document.createElement('style');
+      style.id = id;
+      style.textContent = `.tick-price--highlight { background-color: #fde047 !important; }`;
+      document.head.appendChild(style);
+    }
+  }, []);
+
+  // Delegate mouse down to the scroll wrapper to avoid touching existing cell JSX
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+
+    const onMouseDown = (e: MouseEvent) => {
+      if (e.button !== 0) return; // only left click
+      const me = e as MouseEvent & { metaKey?: boolean; ctrlKey?: boolean };
+      if (!(me.metaKey || me.ctrlKey)) return; // Cmd on Mac, Ctrl on PC
+
+      const target = e.target as HTMLElement | null;
+      // Price cells already have class 'bg-ladder-price'
+      const cell = target?.closest?.('div.bg-ladder-price') as HTMLElement | null;
+      if (!cell) return;
+
+      e.preventDefault();
+      const key = normalizePriceKey(cell.innerText);
+      if (!key) return;
+
+      setHighlightedPriceKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key);
+        else next.add(key);
+        return next;
+      });
+    };
+
+    root.addEventListener('mousedown', onMouseDown);
+    return () => {
+      root.removeEventListener('mousedown', onMouseDown);
+    };
+  }, [scrollWrapperRef, normalizePriceKey]);
+
+  // Apply/remove yellow class to matched Price cells after each render
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
+    for (const cell of cells) {
+      const key = normalizePriceKey(cell.innerText);
+      if (key && highlightedPriceKeys.has(key)) {
+        cell.classList.add('tick-price--highlight');
+      } else {
+        cell.classList.remove('tick-price--highlight');
+      }
+    }
+  }, [tickLadder, currentPrice, highlightedPriceKeys, normalizePriceKey]);
+  // === End added code ===
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
     if (tickLadder?.levels?.length) {
