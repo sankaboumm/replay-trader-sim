@@ -201,9 +201,12 @@ export const TickLadder = memo(function TickLadder({
                 )}
               </div>
 
-              {/* Volume total (buy + sell) */}
+              {/* Volume total (buy + sell) à ce niveau de prix */}
               <div className="flex items-center justify-center text-muted-foreground">
-                {fmtSize(level.bidSize + level.askSize)}
+                {(() => {
+                  const totalVolume = level.bidSize + level.askSize;
+                  return totalVolume > 0 ? fmtSize(totalVolume) : '';
+                })()}
               </div>
             </div>
           );
