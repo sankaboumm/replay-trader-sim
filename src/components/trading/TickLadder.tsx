@@ -1,5 +1,4 @@
 import { memo, useMemo, useRef, useCallback } from 'react';
-import { useEffect, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -15,20 +14,11 @@ interface Position {
   symbol: string;
   quantity: number;
   averagePrice: number;
-  pnl: number;
-}
-
-interface TickLevel {
-  price: number;
-  bidSize?: number;
-  askSize?: number;
-  sizeWindow?: number;
-  volumeCumulative?: number;
-  tick?: number;
+  marketPrice: number;
 }
 
 interface TickLadderProps {
-  tickLadder: TickLadderType;
+  tickLadder: TickLadderType | null;
   currentPrice: number;
   orders: Order[];
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
@@ -66,81 +56,6 @@ export const TickLadder = memo(function TickLadder({
     }
     return 0.25;
   }, [tickLadder]);
-  // === Added: Price cell highlight via Cmd/Ctrl + Left Click (no deletion of existing code) ===
-  // Keep a set of highlighted price string keys (e.g., "15324.50")
-  const [highlightedPriceKeys, setHighlightedPriceKeys] = useState<Set<string>>(new Set());
-
-  // Helper to normalize a price string from DOM text into a stable key
-  const normalizePriceKey = useCallback((txt: string) => {
-    const s = (txt || '').trim().replace(',', '.');
-    const n = Number(s);
-    if (Number.isFinite(n)) return n.toFixed(2);
-    return '';
-  }, []);
-
-  // Inject a small CSS helper once to ensure yellow paint overrides any background
-  useEffect(() => {
-    const id = 'tickladder-highlight-style';
-    if (!document.getElementById(id)) {
-      const style = document.createElement('style');
-      style.id = id;
-      style.textContent = `.tick-price--highlight { background-color: #fde047 !important; }`;
-      document.head.appendChild(style);
-    }
-  }, []);
-
-  // Delegate mouse down on the scroll wrapper to support Cmd/Ctrl + left click on Price cells
-  useEffect(() => {
-    const root = scrollWrapperRef.current;
-    if (!root) return;
-
-    const onMouseDown = (e: MouseEvent) => {
-      if (e.button !== 0) return; // only left click
-      // Cmd (Mac) or Ctrl (PC)
-      const me = e as MouseEvent & { metaKey?: boolean; ctrlKey?: boolean };
-      if (!(me.metaKey || me.ctrlKey)) return;
-
-      // find the closest Price cell by its existing class
-      const target = e.target as HTMLElement | null;
-      const cell = target?.closest?.('div.bg-ladder-price') as HTMLElement | null;
-      if (!cell) return;
-
-      e.preventDefault();
-
-      const key = normalizePriceKey(cell.innerText);
-      if (!key) return;
-
-      // Toggle in React state
-      setHighlightedPriceKeys(prev => {
-        const next = new Set(prev);
-        if (next.has(key)) next.delete(key);
-        else next.add(key);
-        return next;
-      });
-    };
-
-    root.addEventListener('mousedown', onMouseDown);
-    return () => {
-      root.removeEventListener('mousedown', onMouseDown);
-    };
-  }, [scrollWrapperRef, normalizePriceKey]);
-
-  // After each render/update, apply or remove the highlight class to matching Price cells
-  useEffect(() => {
-    const root = scrollWrapperRef.current;
-    if (!root) return;
-
-    const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
-    for (const cell of cells) {
-      const key = normalizePriceKey(cell.innerText);
-      if (key && highlightedPriceKeys.has(key)) {
-        cell.classList.add('tick-price--highlight');
-      } else {
-        cell.classList.remove('tick-price--highlight');
-      }
-    }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, normalizePriceKey]);
-  // === End added code ===
 
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
@@ -162,19 +77,32 @@ export const TickLadder = memo(function TickLadder({
 
     if (mode === 1) {
       // LINE mode: 1 line = 1 tick, invert sign so: up (deltaY<0) => +ticks (price up)
-      steps = deltaY < 0 ? +1 : -1;
+      const lines = Math.max(1, Math.abs(Math.round(deltaY)));
+      steps = -Math.sign(deltaY) * lines;
     } else {
-      // PIXEL mode: convert wheel delta to rows, keep fractional remainder
-      const rows = deltaY / ROW_HEIGHT_PX;
-      const withRemainder = wheelRemainderRef.current + rows;
-      steps = Math.trunc(withRemainder);
-      wheelRemainderRef.current = withRemainder - steps;
+      // PIXEL mode: accumulate by row height, invert sign mapping for price direction
+      wheelRemainderRef.current += deltaY;
+      while (Math.abs(wheelRemainderRef.current) >= ROW_HEIGHT_PX) {
+        if (wheelRemainderRef.current > 0) {
+          steps -= 1; // scroll down -> steps negative -> price down
+          wheelRemainderRef.current -= ROW_HEIGHT_PX;
+        } else {
+          steps += 1; // scroll up -> steps positive -> price up
+          wheelRemainderRef.current += ROW_HEIGHT_PX;
+        }
+      }
     }
 
-    // anchor adjustment
-    const base = computeBasePrice();
-    setViewAnchorPrice(base + steps * tickSize);
-  }, [setViewAnchorPrice, tickLadder]);
+    if (steps !== 0) {
+      const base = computeBasePrice();
+      const nextPrice = base + steps * tickSize;
+      setViewAnchorPrice(nextPrice);
+
+      // lock native scroll
+      const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
+      if (inner) inner.scrollTop = 0;
+    }
+  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
@@ -207,19 +135,21 @@ export const TickLadder = memo(function TickLadder({
     onCancelOrders(price);
   };
 
-  if (!tickLadder) {
+  if (!tickLadder || !tickLadder.levels?.length) {
     return (
-      <div className="border rounded-lg overflow-hidden">
-        <div className="p-6 text-center text-muted-foreground">No data</div>
+      <div className="h-full flex items-center justify-center bg-card">
+        <div className="text-muted-foreground">
+          {disabled ? 'Snapshots DOM manquants' : 'Chargement des données orderbook...'}
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="border rounded-lg overflow-hidden flex flex-col">
+    <div className="h-full flex flex-col bg-card trading-no-anim">
       {/* Header */}
-      <div className="border-b border-border">
-        <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs bg-muted/30">
+      <div className="bg-ladder-header border-b border-border">
+        <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
           <div className="p-2 text-center border-r border-border">Price</div>
@@ -231,7 +161,7 @@ export const TickLadder = memo(function TickLadder({
       {/* Body - wrap with a listener to avoid editing existing inner div */}
       <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto">
-          {(tickLadder.levels as TickLevel[]).slice().sort((a, b) => b.price - a.price).map((level) => {
+          {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
 
@@ -256,7 +186,7 @@ export const TickLadder = memo(function TickLadder({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price <= currentPrice && "bg-ladder-bid"
+                    level.price <= currentPrice && (level as any).bidSize > 0 && "bg-ladder-bid"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
@@ -285,7 +215,7 @@ export const TickLadder = memo(function TickLadder({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price >= currentPrice && "bg-ladder-ask"
+                    level.price >= currentPrice && (level as any).askSize > 0 && "bg-ladder-ask"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
