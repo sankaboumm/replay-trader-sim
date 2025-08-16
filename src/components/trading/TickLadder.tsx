@@ -48,10 +48,13 @@ export const TickLadder = memo(function TickLadder({
 
   // FIFO scroll state
   const wrapperRef = useRef<HTMLDivElement | null>(null);
+  const innerRef = useRef<HTMLDivElement | null>(null);
   const wheelRemainderRef = useRef(0);
   const pendingStepsRef = useRef(0);
   const rafIdRef = useRef<number | null>(null);
+  const anchorRef = useRef<number | null>(null); // local running anchor to avoid big jumps
   const ROW_HEIGHT_PX = 24; // Tailwind h-6
+  const MAX_STEPS_PER_FRAME = 6; // smooth large deltas
 
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
@@ -74,22 +77,29 @@ export const TickLadder = memo(function TickLadder({
     return currentPrice;
   };
 
-  const scheduleAnchorUpdate = (stepsDelta: number) => {
+  const pump = () => {
     if (!setViewAnchorPrice) return;
+    const total = pendingStepsRef.current;
+    if (total === 0) { rafIdRef.current = null; return; }
+
+    const step = Math.sign(total) * Math.min(MAX_STEPS_PER_FRAME, Math.abs(total));
+    pendingStepsRef.current = total - step;
+
+    if (anchorRef.current == null) anchorRef.current = computeBasePrice();
+    anchorRef.current = (anchorRef.current as number) + step * tickSize;
+
+    setViewAnchorPrice(anchorRef.current);
+
+    if (innerRef.current && innerRef.current.scrollTop !== 0) innerRef.current.scrollTop = 0;
+
+    rafIdRef.current = requestAnimationFrame(pump);
+  };
+
+  const scheduleAnchorUpdate = (stepsDelta: number) => {
     pendingStepsRef.current += stepsDelta;
-    if (rafIdRef.current != null) return;
-    rafIdRef.current = requestAnimationFrame(() => {
-      const total = pendingStepsRef.current;
-      pendingStepsRef.current = 0;
-      rafIdRef.current = null;
-      if (total !== 0) {
-        const base = computeBasePrice();
-        const nextPrice = base + total * tickSize;
-        setViewAnchorPrice(nextPrice);
-        const inner = wrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
-        if (inner && inner.scrollTop !== 0) inner.scrollTop = 0;
-      }
-    });
+    if (rafIdRef.current == null) {
+      rafIdRef.current = requestAnimationFrame(pump);
+    }
   };
 
   const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -130,6 +140,7 @@ export const TickLadder = memo(function TickLadder({
     if (e.code === 'Space') {
       e.preventDefault();
       setViewAnchorPrice(null);
+      anchorRef.current = null; // reset local anchor reference
     }
   }, [setViewAnchorPrice]);
 
@@ -181,7 +192,7 @@ export const TickLadder = memo(function TickLadder({
 
       {/* Body - wrap with listeners (capture+bubble) to avoid native scroll flicker */}
       <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" ref={innerRef}>
           {sortedLevels.map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
