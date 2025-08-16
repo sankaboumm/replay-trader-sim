@@ -42,18 +42,11 @@ export const TickLadder = memo(function TickLadder({
   position,
   onRequestExpandWindow,
 }: TickLadderProps) {
-  const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
-    orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
 
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
     const side: 'BUY' | 'SELL' = column === 'bid' ? 'BUY' : 'SELL';
     onLimitOrder(side, price, 1);
-  };
-
-  const handleOrderClick = (price: number) => {
-    if (disabled) return;
-    onCancelOrders(price);
   };
 
   const bodyRef = useRef<HTMLDivElement | null>(null);
@@ -65,9 +58,7 @@ export const TickLadder = memo(function TickLadder({
       if (!onRequestExpandWindow) return;
       const nearTop = el.scrollTop <= 0;
       const nearBottom = el.scrollTop + el.clientHeight >= el.scrollHeight;
-      if (nearTop || nearBottom) {
-        onRequestExpandWindow(200);
-      }
+      if (nearTop || nearBottom) onRequestExpandWindow(200);
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
@@ -111,7 +102,7 @@ export const TickLadder = memo(function TickLadder({
                 )}
                 onClick={() => handleCellClick(level.price, 'bid')}
               >
-                {level.price <= currentPrice && <span>{fmtSize(level.bidSize)}</span>}
+                <span>{fmtSize(level.bidSize)}</span>
                 {level.bidSize >= 20 && (
                   <div className="absolute inset-y-1 left-1 right-1 pointer-events-none ring-2 ring-yellow-400/60 rounded-sm"></div>
                 )}
@@ -135,7 +126,7 @@ export const TickLadder = memo(function TickLadder({
                 )}
                 onClick={() => handleCellClick(level.price, 'ask')}
               >
-                {level.price >= currentPrice && <span>{fmtSize(level.askSize)}</span>}
+                <span>{fmtSize(level.askSize)}</span>
                 {level.askSize >= 20 && (
                   <div className="absolute inset-y-1 left-1 right-1 pointer-events-none ring-2 ring-yellow-400/60 rounded-sm"></div>
                 )}
