@@ -1,5 +1,5 @@
 // src/lib/orderbook.ts
-// Moteur d’order book + génération d’un ladder ancré (anti-jitter)
+// Moteur d'order book + génération d'un ladder ancré (anti-jitter)
 
 export type Side = "BUY" | "SELL";
 
@@ -33,7 +33,7 @@ export interface TickLevel {
 }
 
 export interface TickLadder {
-  midTick: number;          // tick d’ancrage (centre visuel)
+  midTick: number;          // tick d'ancrage (centre visuel)
   midPrice: number;
   lastTick?: number;        // dernier tick traded
   lastPrice?: number;
@@ -43,6 +43,7 @@ export interface TickLadder {
 export class OrderBookProcessor {
   private tickSize = 0.25;
   private anchorTick: number | null = null;
+  private cumulativeVolume = new Map<number, number>(); // tick -> volume cumulé
 
   constructor(tickSize = 0.25) {
     this.tickSize = tickSize;
@@ -102,7 +103,7 @@ public priceToTick(price: number) { return this.toTick(price); }
     return +(tick * this.tickSize).toFixed(8);
   }
 
-  /** Optionnel : parse d’un snapshot depuis une ligne CSV déjà chargée */
+  /** Optionnel : parse d'un snapshot depuis une ligne CSV déjà chargée */
   public parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
     const arr = (v: any): number[] => {
       if (v == null) return [];
@@ -139,7 +140,7 @@ public priceToTick(price: number) { return this.toTick(price); }
     return { bidPrices, bidSizes, bidOrders, askPrices, askSizes, askOrders, timestamp };
   }
 
-  /** Optionnel : parse d’un trade depuis une ligne CSV */
+  /** Optionnel : parse d'un trade depuis une ligne CSV */
   public parseTrade(row: any): Trade | null {
     const p = Number(row.trade_price);
     const s = Number(row.trade_size);
@@ -148,6 +149,12 @@ public priceToTick(price: number) { return this.toTick(price); }
                         : aRaw === "SELL" || aRaw === "S" ? "SELL" : null;
     if (!isFinite(p) || p <= 0 || !isFinite(s) || s <= 0 || !a) return null;
     const ts = row.ts_exch_utc ?? row.ts_utc ?? Date.now();
+    
+    // Accumuler le volume à ce tick
+    const tick = this.toTick(p);
+    const currentVol = this.cumulativeVolume.get(tick) || 0;
+    this.cumulativeVolume.set(tick, currentVol + s);
+    
     return { timestamp: new Date(ts), price: p, size: s, aggressor: a };
   }
 
@@ -188,7 +195,7 @@ public priceToTick(price: number) { return this.toTick(price); }
       this.anchorTick = centerTick;
     }
 
-    // 3) fenêtre autour du centre (large, l’UI en affiche 20)
+    // 3) fenêtre autour du centre (large, l'UI en affiche 20)
     const HALF = 40;                       // fenêtre ±40 ticks
     const minTick = centerTick - HALF;
     const maxTick = centerTick + HALF;
@@ -197,6 +204,7 @@ public priceToTick(price: number) { return this.toTick(price); }
     for (let t = maxTick; t >= minTick; t--) {
       const bid = bidByTick.get(t);
       const ask = askByTick.get(t);
+      const cumulativeVol = this.cumulativeVolume.get(t) || 0;
       levels.push({
         tick: t,
         price: this.fromTick(t),
@@ -205,7 +213,7 @@ public priceToTick(price: number) { return this.toTick(price); }
         bidOrders: bid?.orders ?? 0,
         askOrders: ask?.orders ?? 0,
         sizeWindow: 0,
-        volumeCumulative: 0,
+        volumeCumulative: cumulativeVol,
       });
     }
 
@@ -221,6 +229,13 @@ public priceToTick(price: number) { return this.toTick(price); }
     };
   }
 
-  // (facultatif) Remise à zéro de compteurs internes si vous en ajoutez plus tard
-  public resetVolume() { /* no-op pour l’instant */ }
+  // Remise à zéro du volume cumulé
+  public resetVolume() { 
+    this.cumulativeVolume.clear(); 
+  }
+  
+  // Obtenir le volume cumulé pour un tick donné
+  public getCumulativeVolume(tick: number): number {
+    return this.cumulativeVolume.get(tick) || 0;
+  }
 }

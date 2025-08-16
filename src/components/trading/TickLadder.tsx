@@ -130,7 +130,7 @@ export const TickLadder = memo(function TickLadder({
           <div className="p-2 text-center border-r border-border">Bids</div>
           <div ref={priceHeaderRef} className="p-2 text-center border-r border-border" style={{ position: "sticky", left: priceLeft, zIndex: 5,  }}>Price</div>
           <div className="p-2 text-center border-r border-border">Asks</div>
-          <div className="p-2 text-center">Total</div>
+          <div className="p-2 text-center">Volume</div>
         </div>
       </div>
 
@@ -201,12 +201,9 @@ export const TickLadder = memo(function TickLadder({
                 )}
               </div>
 
-              {/* Volume total (buy + sell) à ce niveau de prix */}
+              {/* Volume cumulé traité à ce niveau de prix */}
               <div className="flex items-center justify-center text-muted-foreground">
-                {(() => {
-                  const totalVolume = level.bidSize + level.askSize;
-                  return totalVolume > 0 ? fmtSize(totalVolume) : '';
-                })()}
+                {level.volumeCumulative > 0 ? fmtSize(level.volumeCumulative) : ''}
               </div>
             </div>
           );
