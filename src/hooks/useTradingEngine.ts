@@ -171,12 +171,12 @@ export function useTradingEngine() {
 
   const roundToGrid = (price: number): number => Math.round(price * 4) / 4; // 0.25
 
-  // ⛳ AJOUT — exposer le volume cumulé par prix au Ladder
-  const getVolumeForPrice = useCallback(
-    (price: number) => volumeByPrice.get(roundToGrid(price)) ?? 0,
-    [volumeByPrice]
-  );
-  // ⛳ FIN AJOUT
+// ⛳ AJOUT — exposer le volume cumulé par prix au Ladder
+const getVolumeForPrice = useCallback(
+  (price: number) => volumeByPrice.get(roundToGrid(price)) ?? 0,
+  [volumeByPrice]
+);
+// ⛳ FIN AJOUT
 
   // On n’utilise plus inferTickSize/parseTrade du processor : on gère localement
   function buildTradeFromRow(row: any): OrderBookTrade | null {
