@@ -31,7 +31,7 @@ export function TradingInterface() {
     bestBid,
     bestAsk,
     spread,
-    spreadTicks
+    spreadTicks,
     setViewAnchorPrice,
   } = useTradingEngine();
 
