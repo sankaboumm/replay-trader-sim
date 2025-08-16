@@ -40,6 +40,7 @@ const EPS = 1e-8;
 const LadderRow = memo(function LadderRow({
   level,
   currentPrice,
+  isAvgPrice,
   buyTotal,
   sellTotal,
   onCellClick,
@@ -48,6 +49,7 @@ const LadderRow = memo(function LadderRow({
 }: {
   level: TickLevel;
   currentPrice: number;
+  isAvgPrice: boolean;
   buyTotal: number;
   sellTotal: number;
   onCellClick: (price: number, side: 'bid' | 'ask') => void;
@@ -78,7 +80,7 @@ const LadderRow = memo(function LadderRow({
       {/* Bids */}
       <div
         className={cn(
-          'flex items-center justify-center cursor-pointer border-r border-border/50',
+          'relative z-0 flex items-center justify-center cursor-pointer border-r border-border/50',
           showBid && bidSize > 0 && 'bg-ladder-bid'
         )}
         onClick={() => (buyTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'bid'))}
@@ -90,8 +92,9 @@ const LadderRow = memo(function LadderRow({
       {/* Price */}
       <div
         className={cn(
-          'flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
-          isLastPrice && 'text-trading-average font-bold'
+          'relative z-10 flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
+          isLastPrice && 'text-trading-average font-bold',
+          isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
         )}
         onDoubleClick={onDoubleClickPrice}
         title="Double-clique pour recentrer"
@@ -102,7 +105,7 @@ const LadderRow = memo(function LadderRow({
       {/* Asks */}
       <div
         className={cn(
-          'flex items-center justify-center cursor-pointer border-r border-border/50',
+          'relative z-0 flex items-center justify-center cursor-pointer border-r border-border/50',
           showAsk && askSize > 0 && 'bg-ladder-ask'
         )}
         onClick={() => (sellTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'ask'))}
@@ -122,6 +125,7 @@ const LadderRow = memo(function LadderRow({
   ((a.level as any).sizeWindow ?? 0) === ((b.level as any).sizeWindow ?? 0) &&
   ((a.level as any).volumeCumulative ?? 0) === ((b.level as any).volumeCumulative ?? 0) &&
   a.currentPrice === b.currentPrice &&
+  a.isAvgPrice === b.isAvgPrice &&
   a.buyTotal === b.buyTotal &&
   a.sellTotal === b.sellTotal
 ));
@@ -158,7 +162,7 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
-  // Point de référence stable (évite dérive haute)
+  // Point de référence stable
   const refPoint = useMemo(() => {
     if (tickLadder?.levels?.length) {
       const mid = tickLadder.levels[Math.floor(tickLadder.levels.length / 2)];
@@ -177,7 +181,7 @@ export const TickLadder = memo(function TickLadder({
     return +p.toFixed(8);
   }, [refPoint, tickSize]);
 
-  // Table par tick (via level.tick fourni par le moteur)
+  // Table par tick
   const levelByTick = useMemo(() => {
     const m = new Map<number, TickLevel>();
     if (tickLadder?.levels) {
@@ -186,7 +190,7 @@ export const TickLadder = memo(function TickLadder({
     return m;
   }, [tickLadder]);
 
-  // Totaux d'ordres par tick (référence commune)
+  // Totaux d'ordres par tick
   const buyTotals = useMemo(() => {
     const m = new Map<number, number>();
     for (const o of orders) {
@@ -288,6 +292,10 @@ export const TickLadder = memo(function TickLadder({
 
   // Fenêtre de ticks (utilise les vrais niveaux si présents, sinon niveau synthétique)
   const centerTick = baseTick + offsetRef.current;
+
+  // Calcul de la moyenne (si position ouverte)
+  const avgPrice: number | null = position.quantity !== 0 ? position.averagePrice : null;
+
   const rows = useMemo(() => {
     const out: TickLevel[] = [];
     for (let i = WINDOW; i >= -WINDOW; i--) {
@@ -352,11 +360,13 @@ export const TickLadder = memo(function TickLadder({
             const price = lvl.price as number;
             const buyTotal = buyTotals.get(idx) ?? 0;
             const sellTotal = sellTotals.get(idx) ?? 0;
+            const isAvg = avgPrice != null && Math.abs(price - avgPrice) <= tickSize / 2 + EPS;
             return (
               <LadderRow
                 key={idx}
                 level={lvl}
                 currentPrice={currentPrice}
+                isAvgPrice={!!isAvg}
                 buyTotal={buyTotal}
                 sellTotal={sellTotal}
                 onCellClick={onCellClick}
