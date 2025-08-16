@@ -1,6 +1,6 @@
 import { memo, useMemo, useRef, useCallback, useState } from 'react';
 import { cn } from '@/lib/utils';
-import { TickLadder as TickLadderType } from '@/lib/orderbook';
+import { TickLadder as TickLadderType, TickLevel } from '@/lib/orderbook';
 
 interface Order {
   id: string;
@@ -34,19 +34,11 @@ const fmtSize = (s: number) => (s > 0 ? s.toString() : '');
 
 const WINDOW = 100; // 100 ticks au-dessus et en dessous (201 lignes)
 const ROW_HEIGHT_PX = 24;
-
-type TickRow = {
-  tickIndex: number;
-  price: number;
-  bidSize: number;
-  askSize: number;
-  sizeWindow: number;
-  volumeCumulative: number;
-};
+const EPS = 1e-8;
 
 // Ligne mémoïsée
 const LadderRow = memo(function LadderRow({
-  row,
+  level,
   currentPrice,
   buyTotal,
   sellTotal,
@@ -54,7 +46,7 @@ const LadderRow = memo(function LadderRow({
   onCancelOrders,
   onDoubleClickPrice
 }: {
-  row: TickRow;
+  level: TickLevel;
   currentPrice: number;
   buyTotal: number;
   sellTotal: number;
@@ -62,7 +54,11 @@ const LadderRow = memo(function LadderRow({
   onCancelOrders: (price: number) => void;
   onDoubleClickPrice: () => void;
 }) {
-  const { price, bidSize, askSize, sizeWindow, volumeCumulative } = row;
+  const price = level.price;
+  const bidSize = (level as any).bidSize ?? 0;
+  const askSize = (level as any).askSize ?? 0;
+  const sizeWindow = (level as any).sizeWindow ?? 0;
+  const volumeCumulative = (level as any).volumeCumulative ?? 0;
 
   const isLastPrice = Math.abs(price - currentPrice) < 0.125;
   const showBid = price <= currentPrice;
@@ -70,7 +66,7 @@ const LadderRow = memo(function LadderRow({
 
   return (
     <div
-      key={price}
+      key={level.tick}
       className={cn('grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
       style={{ willChange: 'opacity', backfaceVisibility: 'hidden' as any }}
     >
@@ -120,11 +116,11 @@ const LadderRow = memo(function LadderRow({
     </div>
   );
 }, (a, b) => (
-  a.row.price === b.row.price &&
-  a.row.bidSize === b.row.bidSize &&
-  a.row.askSize === b.row.askSize &&
-  a.row.sizeWindow === b.row.sizeWindow &&
-  a.row.volumeCumulative === b.row.volumeCumulative &&
+  a.level.tick === b.level.tick &&
+  ((a.level as any).bidSize ?? 0) === ((b.level as any).bidSize ?? 0) &&
+  ((a.level as any).askSize ?? 0) === ((b.level as any).askSize ?? 0) &&
+  ((a.level as any).sizeWindow ?? 0) === ((b.level as any).sizeWindow ?? 0) &&
+  ((a.level as any).volumeCumulative ?? 0) === ((b.level as any).volumeCumulative ?? 0) &&
   a.currentPrice === b.currentPrice &&
   a.buyTotal === b.buyTotal &&
   a.sellTotal === b.sellTotal
@@ -143,48 +139,45 @@ export const TickLadder = memo(function TickLadder({
 }: TickLadderProps) {
   const wrapperRef = useRef<HTMLDivElement | null>(null);
 
+  // Déterminer un tickSize fiable à partir des niveaux existants (utilise les ticks fournis)
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
-      return Math.abs(tickLadder.levels[0].price - tickLadder.levels[1].price) || 0.25;
+      let best: number | null = null;
+      for (let i = 0; i < tickLadder.levels.length - 1; i++) {
+        const a = tickLadder.levels[i];
+        const b = tickLadder.levels[i + 1];
+        if (a.tick !== b.tick) {
+          const dTick = Math.abs(a.tick - b.tick);
+          const dPrice = Math.abs(a.price - b.price);
+          const cand = dPrice / dTick;
+          if (cand > 0) best = best == null ? cand : Math.min(best, cand);
+        }
+      }
+      if (best && isFinite(best)) return +best.toFixed(8);
     }
     return 0.25;
   }, [tickLadder]);
 
-  const toTickIndex = useCallback((price: number) => Math.round(price / tickSize), [tickSize]);
-  const fromTickIndex = useCallback((idx: number) => idx * tickSize, [tickSize]);
+  const toTickIndex = useCallback((price: number) => Math.round((price + EPS) / tickSize), [tickSize]);
+  const fromTickIndex = useCallback((idx: number) => +(idx * tickSize).toFixed(8), [tickSize]);
 
-  // Regroupement par tickIndex (évite les mismatches flottants)
+  // Table par tick (en utilisant level.tick fourni par le moteur)
   const rowByTick = useMemo(() => {
-    const m = new Map<number, TickRow>();
+    const m = new Map<number, TickLevel>();
     if (tickLadder?.levels) {
       for (const lvl of tickLadder.levels) {
-        const idx = Math.round(lvl.price / tickSize);
-        const price = fromTickIndex(idx);
-        const prev = m.get(idx);
-        const row: TickRow = prev ?? {
-          tickIndex: idx,
-          price,
-          bidSize: 0,
-          askSize: 0,
-          sizeWindow: 0,
-          volumeCumulative: 0,
-        };
-        row.bidSize += (lvl as any).bidSize ?? 0;
-        row.askSize += (lvl as any).askSize ?? 0;
-        row.sizeWindow += (lvl as any).sizeWindow ?? 0;
-        row.volumeCumulative += (lvl as any).volumeCumulative ?? 0;
-        m.set(idx, row);
+        m.set(lvl.tick, lvl);
       }
     }
     return m;
-  }, [tickLadder, tickSize, fromTickIndex]);
+  }, [tickLadder]);
 
-  // Totaux d'ordres par tickIndex
+  // Totaux d'ordres par tickIndex (epsilon-safe)
   const buyTotals = useMemo(() => {
     const m = new Map<number, number>();
     for (const o of orders) {
       if (o.side === 'BUY' && o.quantity > o.filled) {
-        const idx = Math.round(o.price / tickSize);
+        const idx = Math.round((o.price + EPS) / tickSize);
         m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
       }
     }
@@ -194,20 +187,21 @@ export const TickLadder = memo(function TickLadder({
     const m = new Map<number, number>();
     for (const o of orders) {
       if (o.side === 'SELL' && o.quantity > o.filled) {
-        const idx = Math.round(o.price / tickSize);
+        const idx = Math.round((o.price + EPS) / tickSize);
         m.set(idx, (m.get(idx) ?? 0) + (o.quantity - o.filled));
       }
     }
     return m;
   }, [orders, tickSize]);
 
-  // Base (ancre) + offset virtuel en ticks
+  // Base (milieu) + offset virtuel en ticks (fenêtre 201 lignes)
   const computeBaseTick = () => {
+    if (tickLadder && (tickLadder as any).midTick != null) return (tickLadder as any).midTick as number;
     if (tickLadder && (tickLadder as any).midPrice != null) return toTickIndex((tickLadder as any).midPrice as number);
     if (tickLadder?.levels?.length) {
-      const first = tickLadder.levels[0].price;
-      const last  = tickLadder.levels[tickLadder.levels.length - 1].price;
-      return toTickIndex((first + last) / 2);
+      const hi = tickLadder.levels[0].tick;
+      const lo = tickLadder.levels[tickLadder.levels.length - 1].tick;
+      return Math.round((hi + lo) / 2);
     }
     return toTickIndex(currentPrice);
   };
@@ -278,15 +272,21 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice]);
 
-  // Construire la fenêtre synthétique de 201 ticks autour de baseTick + offset
+  // Construire la fenêtre de ticks (à partir des vrais ticks si dispo, sinon synthèse)
   const centerTick = baseTick + offsetRef.current;
-  const rows: TickRow[] = useMemo(() => {
-    const out: TickRow[] = [];
+  const rows = useMemo(() => {
+    const out: TickLevel[] = [];
     for (let i = WINDOW; i >= -WINDOW; i--) {
       const idx = centerTick + i;
-      const price = fromTickIndex(idx);
-      const base = rowByTick.get(idx) ?? { tickIndex: idx, price, bidSize: 0, askSize: 0, sizeWindow: 0, volumeCumulative: 0 };
-      out.push(base);
+      const lvl = rowByTick.get(idx) ?? ({
+        tick: idx,
+        price: fromTickIndex(idx),
+        bidSize: 0,
+        askSize: 0,
+        sizeWindow: 0,
+        volumeCumulative: 0,
+      } as any);
+      out.push(lvl);
     }
     return out;
   }, [rowByTick, centerTick, fromTickIndex, nonce]);
@@ -330,18 +330,18 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Body (pas de scroll natif, fenêtrage virtuel) */}
+      {/* Body */}
       <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-hidden">
-          {rows.map((row) => {
-            const idx = row.tickIndex;
-            const price = row.price;
+          {rows.map((lvl) => {
+            const idx = (lvl as any).tick as number;
+            const price = lvl.price as number;
             const buyTotal = buyTotals.get(idx) ?? 0;
             const sellTotal = sellTotals.get(idx) ?? 0;
             return (
               <LadderRow
                 key={idx}
-                row={row}
+                level={lvl}
                 currentPrice={currentPrice}
                 buyTotal={buyTotal}
                 sellTotal={sellTotal}
