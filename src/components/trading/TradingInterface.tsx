@@ -1,10 +1,10 @@
-import { useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
 import { FileUpload } from './FileUpload';
 import { PlaybackControls } from './PlaybackControls';
 import { PositionPanel } from './PositionPanel';
-import { TickLadder } from './TickLadder';
 import { TimeAndSales } from './TimeAndSales';
+import { TickLadder } from './TickLadder';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
 
 export function TradingInterface() {
@@ -27,11 +27,7 @@ export function TradingInterface() {
     placeMarketOrder,
     cancelOrdersAtPrice,
     currentTickLadder,
-    // nouveaux dérivés
-    bestBid,
-    bestAsk,
-    spread,
-    spreadTicks
+    totalTrades
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -69,31 +65,29 @@ export function TradingInterface() {
         </div>
       </div>
 
-      {/* Main */}
+      {/* Main Trading Interface */}
       <div className="h-[calc(100vh-4rem)] flex">
-        {/* Left Panel */}
+        {/* Left Panel - Position & Controls */}
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <PositionPanel
             position={position}
             pnl={pnl}
             currentPrice={currentPrice}
-            bestBid={bestBid}
-            bestAsk={bestAsk}
-            spread={spread}
-            spreadTicks={spreadTicks}
             className="flex-shrink-0"
           />
 
-          {/* Drop Zone */}
+          {/* Drop zone quand pas de data */}
           {marketData.length === 0 && (
             <div
-              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground"
+              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground hover:border-primary/50 transition-colors"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
             >
               <div className="text-center p-8">
-                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier</h3>
-                <p className="text-sm mb-4">Glissez un CSV/Parquet pour démarrer</p>
+                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier CSV/Parquet</h3>
+                <p className="text-sm mb-4">
+                  Glissez-déposez un fichier de données de marché pour commencer le trading
+                </p>
                 <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                   Choisir un fichier
                 </Button>
@@ -109,7 +103,7 @@ export function TradingInterface() {
           )}
         </div>
 
-        {/* Center - Tick Ladder */}
+        {/* Center Panel - Tick Ladder */}
         <div className="flex-1 bg-background">
           <TickLadder
             tickLadder={currentTickLadder}
@@ -123,9 +117,13 @@ export function TradingInterface() {
           />
         </div>
 
-        {/* Right - Time & Sales */}
+        {/* Right Panel - Time & Sales */}
         <div className="w-80 bg-card border-l border-border">
-          <TimeAndSales trades={timeAndSales} currentPrice={currentPrice} />
+          <TimeAndSales
+            trades={timeAndSales}
+            currentPrice={currentPrice}
+            totalTrades={totalTrades}
+          />
         </div>
       </div>
     </div>
