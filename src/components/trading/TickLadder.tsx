@@ -1,4 +1,4 @@
-import { memo, useMemo, useRef, useCallback } from 'react';
+import { memo, useMemo, useRef, useCallback, useState } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -32,6 +32,117 @@ interface TickLadderProps {
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
 const fmtSize = (s: number) => (s > 0 ? s.toString() : '');
 
+const WINDOW = 100; // 100 niveaux au-dessus et en dessous (201 lignes visibles)
+const ROW_HEIGHT_PX = 24;
+
+function findClosestIndexDescending(levels: { price: number }[], price: number): number {
+  // niveaux triés par prix décroissant
+  let lo = 0, hi = levels.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const p = levels[mid].price;
+    if (p === price) return mid;
+    if (p > price) lo = mid + 1; // on est plus haut que la cible -> descendre (indices croissants = prix décroissants)
+    else hi = mid - 1;
+  }
+  // choisir l'indice le plus proche
+  const cand = Math.max(0, Math.min(levels.length - 1, lo));
+  if (cand === 0) return 0;
+  const prev = cand - 1;
+  return Math.abs(levels[cand].price - price) < Math.abs(levels[prev].price - price) ? cand : prev;
+}
+
+// Ligne mémoïsée (évite re-renders inutiles)
+const LadderRow = memo(function LadderRow({
+  level,
+  currentPrice,
+  buyTotal,
+  sellTotal,
+  onCellClick,
+  onCancelOrders,
+  onDoubleClickPrice
+}: {
+  level: any;
+  currentPrice: number;
+  buyTotal: number;
+  sellTotal: number;
+  onCellClick: (price: number, side: 'bid' | 'ask') => void;
+  onCancelOrders: (price: number) => void;
+  onDoubleClickPrice: () => void;
+}) {
+  const price = level.price as number;
+  const bidSize = (level as any).bidSize ?? 0;
+  const askSize = (level as any).askSize ?? 0;
+  const sizeWindow = (level as any).sizeWindow ?? 0;
+  const volumeCumulative = (level as any).volumeCumulative ?? 0;
+
+  const isLastPrice = Math.abs(price - currentPrice) < 0.125;
+  const isAvgPrice = false; // pas nécessaire pour le virtuel (garder simple)
+  const showBid = price <= currentPrice;
+  const showAsk = price >= currentPrice;
+
+  return (
+    <div
+      key={price}
+      className={cn('grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6')}
+      style={{ willChange: 'opacity, transform', backfaceVisibility: 'hidden' as any }}
+    >
+      {/* Size (window) */}
+      <div className="flex items-center justify-center border-r border-border/50">
+        {fmtSize(sizeWindow ?? 0)}
+      </div>
+
+      {/* Bids */}
+      <div
+        className={cn(
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
+          showBid && bidSize > 0 && 'bg-ladder-bid'
+        )}
+        onClick={() => (buyTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'bid'))}
+      >
+        <span className={cn(!showBid && 'opacity-0')}>{fmtSize(bidSize ?? 0)}</span>
+        {buyTotal > 0 && <span className={cn('ml-1 text-xs', !showBid && 'opacity-0')}>({buyTotal})</span>}
+      </div>
+
+      {/* Price */}
+      <div
+        className={cn(
+          'flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
+          isLastPrice && 'text-trading-average font-bold',
+          isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
+        )}
+        onDoubleClick={onDoubleClickPrice}
+        title="Double-clique pour recentrer"
+      >
+        {fmtPrice(price)}
+      </div>
+
+      {/* Asks */}
+      <div
+        className={cn(
+          'flex items-center justify-center cursor-pointer border-r border-border/50',
+          showAsk && askSize > 0 && 'bg-ladder-ask'
+        )}
+        onClick={() => (sellTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'ask'))}
+      >
+        <span className={cn(!showAsk && 'opacity-0')}>{fmtSize(askSize ?? 0)}</span>
+        {sellTotal > 0 && <span className={cn('ml-1 text-xs', !showAsk && 'opacity-0')}>({sellTotal})</span>}
+      </div>
+
+      {/* Volume cumulé */}
+      <div className="flex items-center justify-center text-muted-foreground">{fmtSize(volumeCumulative ?? 0)}</div>
+    </div>
+  );
+}, (a, b) => a.level.price === b.level.price
+  && (a.level.bidSize ?? 0) === (b.level.bidSize ?? 0)
+  && (a.level.askSize ?? 0) === (b.level.askSize ?? 0)
+  && (a.level.sizeWindow ?? 0) === (b.level.sizeWindow ?? 0)
+  && (a.level.volumeCumulative ?? 0) === (b.level.volumeCumulative ?? 0)
+  && a.currentPrice === b.currentPrice
+  && a.buyTotal === b.buyTotal
+  && a.sellTotal === b.sellTotal
+);
+
 export const TickLadder = memo(function TickLadder({
   tickLadder,
   currentPrice,
@@ -43,20 +154,8 @@ export const TickLadder = memo(function TickLadder({
   position,
   setViewAnchorPrice
 }: TickLadderProps) {
-  const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
-    orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
-
-  // FIFO scroll state
   const wrapperRef = useRef<HTMLDivElement | null>(null);
   const innerRef = useRef<HTMLDivElement | null>(null);
-  const pxAccumRef = useRef(0);        // pixel remainder relative to row height
-  const pendingStepsRef = useRef(0);   // whole-tick steps awaiting commit
-  const lastCommitTsRef = useRef(0);   // to throttle to ~30fps
-  const rafIdRef = useRef<number | null>(null);
-  const anchorRef = useRef<number | null>(null);
-  const ROW_HEIGHT_PX = 24;
-  const MAX_STEPS_PER_FRAME = 12;      // allow bigger throughput but still bounded
-  const COMMIT_INTERVAL_MS = 33;       // ~30 fps
 
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
@@ -79,50 +178,29 @@ export const TickLadder = memo(function TickLadder({
     return currentPrice;
   };
 
-  const applyLocalTransform = (px: number) => {
-    const el = innerRef.current;
-    if (!el) return;
-    // Avoid any transition to keep paint stable
-    el.style.transition = 'none';
-    el.style.willChange = 'transform';
-    el.style.transform = `translateY(${px}px)`;
+  // Pagination virtuelle
+  const virtualOffsetRef = useRef(0); // en ticks, relatif au centre courant
+  const [nonce, setNonce] = useState(0); // force re-render pour afficher le nouvel offset
+  const rafIdRef = useRef<number | null>(null);
+
+  const requestRender = () => {
+    if (rafIdRef.current != null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      rafIdRef.current = null;
+      setNonce(n => n + 1);
+    });
   };
 
-  const commitSteps = () => {
-    if (!setViewAnchorPrice) { rafIdRef.current = null; return; }
-
-    const now = performance.now();
-    const elapsed = now - lastCommitTsRef.current;
-    // throttle to ~30fps
-    if (elapsed < COMMIT_INTERVAL_MS) {
-      rafIdRef.current = requestAnimationFrame(commitSteps);
-      return;
+  const pageAnchorIfNeeded = useCallback((basePrice: number) => {
+    if (!setViewAnchorPrice) return;
+    const off = virtualOffsetRef.current;
+    if (off >= WINDOW || off <= -WINDOW) {
+      const pageSteps = off > 0 ? Math.floor(off / WINDOW) : Math.ceil(off / WINDOW); // entier en pages
+      const nextAnchor = basePrice + pageSteps * WINDOW * tickSize;
+      virtualOffsetRef.current = off - pageSteps * WINDOW; // ramener dans [-WINDOW, WINDOW)
+      setViewAnchorPrice(nextAnchor);
     }
-    lastCommitTsRef.current = now;
-
-    let total = pendingStepsRef.current;
-    if (total === 0) { rafIdRef.current = null; return; }
-
-    const step = Math.sign(total) * Math.min(MAX_STEPS_PER_FRAME, Math.abs(total));
-    pendingStepsRef.current = total - step;
-
-    if (anchorRef.current == null) anchorRef.current = computeBasePrice();
-    anchorRef.current = (anchorRef.current as number) + step * tickSize;
-    setViewAnchorPrice(anchorRef.current);
-
-    // keep the local translate to the remainder only
-    const remainderPx = pxAccumRef.current % ROW_HEIGHT_PX;
-    applyLocalTransform(remainderPx);
-
-    rafIdRef.current = requestAnimationFrame(commitSteps);
-  };
-
-  const scheduleSteps = (deltaSteps: number) => {
-    pendingStepsRef.current += deltaSteps;
-    if (rafIdRef.current == null) {
-      rafIdRef.current = requestAnimationFrame(commitSteps);
-    }
-  };
+  }, [setViewAnchorPrice, tickSize]);
 
   const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
@@ -132,45 +210,70 @@ export const TickLadder = memo(function TickLadder({
     if (!tickLadder) return;
     e.preventDefault();
 
-    const mode = (e.nativeEvent as any)?.deltaMode ?? 0; // 0: pixel, 1: line, 2: page
-
+    const base = computeBasePrice();
+    const mode = (e.nativeEvent as any)?.deltaMode ?? 0; // 0 pixel, 1 line
+    let steps = 0;
     if (mode === 1) {
-      // LINE mode: 1 line = 1 tick, map up->+1 (price up), down->-1
       const lines = Math.max(1, Math.abs(Math.round(e.deltaY)));
-      const steps = -Math.sign(e.deltaY) * lines;
-      // visually also nudge 1 row per tick for immediate feedback
-      pxAccumRef.current += -steps * ROW_HEIGHT_PX; // invert to match visual direction
-      const remainderPx = pxAccumRef.current % ROW_HEIGHT_PX;
-      applyLocalTransform(remainderPx);
-      scheduleSteps(steps);
+      steps = -Math.sign(e.deltaY) * lines; // up -> +, down -> -
     } else {
-      // PIXEL mode: accumulate pixels; when crossing a row, convert to steps
-      pxAccumRef.current += e.deltaY;
-      // translate visual immediately (inverse to keep price column "fixed"-like)
-      const remainderBefore = pxAccumRef.current;
-      let steps = 0;
-      while (Math.abs(pxAccumRef.current) >= ROW_HEIGHT_PX) {
-        if (pxAccumRef.current > 0) { steps -= 1; pxAccumRef.current -= ROW_HEIGHT_PX; } // down
-        else { steps += 1; pxAccumRef.current += ROW_HEIGHT_PX; } // up
+      const totalPx = (innerRef.current?.scrollTop ?? 0) + e.deltaY; // ne pas scroller, on traduit en steps
+      // Convertir deltaY en steps entiers
+      // On accumule en nombre entier de lignes en utilisant ROW_HEIGHT_PX
+      // ici simple: 1 ligne par 24px
+      steps = 0;
+      let accum = (virtualOffsetRef as any)._pxAccum ?? 0;
+      accum += e.deltaY;
+      while (Math.abs(accum) >= ROW_HEIGHT_PX) {
+        if (accum > 0) { steps -= 1; accum -= ROW_HEIGHT_PX; }
+        else { steps += 1; accum += ROW_HEIGHT_PX; }
       }
-      const remainderPx = pxAccumRef.current;
-      applyLocalTransform(remainderPx);
-      if (steps !== 0) scheduleSteps(steps);
+      (virtualOffsetRef as any)._pxAccum = accum;
     }
-  }, [tickLadder, tickSize]);
+    if (steps !== 0) {
+      virtualOffsetRef.current += steps;
+      pageAnchorIfNeeded(base);
+      requestRender();
+    }
+  }, [tickLadder]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
     if (e.code === 'Space') {
       e.preventDefault();
+      virtualOffsetRef.current = 0;
       setViewAnchorPrice(null);
-      anchorRef.current = null;
-      pxAccumRef.current = 0;
-      applyLocalTransform(0);
+      requestRender();
     }
   }, [setViewAnchorPrice]);
 
-  const avgPrice = position.quantity !== 0 ? position.averagePrice : null;
+  // Pré-calcul des totaux d'ordres par prix
+  const buyTotals = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of orders) {
+      if (o.side === 'BUY' && o.quantity > o.filled) {
+        m.set(o.price, (m.get(o.price) ?? 0) + (o.quantity - o.filled));
+      }
+    }
+    return m;
+  }, [orders]);
+  const sellTotals = useMemo(() => {
+    const m = new Map<number, number>();
+    for (const o of orders) {
+      if (o.side === 'SELL' && o.quantity > o.filled) {
+        m.set(o.price, (m.get(o.price) ?? 0) + (o.quantity - o.filled));
+      }
+    }
+    return m;
+  }, [orders]);
+
+  // fenêtrage de 201 lignes autour d'un centre trouvé dans la liste triée
+  const base = computeBasePrice();
+  const centerIdx = sortedLevels.length ? findClosestIndexDescending(sortedLevels as any, base) : 0;
+  const displayCenter = Math.max(WINDOW, Math.min(sortedLevels.length - 1 - WINDOW, centerIdx + virtualOffsetRef.current));
+  const start = Math.max(0, displayCenter - WINDOW);
+  const end = Math.min(sortedLevels.length - 1, displayCenter + WINDOW);
+  const view = sortedLevels.slice(start, end + 1);
 
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
@@ -186,11 +289,6 @@ export const TickLadder = memo(function TickLadder({
       if (below) return onMarketOrder('SELL', 1);
       return onLimitOrder('SELL', price, 1);
     }
-  };
-
-  const handleOrderClick = (price: number) => {
-    if (disabled) return;
-    onCancelOrders(price);
   };
 
   if (!tickLadder || !tickLadder.levels?.length) {
@@ -218,79 +316,20 @@ export const TickLadder = memo(function TickLadder({
 
       {/* Body */}
       <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="flex-1 overflow-y-auto" ref={innerRef} style={{ willChange: 'transform', transition: 'none' as any }}>
-          {sortedLevels.map((level) => {
+        <div className="flex-1 overflow-y-hidden" ref={innerRef} style={{ willChange: 'transform', transition: 'none' as any }}>
+          {view.map((level) => {
             const price = level.price as number;
-            const bidSize = (level as any).bidSize ?? 0;
-            const askSize = (level as any).askSize ?? 0;
-            const sizeWindow = (level as any).sizeWindow ?? 0;
-            const volumeCumulative = (level as any).volumeCumulative ?? 0;
-
-            const isLastPrice = Math.abs(price - currentPrice) < 0.125;
-            const isAvgPrice  = avgPrice !== null && Math.abs(price - (avgPrice as number)) < 0.125;
-            const showBid = price <= currentPrice;
-            const showAsk = price >= currentPrice;
-
             return (
-              <div
+              <LadderRow
                 key={price}
-                className={cn(
-                  'grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6'
-                )}
-                style={{ willChange: 'transform, opacity', backfaceVisibility: 'hidden' as any, transition: 'none' as any }}
-              >
-                {/* Size (window) */}
-                <div className="flex items-center justify-center border-r border-border/50" style={{ transition: 'none' as any }}>
-                  {fmtSize(sizeWindow ?? 0)}
-                </div>
-
-                {/* Bids */}
-                <div
-                  className={cn(
-                    'flex items-center justify-center cursor-pointer border-r border-border/50',
-                    showBid && bidSize > 0 && 'bg-ladder-bid'
-                  )}
-                  onClick={() => (/* no-op to keep signature consistent */ false) || (showBid && bidSize > 0 ? handleOrderClick(price) : handleCellClick(price, 'bid'))}
-                  style={{ transition: 'none' as any }}
-                >
-                  <span className={cn(!showBid && 'opacity-0')}>
-                    {fmtSize(bidSize ?? 0)}
-                  </span>
-                </div>
-
-                {/* Price */}
-                <div
-                  className={cn(
-                    'flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price',
-                    isLastPrice && 'text-trading-average font-bold',
-                    isAvgPrice && 'ring-2 ring-trading-average rounded-sm'
-                  )}
-                  onDoubleClick={() => setViewAnchorPrice && setViewAnchorPrice(null)}
-                  title="Double-clique pour recentrer"
-                  style={{ transition: 'none' as any }}
-                >
-                  {fmtPrice(price)}
-                </div>
-
-                {/* Asks */}
-                <div
-                  className={cn(
-                    'flex items-center justify-center cursor-pointer border-r border-border/50',
-                    showAsk && askSize > 0 && 'bg-ladder-ask'
-                  )}
-                  onClick={() => (/* no-op to keep signature consistent */ false) || (showAsk && askSize > 0 ? handleOrderClick(price) : handleCellClick(price, 'ask'))}
-                  style={{ transition: 'none' as any }}
-                >
-                  <span className={cn(!showAsk && 'opacity-0')}>
-                    {fmtSize(askSize ?? 0)}
-                  </span>
-                </div>
-
-                {/* Volume cumulé à ce prix */}
-                <div className="flex items-center justify-center text-muted-foreground" style={{ transition: 'none' as any }}>
-                  {fmtSize(volumeCumulative ?? 0)}
-                </div>
-              </div>
+                level={level}
+                currentPrice={currentPrice}
+                buyTotal={buyTotals.get(price) ?? 0}
+                sellTotal={sellTotals.get(price) ?? 0}
+                onCellClick={handleCellClick}
+                onCancelOrders={onCancelOrders}
+                onDoubleClickPrice={() => setViewAnchorPrice && setViewAnchorPrice(null)}
+              />
             );
           })}
         </div>
