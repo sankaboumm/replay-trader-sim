@@ -9,8 +9,6 @@ const HIGHLIGHT_SIZE = 20;
 const WINDOW_ROWS_INITIAL = 200;
 const WINDOW_ROWS_STEP = 200;
 
-
-
 interface Order {
   id: string;
   side: 'BUY' | 'SELL';
@@ -35,6 +33,9 @@ interface TickLadderProps {
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
   position: Position;
+
+  /** ✅ AJOUT : volume cumulé depuis le début de la lecture pour un prix donné */
+  getVolumeForPrice?: (price: number) => number;
 }
 
 function formatPrice(price: number): string {
@@ -53,7 +54,9 @@ export const TickLadder = memo(function TickLadder({
   onMarketOrder,
   onCancelOrders,
   disabled = false,
-  position
+  position,
+  /** ✅ AJOUT */
+  getVolumeForPrice,
 }: TickLadderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sentinelTopRef = useRef<HTMLDivElement | null>(null);
@@ -190,6 +193,14 @@ export const TickLadder = memo(function TickLadder({
           const lastTick = Math.abs(level.price - currentPrice) < 0.125;
           const avgHere = isAvgPriceAtLevel(level.price);
 
+          /** ✅ AJOUT : volume cumulé (priorité au hook, fallback volumeCumulative/0) */
+          const cumulativeVolume =
+            (typeof getVolumeForPrice === 'function'
+              ? getVolumeForPrice(level.price)
+              : undefined) ??
+            (level as any).volumeCumulative ??
+            0;
+
           return (
             <div
               key={level.tick}
@@ -247,7 +258,7 @@ export const TickLadder = memo(function TickLadder({
 
               {/* Volume cumulé (depuis début du fichier) */}
               <div className="flex items-center justify-center text-muted-foreground">
-                {formatSize(level.volumeCumulative)}
+                {formatSize(cumulativeVolume)}
               </div>
             </div>
           );
