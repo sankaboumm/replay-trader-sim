@@ -47,9 +47,12 @@ export const TickLadder = memo(function TickLadder({
     orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
 
   // FIFO scroll state
-  const scrollWrapperRef = useRef<HTMLDivElement | null>(null);
+  const wrapperRef = useRef<HTMLDivElement | null>(null);
   const wheelRemainderRef = useRef(0);
+  const pendingStepsRef = useRef(0);
+  const rafIdRef = useRef<number | null>(null);
   const ROW_HEIGHT_PX = 24; // Tailwind h-6
+
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
       return Math.abs(tickLadder.levels[0].price - tickLadder.levels[1].price) || 0.25;
@@ -67,8 +70,32 @@ export const TickLadder = memo(function TickLadder({
     return currentPrice;
   };
 
+  const scheduleAnchorUpdate = (stepsDelta: number) => {
+    if (!setViewAnchorPrice) return;
+    pendingStepsRef.current += stepsDelta;
+    if (rafIdRef.current != null) return;
+    rafIdRef.current = requestAnimationFrame(() => {
+      const total = pendingStepsRef.current;
+      pendingStepsRef.current = 0;
+      rafIdRef.current = null;
+      if (total !== 0) {
+        const base = computeBasePrice();
+        const nextPrice = base + total * tickSize;
+        setViewAnchorPrice(nextPrice);
+        // lock native scroll only if inner actually moved
+        const inner = wrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
+        if (inner && inner.scrollTop !== 0) inner.scrollTop = 0;
+      }
+    });
+  };
+
+  // Prevent native scroll at capture phase to avoid visual jump before our handler runs
+  const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
+  }, []);
+
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!setViewAnchorPrice || !tickLadder) return;
+    if (!tickLadder) return;
     e.preventDefault();
 
     const deltaY = e.deltaY;
@@ -76,33 +103,25 @@ export const TickLadder = memo(function TickLadder({
     let steps = 0;
 
     if (mode === 1) {
-      // LINE mode: 1 line = 1 tick, invert sign so: up (deltaY<0) => +ticks (price up)
+      // LINE mode: up (deltaY<0) -> +ticks (price up), down (deltaY>0) -> -ticks
       const lines = Math.max(1, Math.abs(Math.round(deltaY)));
       steps = -Math.sign(deltaY) * lines;
     } else {
-      // PIXEL mode: accumulate by row height, invert sign mapping for price direction
+      // PIXEL mode: accumulate by row height; up -> +steps, down -> -steps
       wheelRemainderRef.current += deltaY;
       while (Math.abs(wheelRemainderRef.current) >= ROW_HEIGHT_PX) {
         if (wheelRemainderRef.current > 0) {
-          steps -= 1; // scroll down -> steps negative -> price down
+          steps -= 1; // scroll down
           wheelRemainderRef.current -= ROW_HEIGHT_PX;
         } else {
-          steps += 1; // scroll up -> steps positive -> price up
+          steps += 1; // scroll up
           wheelRemainderRef.current += ROW_HEIGHT_PX;
         }
       }
     }
 
-    if (steps !== 0) {
-      const base = computeBasePrice();
-      const nextPrice = base + steps * tickSize;
-      setViewAnchorPrice(nextPrice);
-
-      // lock native scroll
-      const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
-      if (inner) inner.scrollTop = 0;
-    }
-  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice]);
+    if (steps !== 0) scheduleAnchorUpdate(steps);
+  }, [tickLadder, tickSize]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
@@ -158,8 +177,8 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Body - wrap with a listener to avoid editing existing inner div */}
-      <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
+      {/* Body - wrap with listeners (capture+bubble) to avoid native scroll flicker */}
+      <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto">
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
@@ -172,7 +191,7 @@ export const TickLadder = memo(function TickLadder({
 
             return (
               <div
-                key={`${level.price}-${(level as any).tick}`}
+                key={level.price} // stable key to avoid remount flicker
                 className={cn(
                   "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6"
                 )}
