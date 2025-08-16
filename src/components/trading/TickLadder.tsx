@@ -80,12 +80,12 @@ const LadderRow = memo(function LadderRow({
       <div
         className={cn(
           'orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
-          showBid && bidSize > 0 && 'bg-ladder-bid'
+          bidSize > 0 && 'bg-ladder-bid'
         )}
         onClick={() => (buyTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'bid'))}
       >
-        <span className={cn(!showBid && 'opacity-0')}>{fmtSize(bidSize)}</span>
-        {buyTotal > 0 && <span className={cn('ml-1 text-xs', !showBid && 'opacity-0')}>({buyTotal})</span>}
+        {bidSize > 0 ? fmtSize(bidSize) : ''}
+        {buyTotal > 0 && <span className='ml-1 text-xs'>({buyTotal})</span>}
       </div>
 
       {/* Price */}
@@ -105,12 +105,12 @@ const LadderRow = memo(function LadderRow({
       <div
         className={cn(
           'orderbook-ladder-cell relative overflow-hidden bg-clip-padding flex items-center justify-center cursor-pointer border-r border-border/50',
-          showAsk && askSize > 0 && 'bg-ladder-ask'
+          askSize > 0 && 'bg-ladder-ask'
         )}
         onClick={() => (sellTotal > 0 ? onCancelOrders(price) : onCellClick(price, 'ask'))}
       >
-        <span className={cn(!showAsk && 'opacity-0')}>{fmtSize(askSize)}</span>
-        {sellTotal > 0 && <span className={cn('ml-1 text-xs', !showAsk && 'opacity-0')}>({sellTotal})</span>}
+        {askSize > 0 ? fmtSize(askSize) : ''}
+        {sellTotal > 0 && <span className='ml-1 text-xs'>({sellTotal})</span>}
       </div>
 
       {/* Volume cumulé */}
@@ -260,8 +260,8 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice, baseTick, tickToPrice, PAGE]);
 
-  const handleWheelCapture = useCallback((_e: React.WheelEvent<HTMLDivElement>) => {
-    // allow page-level scroll when needed; we handle logic in onWheel only when hovering ladder
+  const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    e.preventDefault();
   }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -368,6 +368,8 @@ export const TickLadder = memo(function TickLadder({
         onWheelCapture={handleWheelCapture}
         onKeyDown={handleKeyDown}
         tabIndex={0}
+        onMouseEnter={() => wrapperRef.current?.focus()}
+        onClick={() => wrapperRef.current?.focus()}
       >
         <div className="flex-1 overflow-y-hidden">
           {rows.map((lvl) => {
