@@ -260,8 +260,8 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice, baseTick, tickToPrice, PAGE]);
 
-  const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    e.preventDefault();
+  const handleWheelCapture = useCallback((_e: React.WheelEvent<HTMLDivElement>) => {
+    // allow page-level scroll when needed; we handle logic in onWheel only when hovering ladder
   }, []);
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
@@ -368,8 +368,6 @@ export const TickLadder = memo(function TickLadder({
         onWheelCapture={handleWheelCapture}
         onKeyDown={handleKeyDown}
         tabIndex={0}
-        onMouseEnter={() => wrapperRef.current?.focus()}
-        onClick={() => wrapperRef.current?.focus()}
       >
         <div className="flex-1 overflow-y-hidden">
           {rows.map((lvl) => {
