@@ -122,8 +122,6 @@ export function TradingInterface() {
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
             position={position}
-            spread={spread}
-            spreadTicks={spreadTicks}
             onScrollUp={scrollLadderUp}
             onScrollDown={scrollLadderDown}
           />

@@ -41,7 +41,9 @@ export const TickLadder = memo(function TickLadder({
   onMarketOrder,
   onCancelOrders,
   disabled = false,
-  position
+  position,
+  onScrollUp,
+  onScrollDown
 }: TickLadderProps) {
   const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
     orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
