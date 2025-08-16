@@ -60,6 +60,10 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
+  const sortedLevels = useMemo(() => {
+    return tickLadder ? tickLadder.levels.slice().sort((a, b) => b.price - a.price) : [];
+  }, [tickLadder]);
+
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
     if (tickLadder?.levels?.length) {
@@ -82,14 +86,12 @@ export const TickLadder = memo(function TickLadder({
         const base = computeBasePrice();
         const nextPrice = base + total * tickSize;
         setViewAnchorPrice(nextPrice);
-        // lock native scroll only if inner actually moved
         const inner = wrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
         if (inner && inner.scrollTop !== 0) inner.scrollTop = 0;
       }
     });
   };
 
-  // Prevent native scroll at capture phase to avoid visual jump before our handler runs
   const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
     e.preventDefault();
   }, []);
@@ -180,9 +182,11 @@ export const TickLadder = memo(function TickLadder({
       {/* Body - wrap with listeners (capture+bubble) to avoid native scroll flicker */}
       <div ref={wrapperRef} onWheel={handleWheel} onWheelCapture={handleWheelCapture} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto">
-          {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
+          {sortedLevels.map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
+            const showBid = level.price <= currentPrice;
+            const showAsk = level.price >= currentPrice;
 
             const buyOrders  = getOrdersAtPrice(level.price, 'BUY');
             const sellOrders = getOrdersAtPrice(level.price, 'SELL');
@@ -205,15 +209,17 @@ export const TickLadder = memo(function TickLadder({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price <= currentPrice && (level as any).bidSize > 0 && "bg-ladder-bid"
+                    showBid && (level as any).bidSize > 0 && "bg-ladder-bid"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
-                  {level.price <= currentPrice && (
-                    <>
-                      <span>{fmtSize((level as any).bidSize ?? 0)}</span>
-                      {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
-                    </>
+                  <span className={cn(!showBid && "invisible")}>
+                    {fmtSize((level as any).bidSize ?? 0)}
+                  </span>
+                  {totalBuy > 0 && (
+                    <span className={cn("ml-1 text-xs", !showBid && "invisible")}>
+                      ({totalBuy})
+                    </span>
                   )}
                 </div>
 
@@ -234,15 +240,17 @@ export const TickLadder = memo(function TickLadder({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price >= currentPrice && (level as any).askSize > 0 && "bg-ladder-ask"
+                    showAsk && (level as any).askSize > 0 && "bg-ladder-ask"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
-                  {level.price >= currentPrice && (
-                    <>
-                      <span>{fmtSize((level as any).askSize ?? 0)}</span>
-                      {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
-                    </>
+                  <span className={cn(!showAsk && "invisible")}>
+                    {fmtSize((level as any).askSize ?? 0)}
+                  </span>
+                  {totalSell > 0 && (
+                    <span className={cn("ml-1 text-xs", !showAsk && "invisible")}>
+                      ({totalSell})
+                    </span>
                   )}
                 </div>
 
