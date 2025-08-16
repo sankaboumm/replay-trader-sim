@@ -129,6 +129,40 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [tickLadder, currentPrice, highlightedPriceKeys, normalizePriceKey]);
   // === End added code ===
+
+
+  // === Added: extra handler for Text node targets (Cmd/Ctrl + Left Click) ===
+  // Some browsers dispatch events with Text nodes as targets inside the Price cell.
+  // This handler covers that case without touching existing logic.
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    const onMouseDownText = (e: MouseEvent) => {
+      if (e.button !== 0) return;
+      const me = e as MouseEvent & { metaKey?: boolean; ctrlKey?: boolean };
+      if (!(me.metaKey || me.ctrlKey)) return;
+      const t = e.target as any;
+      // Only handle when the original target is NOT an element (e.g., Text node),
+      // to avoid double-toggling alongside the existing handler.
+      if (!t || t.nodeType === 1) return;
+      const parent: HTMLElement | null = t.parentElement ?? null;
+      if (!parent) return;
+      const cell = parent.closest('div.bg-ladder-price') as HTMLElement | null;
+      if (!cell) return;
+      e.preventDefault();
+      const key = normalizePriceKey(cell.innerText);
+      if (!key) return;
+      setHighlightedPriceKeys(prev => {
+        const next = new Set(prev);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    };
+    root.addEventListener('mousedown', onMouseDownText);
+    return () => { root.removeEventListener('mousedown', onMouseDownText); };
+  }, [scrollWrapperRef, normalizePriceKey]);
+  // === End extra handler ===
+
   const computeBasePrice = () => {
     if (tickLadder && (tickLadder as any).midPrice != null) return (tickLadder as any).midPrice as number;
     if (tickLadder?.levels?.length) {
