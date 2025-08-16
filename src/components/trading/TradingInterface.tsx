@@ -30,6 +30,8 @@ export function TradingInterface() {
     placeMarketOrder,
     cancelOrdersAtPrice,
     currentTickLadder,
+    getVolumeForPrice, // <= AJOUTE ÇA
+
 
     // NEW: import & erreurs
     isLoading,
