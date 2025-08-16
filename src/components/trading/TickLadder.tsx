@@ -34,7 +34,7 @@ interface TickLadderProps {
   disabled?: boolean;
   position: Position;
 
-  /** ✅ AJOUT : volume cumulé depuis le début de la lecture pour un prix donné */
+  /** Optionnel : retourne le volume cumulé pour un prix donné */
   getVolumeForPrice?: (price: number) => number;
 }
 
@@ -55,8 +55,7 @@ export const TickLadder = memo(function TickLadder({
   onCancelOrders,
   disabled = false,
   position,
-  /** ✅ AJOUT */
-  getVolumeForPrice,
+  getVolumeForPrice, // ✅ on le récupère bien depuis les props
 }: TickLadderProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const sentinelTopRef = useRef<HTMLDivElement | null>(null);
@@ -66,13 +65,12 @@ export const TickLadder = memo(function TickLadder({
   const [windowStartIndex, setWindowStartIndex] = useState(0);
   const [windowCount, setWindowCount] = useState(WINDOW_ROWS_INITIAL);
 
-  // Recentrage manuel (barre espace) — on garde le comportement existant
+  // Recentrage manuel (barre espace)
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         e.preventDefault();
         if (!containerRef.current) return;
-        // centre approximativement la vue (colonne Price est fixe)
         containerRef.current.scrollTo({
           top: Math.max(0, containerRef.current.scrollHeight / 2 - 200),
           behavior: 'auto'
@@ -164,6 +162,10 @@ export const TickLadder = memo(function TickLadder({
   const sliceEnd = Math.min(levels.length, sliceStart + windowCount);
   const visible = levels.slice(sliceStart, sliceEnd);
 
+  // ✅ Sécurise l’appel : si la prop n’est pas fournie, on ne l’appelle pas
+  const volumeGetter =
+    typeof getVolumeForPrice === 'function' ? getVolumeForPrice : undefined;
+
   return (
     <div className="h-full flex flex-col bg-card">
       {/* Header – 4 colonnes: Bids | Price | Asks | Volume */}
@@ -193,11 +195,9 @@ export const TickLadder = memo(function TickLadder({
           const lastTick = Math.abs(level.price - currentPrice) < 0.125;
           const avgHere = isAvgPriceAtLevel(level.price);
 
-          /** ✅ AJOUT : volume cumulé (priorité au hook, fallback volumeCumulative/0) */
+          // ✅ Volume cumulé (priorité au getter fourni, sinon fallback volumeCumulative)
           const cumulativeVolume =
-            (typeof getVolumeForPrice === 'function'
-              ? getVolumeForPrice(level.price)
-              : undefined) ??
+            (volumeGetter ? volumeGetter(level.price) : undefined) ??
             (level as any).volumeCumulative ??
             0;
 
