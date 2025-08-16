@@ -1,13 +1,10 @@
-import { useState, useRef, useCallback } from 'react';
-import { Card } from '@/components/ui/card';
+import { useRef, useCallback } from 'react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { DOMladder } from './DOMladder';
-import { TickLadder } from './TickLadder';
-import { TimeAndSales } from './TimeAndSales';
+import { FileUpload } from './FileUpload';
 import { PlaybackControls } from './PlaybackControls';
 import { PositionPanel } from './PositionPanel';
-import { FileUpload } from './FileUpload';
+import { TickLadder } from './TickLadder';
+import { TimeAndSales } from './TimeAndSales';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
 
 export function TradingInterface() {
@@ -30,16 +27,12 @@ export function TradingInterface() {
     placeMarketOrder,
     cancelOrdersAtPrice,
     currentTickLadder,
-
-    // NEW: import & erreurs
-    isLoading,
-    importError,
-    totalTrades,
+    // nouveaux dérivés
+    bestBid,
+    bestAsk,
+    spread,
+    spreadTicks
   } = useTradingEngine();
-
-  // Statut position
-  const positionLabel =
-    position.quantity === 0 ? 'FLAT' : position.quantity > 0 ? 'LONG' : 'SHORT';
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -62,65 +55,46 @@ export function TradingInterface() {
       <div className="h-16 bg-card border-b border-border flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">Trading Simulator</h1>
-          <FileUpload 
-            onFileSelect={loadMarketData}
-            disabled={isPlaying || isLoading}
-          />
+          <FileUpload onFileSelect={loadMarketData} disabled={isPlaying} />
         </div>
-        
+
         <div className="flex items-center gap-4">
           <PlaybackControls
             isPlaying={isPlaying}
             speed={playbackSpeed}
             onTogglePlayback={togglePlayback}
             onSpeedChange={setPlaybackSpeed}
-            disabled={!marketData.length || isLoading}
+            disabled={!marketData.length}
           />
         </div>
       </div>
 
-      {/* Overlay Import en cours */}
-      {isLoading && (
-        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center">
-          <div className="bg-card border border-border rounded p-4">
-            Import en cours…
-          </div>
-        </div>
-      )}
-      {/* Toast erreur import */}
-      {importError && (
-        <div className="fixed bottom-4 right-4 z-50 bg-destructive text-destructive-foreground px-3 py-2 rounded">
-          {importError}
-        </div>
-      )}
-
-      {/* Main Trading Interface */}
+      {/* Main */}
       <div className="h-[calc(100vh-4rem)] flex">
-        {/* Left Panel - Position & Controls */}
+        {/* Left Panel */}
         <div className="w-80 bg-card border-r border-border flex flex-col">
           <PositionPanel
             position={position}
             pnl={pnl}
             currentPrice={currentPrice}
+            bestBid={bestBid}
+            bestAsk={bestAsk}
+            spread={spread}
+            spreadTicks={spreadTicks}
             className="flex-shrink-0"
           />
-          
-          {/* File Drop Zone when no data */}
-          {marketData.length === 0 && !isLoading && (
-            <div 
-              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground hover:border-primary/50 transition-colors"
+
+          {/* Drop Zone */}
+          {marketData.length === 0 && (
+            <div
+              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground"
               onDrop={handleDrop}
               onDragOver={handleDragOver}
             >
               <div className="text-center p-8">
-                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier Parquet/CSV</h3>
-                <p className="text-sm mb-4">
-                  Glissez-déposez un fichier de données de marché pour commencer le trading
-                </p>
-                <Button 
-                  variant="outline" 
-                  onClick={() => fileInputRef.current?.click()}
-                >
+                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier</h3>
+                <p className="text-sm mb-4">Glissez un CSV/Parquet pour démarrer</p>
+                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
                   Choisir un fichier
                 </Button>
                 <input
@@ -135,7 +109,7 @@ export function TradingInterface() {
           )}
         </div>
 
-        {/* Center Panel - Tick Ladder */}
+        {/* Center - Tick Ladder */}
         <div className="flex-1 bg-background">
           <TickLadder
             tickLadder={currentTickLadder}
@@ -145,16 +119,13 @@ export function TradingInterface() {
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
+            position={position}
           />
         </div>
 
-        {/* Right Panel - Time & Sales */}
+        {/* Right - Time & Sales */}
         <div className="w-80 bg-card border-l border-border">
-          <TimeAndSales 
-            trades={timeAndSales}
-            currentPrice={currentPrice}
-            // (tu peux afficher totalTrades ailleurs si tu veux)
-          />
+          <TimeAndSales trades={timeAndSales} currentPrice={currentPrice} />
         </div>
       </div>
     </div>
