@@ -64,6 +64,9 @@ export const DOMladder = memo(function DOMladder({
   const [priceRange, setPriceRange] = useState<{ start: number; end: number } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+// --- ADD: throttle/RAF state to éviter un render à chaque pixel
+  const scrollRafRef = useRef<number | null>(null);
+  const lastScrollArgsRef = useRef<{ top: number; height: number; client: number } | null>(null);
   
   // Initialize price range once we have a current price
   useEffect(() => {
@@ -139,27 +142,34 @@ export const DOMladder = memo(function DOMladder({
   
   // Handle infinite scroll
   const handleScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
+    // --- ADD: exécuter la logique dans un RAF pour éviter re-renders à chaque pixel
     const target = e.target as HTMLDivElement;
-    const { scrollTop, scrollHeight, clientHeight } = target;
-    setScrollTop(scrollTop);
-    
-    if (!priceRange) return;
-    
-    // Extend range upward when scrolling near top
-    if (scrollTop < EXTEND_THRESHOLD * 24 && priceRange) {
-      setPriceRange(prev => prev ? {
-        start: prev.start - (INITIAL_LEVELS * TICK_SIZE / 4),
-        end: prev.end
-      } : null);
-    }
-    
-    // Extend range downward when scrolling near bottom
-    if (scrollHeight - scrollTop - clientHeight < EXTEND_THRESHOLD * 24 && priceRange) {
-      setPriceRange(prev => prev ? {
-        start: prev.start,
-        end: prev.end + (INITIAL_LEVELS * TICK_SIZE / 4)
-      } : null);
-    }
+    lastScrollArgsRef.current = {
+      top: target.scrollTop,
+      height: target.scrollHeight,
+      client: target.clientHeight,
+    };
+    if (scrollRafRef.current !== null) return; // déjà planifié pour ce frame
+   scrollRafRef.current = requestAnimationFrame(() => {
+     const args = lastScrollArgsRef.current!;
+     scrollRafRef.current = null;
+      // On réapplique la logique existante avec les valeurs mises en cache
+      setScrollTop(args.top);
+      if (!priceRange) return;
+     if (args.top < EXTEND_THRESHOLD * 24) {
+        setPriceRange(prev => prev ? {
+          start: prev.start - (INITIAL_LEVELS * TICK_SIZE / 4),
+          end: prev.end
+        } : null);
+      }
+      if (args.height - args.top - args.client < EXTEND_THRESHOLD * 24 && priceRange) {
+        setPriceRange(prev => prev ? {
+          start: prev.start,
+         end: prev.end + (INITIAL_LEVELS * TICK_SIZE / 4)
+        } : null);
+      }
+    });
+    return; // on court-circuite l’exécution immédiate pour ce tick
   }, [priceRange]);
   
   // Center on current price when space is pressed
@@ -253,7 +263,7 @@ export const DOMladder = memo(function DOMladder({
           <div className="p-2 text-center border-r border-border">Buy</div>
           <div className="p-2 text-center border-r border-border">Sell</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
-          <div className="p-2 text-center border-r border-border">Price</div>
+          <div className="p-2 text-center border-r border-border sticky-price-cell">Price</div>
           <div className="p-2 text-center border-r border-border">Asks</div>
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center">Volume</div>
@@ -323,7 +333,7 @@ export const DOMladder = memo(function DOMladder({
 
               {/* Price */}
               <div className={cn(
-                "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price",
+                "flex items-center justify-center font-mono font-medium border-r border-border/50 bg-ladder-price sticky-price-cell",
                 isLastPrice && "text-trading-average font-bold"
               )}>
                 {formatPrice(level.price)}
