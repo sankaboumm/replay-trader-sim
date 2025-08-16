@@ -1,5 +1,5 @@
 // src/lib/orderbook.ts
-// Moteur d'order book + génération d'un ladder ancré (anti-jitter)
+// Moteur d’order book + génération d’un ladder ancré (anti-jitter)
 
 export type Side = "BUY" | "SELL";
 
@@ -33,7 +33,7 @@ export interface TickLevel {
 }
 
 export interface TickLadder {
-  midTick: number;          // tick d'ancrage (centre visuel)
+  midTick: number;          // tick d’ancrage (centre visuel)
   midPrice: number;
   lastTick?: number;        // dernier tick traded
   lastPrice?: number;
@@ -43,7 +43,6 @@ export interface TickLadder {
 export class OrderBookProcessor {
   private tickSize = 0.25;
   private anchorTick: number | null = null;
-  private cumulativeVolume = new Map<number, number>(); // tick -> volume cumulé
 
   constructor(tickSize = 0.25) {
     this.tickSize = tickSize;
@@ -77,24 +76,7 @@ export class OrderBookProcessor {
   }
   public clearAnchor() { this.anchorTick = null; }
 
-  
-  /** Déplace l'ancre du ladder d'un nombre de ticks (positif = vers le haut) */
-  public scrollAnchor(deltaTicks: number) {
-    if (!Number.isFinite(deltaTicks) || !deltaTicks) return;
-    const d = Math.trunc(deltaTicks);
-    if (this.anchorTick == null) {
-      this.anchorTick = 0;
-    }
-    this.anchorTick = (this.anchorTick ?? 0) + d;
-  }
-
-  /** Fixe l'ancre directement en nombre de ticks (optionnel) */
-  public setAnchorByTick(tick: number) {
-    if (Number.isFinite(tick)) this.anchorTick = Math.trunc(tick);
-  }
-
-  public getAnchorTick(): number | null { return this.anchorTick; }
-public priceToTick(price: number) { return this.toTick(price); }
+  public priceToTick(price: number) { return this.toTick(price); }
 
   private toTick(price: number): number {
     return Math.round(price / this.tickSize);
@@ -103,7 +85,7 @@ public priceToTick(price: number) { return this.toTick(price); }
     return +(tick * this.tickSize).toFixed(8);
   }
 
-  /** Optionnel : parse d'un snapshot depuis une ligne CSV déjà chargée */
+  /** Optionnel : parse d’un snapshot depuis une ligne CSV déjà chargée */
   public parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
     const arr = (v: any): number[] => {
       if (v == null) return [];
@@ -140,7 +122,7 @@ public priceToTick(price: number) { return this.toTick(price); }
     return { bidPrices, bidSizes, bidOrders, askPrices, askSizes, askOrders, timestamp };
   }
 
-  /** Optionnel : parse d'un trade depuis une ligne CSV */
+  /** Optionnel : parse d’un trade depuis une ligne CSV */
   public parseTrade(row: any): Trade | null {
     const p = Number(row.trade_price);
     const s = Number(row.trade_size);
@@ -149,12 +131,6 @@ public priceToTick(price: number) { return this.toTick(price); }
                         : aRaw === "SELL" || aRaw === "S" ? "SELL" : null;
     if (!isFinite(p) || p <= 0 || !isFinite(s) || s <= 0 || !a) return null;
     const ts = row.ts_exch_utc ?? row.ts_utc ?? Date.now();
-    
-    // Accumuler le volume à ce tick
-    const tick = this.toTick(p);
-    const currentVol = this.cumulativeVolume.get(tick) || 0;
-    this.cumulativeVolume.set(tick, currentVol + s);
-    
     return { timestamp: new Date(ts), price: p, size: s, aggressor: a };
   }
 
@@ -195,7 +171,7 @@ public priceToTick(price: number) { return this.toTick(price); }
       this.anchorTick = centerTick;
     }
 
-    // 3) fenêtre autour du centre (large, l'UI en affiche 20)
+    // 3) fenêtre autour du centre (large, l’UI en affiche 20)
     const HALF = 40;                       // fenêtre ±40 ticks
     const minTick = centerTick - HALF;
     const maxTick = centerTick + HALF;
@@ -204,7 +180,6 @@ public priceToTick(price: number) { return this.toTick(price); }
     for (let t = maxTick; t >= minTick; t--) {
       const bid = bidByTick.get(t);
       const ask = askByTick.get(t);
-      const cumulativeVol = this.cumulativeVolume.get(t) || 0;
       levels.push({
         tick: t,
         price: this.fromTick(t),
@@ -213,7 +188,7 @@ public priceToTick(price: number) { return this.toTick(price); }
         bidOrders: bid?.orders ?? 0,
         askOrders: ask?.orders ?? 0,
         sizeWindow: 0,
-        volumeCumulative: cumulativeVol,
+        volumeCumulative: 0,
       });
     }
 
@@ -229,13 +204,6 @@ public priceToTick(price: number) { return this.toTick(price); }
     };
   }
 
-  // Remise à zéro du volume cumulé
-  public resetVolume() { 
-    this.cumulativeVolume.clear(); 
-  }
-  
-  // Obtenir le volume cumulé pour un tick donné
-  public getCumulativeVolume(tick: number): number {
-    return this.cumulativeVolume.get(tick) || 0;
-  }
+  // (facultatif) Remise à zéro de compteurs internes si vous en ajoutez plus tard
+  public resetVolume() { /* no-op pour l’instant */ }
 }

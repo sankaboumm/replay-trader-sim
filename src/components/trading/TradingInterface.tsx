@@ -32,9 +32,7 @@ export function TradingInterface() {
     bestAsk,
     spread,
     spreadTicks
-  ,
-    scrollLadderUp,
-    scrollLadderDown} = useTradingEngine();
+  } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -122,8 +120,6 @@ export function TradingInterface() {
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
             position={position}
-            onScrollUp={scrollLadderUp}
-            onScrollDown={scrollLadderDown}
           />
         </div>
 

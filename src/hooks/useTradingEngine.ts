@@ -69,6 +69,20 @@ const AGGREGATION_WINDOW_MS = 5;
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
 const roundToGrid = (p: number) => Math.round(p * 4) / 4;
+// [ADDED]: decorate ladder with cumulative volume by price
+const decorateLadderWithVolume = (ladder: TickLadder, volumeMap: Map<number, number>) : TickLadder => {
+  if (!ladder) return ladder;
+  // clone shallow
+  return {
+    ...ladder,
+    levels: ladder.levels.map(lvl => {
+      const grid = roundToGrid(lvl.price);
+      const vol = volumeMap.get(grid) ?? 0;
+      return { ...lvl, volumeCumulative: vol };
+    })
+  };
+};
+
 
 export function useTradingEngine() {
   const [marketData, setMarketData] = useState<MarketEvent[]>([]);
@@ -171,7 +185,6 @@ export function useTradingEngine() {
     setCurrentEventIndex(0);
     setIsPlaying(false);
     setOrderBookSnapshots([]);
-    orderBookProcessor.clearAnchor();
     setTrades([]);
     setCurrentTickLadder(null);
     setOrders([]);
@@ -305,7 +318,7 @@ export function useTradingEngine() {
 
           if (orderbookSnapshots.length > 0) {
             const initialLadder = orderBookProcessor.createTickLadder(orderbookSnapshots[0], tradeEvents);
-            setCurrentTickLadder(initialLadder);
+            setCurrentTickLadder(decorateLadderWithVolume(initialLadder, volumeByPrice));
           }
         }
       });
@@ -434,7 +447,7 @@ export function useTradingEngine() {
       if (snaps.length > 0) {
         const lastSnap = snaps[snaps.length - 1];
         const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        setCurrentTickLadder(ladder);
+        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
       }
       return nextTrades;
     });
@@ -593,7 +606,7 @@ export function useTradingEngine() {
             const idx = snaps.findIndex(s => s === currentSnapshot);
             const previousSnapshot = idx > 0 ? snaps[idx - 1] : undefined;
             const ladder = orderBookProcessor.createTickLadder(currentSnapshot, tradesRef.current, previousSnapshot?.timestamp);
-            setCurrentTickLadder(ladder);
+            setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
           } else {
             const eventSnapshot: ParsedOrderBook = {
               bidPrices: (event.bookBidPrices || []).map(toTick),
@@ -605,7 +618,7 @@ export function useTradingEngine() {
               timestamp: new Date(event.timestamp)
             };
             const ladder = orderBookProcessor.createTickLadder(eventSnapshot, tradesRef.current);
-            setCurrentTickLadder(ladder);
+            setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
           }
 
           // mini book 10 niveaux
@@ -730,7 +743,7 @@ export function useTradingEngine() {
       if (snaps.length > 0) {
         const lastSnap = snaps[snaps.length - 1];
         const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        setCurrentTickLadder(ladder);
+        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
       }
       return nextTrades;
     });
@@ -773,25 +786,7 @@ export function useTradingEngine() {
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
 
-  
-
-  // ---------- manual ladder scroll (FIFO) ----------
-  const recomputeLadderFromLast = useCallback(() => {
-    const snaps = orderBookSnapshotsRef.current;
-    if (!snaps.length) return;
-    const lastSnap = snaps[snaps.length - 1];
-    const ladder = orderBookProcessor.createTickLadder(lastSnap, tradesRef.current);
-    setCurrentTickLadder(ladder);
-  }, [orderBookProcessor]);
-
-  const scrollLadder = useCallback((deltaTicks: number) => {
-    orderBookProcessor.scrollAnchor(deltaTicks);
-    recomputeLadderFromLast();
-  }, [orderBookProcessor, recomputeLadderFromLast]);
-
-  const scrollLadderUp = useCallback(() => scrollLadder(+1), [scrollLadder]);
-  const scrollLadderDown = useCallback(() => scrollLadder(-1), [scrollLadder]);
-return {
+  return {
     // data
     marketData,
     orderBook,
@@ -821,9 +816,6 @@ return {
     // file
     loadMarketData,
     // utils (si nécessaire)
-    orderBookProcessor,
-    scrollLadderUp,
-    scrollLadderDown,
-    scrollLadder
+    orderBookProcessor
   };
 }
