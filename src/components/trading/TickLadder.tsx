@@ -1,4 +1,5 @@
 import { memo, useMemo } from 'react';
+import { useRef, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -26,6 +27,7 @@ interface TickLadderProps {
   onCancelOrders: (price: number) => void;
   disabled?: boolean;
   position: Position;
+  setViewAnchorPrice?: (price: number | null) => void;
 }
 
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
@@ -42,6 +44,41 @@ export const TickLadder = memo(function TickLadder({
   position
 }: TickLadderProps) {
   const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
+  // FIFO scroll state
+  const scrollWrapperRef = useRef<HTMLDivElement | null>(null);
+  const wheelRemainderRef = useRef(0);
+  const ROW_HEIGHT_PX = 24; // Tailwind h-6
+  const tickSize = useMemo(() => {
+    if (tickLadder?.levels && tickLadder.levels.length >= 2) {
+      return Math.abs(tickLadder.levels[0].price - tickLadder.levels[1].price) || 0.25;
+    }
+    return 0.25;
+  }, [tickLadder]);
+
+  const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (!setViewAnchorPrice || !tickLadder) return;
+    e.preventDefault();
+    wheelRemainderRef.current += e.deltaY;
+    let steps = 0;
+    while (Math.abs(wheelRemainderRef.current) >= ROW_HEIGHT_PX) {
+      if (wheelRemainderRef.current > 0) { steps += 1; wheelRemainderRef.current -= ROW_HEIGHT_PX; }
+      else { steps -= 1; wheelRemainderRef.current += ROW_HEIGHT_PX; }
+    }
+    if (steps !== 0) {
+      const nextPrice = (tickLadder as any).midPrice + steps * tickSize;
+      setViewAnchorPrice(nextPrice);
+      const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
+      if (inner) inner.scrollTop = 0;
+    }
+  }, [setViewAnchorPrice, tickLadder, tickSize]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (!setViewAnchorPrice) return;
+    if (e.code === 'Space') {
+      e.preventDefault();
+      setViewAnchorPrice(null);
+    }
+  }, [setViewAnchorPrice]);
     orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
 
   const avgPrice = position.quantity !== 0 ? position.averagePrice : null;
@@ -96,6 +133,7 @@ export const TickLadder = memo(function TickLadder({
       </div>
 
       {/* Rows */}
+      <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
       <div className="flex-1 overflow-y-auto">
         {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
           const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
@@ -171,5 +209,6 @@ export const TickLadder = memo(function TickLadder({
         })}
       </div>
     </div>
+      </div>
   );
 });
