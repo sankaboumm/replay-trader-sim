@@ -438,6 +438,7 @@ export const TickLadder = memo(function TickLadder({
                 >
                   {fmtPrice(level.price)}
                 </div>
+      </div>
 
                 {/* Asks */}
                 <div
