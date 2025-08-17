@@ -31,7 +31,8 @@ export function TradingInterface() {
     bestBid,
     bestAsk,
     spread,
-    spreadTicks
+    spreadTicks,
+    setViewAnchorPrice,
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -52,7 +53,7 @@ export function TradingInterface() {
   return (
     <div className="h-screen bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <div className="h-16 bg-card border-b border-border flex items-center justify-between px-4">
+      <div className="h-16 bg-card border-b border-border flex min-h-0 items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">Trading Simulator</h1>
           <FileUpload onFileSelect={loadMarketData} disabled={isPlaying} />
@@ -120,6 +121,7 @@ export function TradingInterface() {
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
             position={position}
+            setViewAnchorPrice={setViewAnchorPrice}
           />
         </div>
 
