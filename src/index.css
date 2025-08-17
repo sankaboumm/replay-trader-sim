@@ -208,8 +208,6 @@
   left: 0;                /* pas de scroll horizontal: suffisant */
   z-index: 2;
   background: hsl(var(--ladder-price)); /* fond de la colonne price */
-  backface-visibility: hidden; /* évite certains artefacts pendant le scroll GPU */
-  contain: paint;              /* isole le paint de la cellule sticky */
 }
 
 /* Met en évidence UNIQUEMENT la cellule Price (pas la ligne entière) */
@@ -230,28 +228,4 @@
 .trading-no-anim * {
   transition: none !important;
   animation: none !important;
-}
-
-/* ADD-ONLY: Row-level isolation to eliminate scroll-time flicker */
-.overflow-y-auto > div.grid {
-  backface-visibility: hidden;
-  transform: translateZ(0);
-  will-change: transform;
-  contain: layout paint;
-}
-.overflow-y-auto > div.grid span {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
-}
-
-/* --- Row-level isolation to eliminate scroll-time flicker (v3) --- */
-.overflow-y-auto > div.grid {
-  backface-visibility: hidden;
-  transform: translateZ(0);
-  will-change: transform;
-  contain: layout paint;
-}
-.overflow-y-auto > div.grid span {
-  font-variant-numeric: tabular-nums;
-  font-feature-settings: "tnum";
 }

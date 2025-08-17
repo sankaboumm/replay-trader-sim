@@ -68,26 +68,7 @@ const TICK_VALUE = 5.0;   // $/tick
 const AGGREGATION_WINDOW_MS = 5;
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
-
-// Directional snapping to avoid any float drift across the spread
-const toBidTick = (p: number) => Math.floor((p + 1e-9) / TICK_SIZE) * TICK_SIZE;
-const toAskTick = (p: number) => Math.ceil((p - 1e-9) / TICK_SIZE) * TICK_SIZE;
-
 const roundToGrid = (p: number) => Math.round(p * 4) / 4;
-// [ADDED]: decorate ladder with cumulative volume by price
-const decorateLadderWithVolume = (ladder: TickLadder, volumeMap: Map<number, number>) : TickLadder => {
-  if (!ladder) return ladder;
-  // clone shallow
-  return {
-    ...ladder,
-    levels: ladder.levels.map(lvl => {
-      const grid = roundToGrid(lvl.price);
-      const vol = volumeMap.get(grid) ?? 0;
-      return { ...lvl, volumeCumulative: vol };
-    })
-  };
-};
-
 
 export function useTradingEngine() {
   const [marketData, setMarketData] = useState<MarketEvent[]>([]);
@@ -323,7 +304,7 @@ export function useTradingEngine() {
 
           if (orderbookSnapshots.length > 0) {
             const initialLadder = orderBookProcessor.createTickLadder(orderbookSnapshots[0], tradeEvents);
-            setCurrentTickLadder(decorateLadderWithVolume(initialLadder, volumeByPrice));
+            setCurrentTickLadder(initialLadder);
           }
         }
       });
@@ -452,7 +433,7 @@ export function useTradingEngine() {
       if (snaps.length > 0) {
         const lastSnap = snaps[snaps.length - 1];
         const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+        setCurrentTickLadder(ladder);
       }
       return nextTrades;
     });
@@ -543,13 +524,13 @@ export function useTradingEngine() {
           setOrderBook(prev => {
             const book = [...prev];
             if (event.bidPrice && event.bidPrice > 0) {
-              const p = toBidTick(event.bidPrice);
+              const p = toTick(event.bidPrice);
               const i = book.findIndex(l => Math.abs(l.price - p) < 0.125);
               if (i >= 0) book[i] = { ...book[i], bidSize: event.bidSize || 0 };
               else book.push({ price: p, bidSize: event.bidSize || 0, askSize: 0, volume: volumeByPrice.get(p) || 0 });
             }
             if (event.askPrice && event.askPrice > 0) {
-              const p = toAskTick(event.askPrice);
+              const p = toTick(event.askPrice);
               const i = book.findIndex(l => Math.abs(l.price - p) < 0.125);
               if (i >= 0) book[i] = { ...book[i], askSize: event.askSize || 0 };
               else book.push({ price: p, bidSize: 0, askSize: event.askSize || 0, volume: volumeByPrice.get(p) || 0 });
@@ -560,8 +541,8 @@ export function useTradingEngine() {
         }
 
         // Exécution LIMIT si top-of-book touche le prix limite
-        const bb = event.bidPrice !== undefined ? toBidTick(event.bidPrice) : undefined;
-        const ba = event.askPrice !== undefined ? toAskTick(event.askPrice) : undefined;
+        const bb = event.bidPrice !== undefined ? toTick(event.bidPrice) : undefined;
+        const ba = event.askPrice !== undefined ? toTick(event.askPrice) : undefined;
 
         if (bb !== undefined || ba !== undefined) {
           setOrders(prev => {
@@ -583,8 +564,8 @@ export function useTradingEngine() {
 
         // maintenir best bid/ask pour market
         setCurrentOrderBookData(prevData => ({
-          book_bid_prices: event.bidPrice ? [toBidTick(event.bidPrice)] : (prevData?.book_bid_prices ?? []),
-          book_ask_prices: event.askPrice ? [toAskTick(event.askPrice)] : (prevData?.book_ask_prices ?? []),
+          book_bid_prices: event.bidPrice ? [toTick(event.bidPrice)] : (prevData?.book_bid_prices ?? []),
+          book_ask_prices: event.askPrice ? [toTick(event.askPrice)] : (prevData?.book_ask_prices ?? []),
           book_bid_sizes:  event.bidSize  ? [event.bidSize]  : (prevData?.book_bid_sizes ?? []),
           book_ask_sizes:  event.askSize  ? [event.askSize]  : (prevData?.book_ask_sizes ?? []),
         }));
@@ -596,8 +577,8 @@ export function useTradingEngine() {
         if (event.bookBidPrices || event.bookAskPrices) {
           // store 20 levels pour affichage
           setCurrentOrderBookData({
-            book_bid_prices: (event.bookBidPrices || []).slice(0, 20).map(toBidTick),
-            book_ask_prices: (event.bookAskPrices || []).slice(0, 20).map(toAskTick),
+            book_bid_prices: (event.bookBidPrices || []).slice(0, 20).map(toTick),
+            book_ask_prices: (event.bookAskPrices || []).slice(0, 20).map(toTick),
             book_bid_sizes:  (event.bookBidSizes  || []).slice(0, 20),
             book_ask_sizes:  (event.bookAskSizes  || []).slice(0, 20),
           });
@@ -611,19 +592,19 @@ export function useTradingEngine() {
             const idx = snaps.findIndex(s => s === currentSnapshot);
             const previousSnapshot = idx > 0 ? snaps[idx - 1] : undefined;
             const ladder = orderBookProcessor.createTickLadder(currentSnapshot, tradesRef.current, previousSnapshot?.timestamp);
-            setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+            setCurrentTickLadder(ladder);
           } else {
             const eventSnapshot: ParsedOrderBook = {
-              bidPrices: (event.bookBidPrices || []).map(toBidTick),
+              bidPrices: (event.bookBidPrices || []).map(toTick),
               bidSizes:  event.bookBidSizes || [],
               bidOrders: [],
-              askPrices: (event.bookAskPrices || []).map(toAskTick),
+              askPrices: (event.bookAskPrices || []).map(toTick),
               askSizes:  event.bookAskSizes || [],
               askOrders: [],
               timestamp: new Date(event.timestamp)
             };
             const ladder = orderBookProcessor.createTickLadder(eventSnapshot, tradesRef.current);
-            setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+            setCurrentTickLadder(ladder);
           }
 
           // mini book 10 niveaux
@@ -632,7 +613,7 @@ export function useTradingEngine() {
 
           if (event.bookBidPrices && event.bookBidSizes) {
             for (let i = 0; i < Math.min(event.bookBidPrices.length, 10); i++) {
-              const bp = toBidTick(event.bookBidPrices[i]);
+              const bp = toTick(event.bookBidPrices[i]);
               const bs = event.bookBidSizes[i] || 0;
               if (bp > 0 && bs >= 0) {
                 const ex = priceMap.get(bp);
@@ -648,7 +629,7 @@ export function useTradingEngine() {
 
           if (event.bookAskPrices && event.bookAskSizes) {
             for (let i = 0; i < Math.min(event.bookAskPrices.length, 10); i++) {
-              const ap = toAskTick(event.bookAskPrices[i]);
+              const ap = toTick(event.bookAskPrices[i]);
               const asz = event.bookAskSizes[i] || 0;
               if (ap > 0 && asz >= 0) {
                 const ex = priceMap.get(ap);
@@ -748,7 +729,7 @@ export function useTradingEngine() {
       if (snaps.length > 0) {
         const lastSnap = snaps[snaps.length - 1];
         const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+        setCurrentTickLadder(ladder);
       }
       return nextTrades;
     });
@@ -791,58 +772,6 @@ export function useTradingEngine() {
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
 
-
-  // ---------- View anchor control (FIFO scrolling) ----------
-  const setViewAnchorPrice = useCallback((price: number | null) => {
-    if (price == null) {
-      orderBookProcessor.clearAnchor();
-    } else {
-      orderBookProcessor.setAnchorByPrice(price);
-    }
-
-    // Recompute ladder from the latest available snapshot/trades
-    const snaps = orderBookSnapshotsRef.current;
-    const tradesLatest = tradesRef.current;
-
-    if (snaps.length > 0) {
-      const lastSnap = snaps[snaps.length - 1];
-      const ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
-      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      return;
-    }
-
-    if (currentOrderBookData) {
-      const snapshot = {
-        bidPrices: (currentOrderBookData.book_bid_prices || []),
-        bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
-        bidOrders: (currentOrderBookData.book_bid_orders || []),
-        askPrices: (currentOrderBookData.book_ask_prices || []),
-        askSizes:  (currentOrderBookData.book_ask_sizes  || []),
-        askOrders: (currentOrderBookData.book_ask_orders || []),
-        timestamp: new Date()
-      } as ParsedOrderBook;
-      const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      return;
-    }
-
-    if (orderBook.length > 0) {
-      // Fallback: build a minimal snapshot from mini-book
-      const bidLevels = orderBook.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
-      const askLevels = orderBook.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
-      const snapshot: ParsedOrderBook = {
-        bidPrices: bidLevels.map(l => l.price),
-        bidSizes:  bidLevels.map(l => l.bidSize || 0),
-        bidOrders: [],
-        askPrices: askLevels.map(l => l.price),
-        askSizes:  askLevels.map(l => l.askSize || 0),
-        askOrders: [],
-        timestamp: new Date()
-      };
-      const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-    }
-  }, [orderBookProcessor, currentOrderBookData, orderBook, volumeByPrice]);
   return {
     // data
     marketData,
@@ -873,7 +802,6 @@ export function useTradingEngine() {
     // file
     loadMarketData,
     // utils (si nécessaire)
-    orderBookProcessor,
-    setViewAnchorPrice
+    orderBookProcessor
   };
 }
