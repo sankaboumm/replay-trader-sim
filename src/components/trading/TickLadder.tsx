@@ -28,7 +28,6 @@ interface TickLadderProps {
   disabled?: boolean;
   position: Position;
   setViewAnchorPrice?: (price: number | null) => void;
-  setVisualLock?: (locked: boolean) => void;
 }
 
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
@@ -43,9 +42,7 @@ export const TickLadder = memo(function TickLadder({
   onCancelOrders,
   disabled = false,
   position,
-  setViewAnchorPrice,
-  // --- ADD: expose visual lock from props
-  setVisualLock
+  setViewAnchorPrice
 }: TickLadderProps) {
   const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
     orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
@@ -61,10 +58,7 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
-  // --- ADD: idle timer for the visual lock (debounce unlock)
-  const wheelIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const WHEEL_IDLE_MS = 160;
-
+  
   // === Added: Highlight Price cell with Cmd (Mac) / Ctrl (PC) + Left Click (additive only) ===
   // Keep a set of highlighted price keys (two-decimal strings like "15324.50")
   const [highlightedPriceKeys, setHighlightedPriceKeys] = useState<Set<string>>(new Set());
@@ -121,9 +115,7 @@ export const TickLadder = memo(function TickLadder({
   }, [scrollWrapperRef, normalizePriceKey]);
 
   // Apply/remove yellow class to matched Price cells after each render
-  // Optimized: Only run when not scrolling
-  const applyHighlightRef = useRef<() => void>();
-  applyHighlightRef.current = () => {
+  useEffect(() => {
     const root = scrollWrapperRef.current;
     if (!root) return;
     const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
@@ -135,15 +127,7 @@ export const TickLadder = memo(function TickLadder({
         cell.classList.remove('tick-price--highlight');
       }
     }
-  };
-
-  useEffect(() => {
-    // Debounce highlight application during scrolling
-    const timeoutId = setTimeout(() => {
-      applyHighlightRef.current?.();
-    }, 16); // ~1 frame delay
-    return () => clearTimeout(timeoutId);
-  }, [tickLadder, currentPrice, highlightedPriceKeys]);
+  }, [tickLadder, currentPrice, highlightedPriceKeys, normalizePriceKey]);
   // === End added code ===
 
 
@@ -224,9 +208,8 @@ export const TickLadder = memo(function TickLadder({
     return () => { root.removeEventListener('mousedown', onMouseDownElem); };
   }, [scrollWrapperRef, getPriceKeyFromCellRobust]);
 
-  // Secondary apply effect using robust parsing - optimized
-  const applyHighlightRobustRef = useRef<() => void>();
-  applyHighlightRobustRef.current = () => {
+  // Secondary apply effect using robust parsing, to ensure highlight even if text has thousands/locale
+  useEffect(() => {
     const root = scrollWrapperRef.current;
     if (!root) return;
     const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
@@ -238,15 +221,7 @@ export const TickLadder = memo(function TickLadder({
         cell.classList.remove('tick-price--highlight');
       }
     }
-  };
-
-  useEffect(() => {
-    // Debounce this effect too
-    const timeoutId = setTimeout(() => {
-      applyHighlightRobustRef.current?.();
-    }, 16);
-    return () => clearTimeout(timeoutId);
-  }, [tickLadder, currentPrice, highlightedPriceKeys]);
+  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
   // === End robust additions ===
 
 
@@ -301,9 +276,8 @@ export const TickLadder = memo(function TickLadder({
     return () => { root.removeEventListener('mousedown', onMouseDownFallback, true); };
   }, [scrollWrapperRef, findPriceCellFromEvent, getPriceKeyFromCellRobust]);
 
-  // Apply effect using classless discovery - optimized
-  const applyHighlightFallbackRef = useRef<() => void>();
-  applyHighlightFallbackRef.current = () => {
+  // Apply effect using classless discovery if class selectors return 0 nodes
+  useEffect(() => {
     const root = scrollWrapperRef.current;
     if (!root) return;
     let cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
@@ -332,15 +306,7 @@ export const TickLadder = memo(function TickLadder({
         cell.classList.remove('tick-price--highlight');
       }
     }
-  };
-
-  useEffect(() => {
-    // Debounce this effect as well
-    const timeoutId = setTimeout(() => {
-      applyHighlightFallbackRef.current?.();
-    }, 16);
-    return () => clearTimeout(timeoutId);
-  }, [tickLadder, currentPrice, highlightedPriceKeys]);
+  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
   // === End CLASSLESS FALLBACK ===
 
 
@@ -356,19 +322,8 @@ export const TickLadder = memo(function TickLadder({
   };
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!setViewAnchorPrice || !tickLadder) {
-      // Allow normal scroll if no custom handling
-      return;
-    }
-    
+    if (!setViewAnchorPrice || !tickLadder) return;
     e.preventDefault();
-
-    // --- ADD: lock visual updates while wheel is active
-    if (setVisualLock) {
-      setVisualLock(true);
-      if (wheelIdleTimerRef.current) clearTimeout(wheelIdleTimerRef.current);
-      wheelIdleTimerRef.current = setTimeout(() => setVisualLock(false), WHEEL_IDLE_MS);
-    }
 
     const deltaY = e.deltaY;
     const mode = (e.nativeEvent as any)?.deltaMode ?? 0; // 0: pixel, 1: line, 2: page
@@ -401,7 +356,7 @@ export const TickLadder = memo(function TickLadder({
       const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
       if (inner) inner.scrollTop = 0;
     }
-  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice, setVisualLock]);
+  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
@@ -445,7 +400,7 @@ export const TickLadder = memo(function TickLadder({
   }
 
   return (
-    <div className="h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col bg-card trading-no-anim">
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
@@ -457,13 +412,8 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Body - scroll optimized */}
-      <div 
-        ref={scrollWrapperRef} 
-        onWheel={handleWheel} 
-        onKeyDown={handleKeyDown} 
-        tabIndex={0}
-      >
+      {/* Body - wrap with a listener to avoid editing existing inner div */}
+      <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto">
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;

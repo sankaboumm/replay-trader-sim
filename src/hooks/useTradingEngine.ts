@@ -136,33 +136,6 @@ export function useTradingEngine() {
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
 
-  // --- ADD: visual lock to avoid DOM thrash while user is scrolling the ladder
-  const visualLockRef = useRef(false);
-  const setVisualLock = useCallback((locked: boolean) => {
-    visualLockRef.current = locked;
-    if (!locked) {
-      // When unlocking, push exactly ONE fresh ladder from latest data
-      const snaps = orderBookSnapshotsRef.current;
-      const tradesLatest = tradesRef.current;
-      if (snaps.length > 0) {
-        const lastSnap = snaps[snaps.length - 1];
-        const ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
-        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      } else if (currentOrderBookData) {
-        const snapshot: ParsedOrderBook = {
-          bidPrices: (currentOrderBookData.book_bid_prices || []),
-          bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
-          bidOrders: (currentOrderBookData.book_bid_orders || []),
-          askPrices: (currentOrderBookData.book_ask_prices || []),
-          askSizes:  (currentOrderBookData.book_ask_sizes  || []),
-          askOrders: (currentOrderBookData.book_ask_orders || []),
-          timestamp: new Date()
-        };
-        const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      }
-    }
-  }, [orderBookProcessor, currentOrderBookData, volumeByPrice]);
   // ---------- utils parse ----------
   const parseTimestamp = (row: any): number => {
     const fields = ['ts_exch_utc', 'ts_exch_madrid', 'ts_utc', 'ts_madrid'];
@@ -479,10 +452,7 @@ export function useTradingEngine() {
       if (snaps.length > 0) {
         const lastSnap = snaps[snaps.length - 1];
         const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        // ADD: ne pas rendre pendant le scroll; le flush arrivera à l'unlock
-        if (!visualLockRef.current) {
-          setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-        }
+        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
       }
       return nextTrades;
     });
@@ -631,8 +601,6 @@ export function useTradingEngine() {
             book_bid_sizes:  (event.bookBidSizes  || []).slice(0, 20),
             book_ask_sizes:  (event.bookAskSizes  || []).slice(0, 20),
           });
-          // ADD: si l'utilisateur est en scroll, on saute le setCurrentTickLadder pour éviter les "sauts" visuels
-          if (visualLockRef.current) break;
 
           // Tick ladder
           const currentSnapshot = orderBookSnapshotsRef.current.find(s =>
@@ -780,10 +748,7 @@ export function useTradingEngine() {
       if (snaps.length > 0) {
         const lastSnap = snaps[snaps.length - 1];
         const ladder = orderBookProcessor.createTickLadder(lastSnap, nextTrades);
-        // ADD: pas d'update visuelle tant que lock actif
-        if (!visualLockRef.current) {
-          setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-        }
+        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
       }
       return nextTrades;
     });
@@ -909,8 +874,6 @@ export function useTradingEngine() {
     loadMarketData,
     // utils (si nécessaire)
     orderBookProcessor,
-    setViewAnchorPrice,
-    // ADD: exposer le verrou visuel
-    setVisualLock
+    setViewAnchorPrice
   };
 }

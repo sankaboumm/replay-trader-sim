@@ -32,7 +32,7 @@ export function TradingInterface() {
     bestAsk,
     spread,
     spreadTicks,
-    setVisualLock
+    setViewAnchorPrice,
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -121,7 +121,7 @@ export function TradingInterface() {
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
             position={position}
-            setVisualLock={setVisualLock}
+            setViewAnchorPrice={setViewAnchorPrice}
           />
         </div>
 
