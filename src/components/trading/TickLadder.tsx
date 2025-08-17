@@ -413,8 +413,8 @@ export const TickLadder = memo(function TickLadder({
       </div>
 
       {/* Body - wrap with a listener to avoid editing existing inner div */}
-      <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="flex-1 overflow-y-auto min-h-0 min-h-0" style={{ willChange: 'scroll-position' }}>
+      <div ref={scrollWrapperRef} className="flex-1 min-h-0" onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
+        <div className="h-full overflow-y-auto" style={{ willChange: 'scroll-position' }}>
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
