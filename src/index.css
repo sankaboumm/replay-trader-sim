@@ -231,3 +231,9 @@
   transition: none !important;
   animation: none !important;
 }
+
+/* Avoid native scroll chaining + anchor jumps during virtual scrolling */
+.no-scroll-jitter {
+  overscroll-behavior: contain;
+  overflow-anchor: none;
+}

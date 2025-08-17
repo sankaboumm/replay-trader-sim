@@ -329,6 +329,16 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice]);
 
+  /**
+   * Capture-phase wheel to prevent the browser's native scroll jitter,
+   * then delegate to the existing virtual scroll logic.
+   */
+  const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
+    if (e.cancelable) e.preventDefault();
+    e.stopPropagation();
+    handleWheel(e);
+  }, [handleWheel]);
+
   const avgPrice = position.quantity !== 0 ? position.averagePrice : null;
 
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
@@ -376,6 +386,7 @@ export const TickLadder = memo(function TickLadder({
       </div>
 
       {/* Body - wrap with a listener to avoid editing existing inner div */}
+      <div onWheelCapture={handleWheelCapture} className="no-scroll-jitter">
       <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto" style={{ willChange: 'scroll-position' }}>
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
