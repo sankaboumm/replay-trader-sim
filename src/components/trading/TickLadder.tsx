@@ -330,7 +330,7 @@ export const TickLadder = memo(function TickLadder({
 
       // lock native scroll
       const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
-      // removed to allow native scrolling: if (inner) inner.scrollTop = 0;
+      if (inner) inner.scrollTop = 0;
     }
   }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice]);
 
@@ -413,8 +413,8 @@ export const TickLadder = memo(function TickLadder({
       </div>
 
       {/* Body - wrap with a listener to avoid editing existing inner div */}
-      <div ref={scrollWrapperRef} onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="flex-1 overflow-y-auto" style={{ willChange: 'scroll-position' }}>
+      <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
+        <div className="flex-1 overflow-y-auto min-h-0 min-h-0" style={{ willChange: 'scroll-position' }}>
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
