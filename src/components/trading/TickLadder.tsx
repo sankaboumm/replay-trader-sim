@@ -51,19 +51,35 @@ export const TickLadder = memo(function TickLadder({
   const scrollWrapperRef = useRef<HTMLDivElement | null>(null);
   const wheelRemainderRef = useRef(0);
   const ROW_HEIGHT_PX = 24; // Tailwind h-6
-  // === ADD-ONLY: Legacy guard to disable virtual wheel handler without blocking native scroll ===
-  const LEGACY_SCROLL_GUARD = true;
+  // === ADD-ONLY: Force native scroll inside the ladder and bypass virtual anchor on wheel ===
+  // 1) Guard: stop React onWheel (virtual scroll) without preventing default scrolling.
+  // 2) Shim: manually scroll the inner scroller on wheel to guarantee movement in all cases.
   useEffect(() => {
-    if (!LEGACY_SCROLL_GUARD) return;
-    const el = scrollWrapperRef.current;
-    if (!el) return;
-    const handler = (ev: WheelEvent) => {
-      // We only stop propagation so React onWheel (handleWheel) doesn't fire,
-      // but we DO NOT preventDefault — native scrolling continues.
-      ev.stopPropagation();
+    const wrapper = scrollWrapperRef.current;
+    if (!wrapper) return;
+    const guard = (ev: WheelEvent) => {
+      // Do not preventDefault -> keep native scrolling allowed
+      ev.stopPropagation(); // blocks React onWheel on the wrapper
     };
-    el.addEventListener('wheel', handler, { capture: true, passive: true });
-    return () => { try { el.removeEventListener('wheel', handler, { capture: true } as any); } catch {} };
+    wrapper.addEventListener('wheel', guard, { capture: true, passive: true });
+    return () => { try { wrapper.removeEventListener('wheel', guard, { capture: true } as any); } catch {} };
+  }, [scrollWrapperRef]);
+
+  useEffect(() => {
+    const wrapper = scrollWrapperRef.current;
+    const scroller = wrapper?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
+    if (!scroller) return;
+    const onWheel = (ev: WheelEvent) => {
+      // Act as a robust fallback: always move the scroller by the delta
+      if (ev.cancelable) ev.preventDefault(); // avoid any "reset to 0" side-effects
+      ev.stopPropagation();
+      const mode = (ev as any).deltaMode || 0; // 0:px, 1:line, 2:page
+      const lineH = ROW_HEIGHT_PX || 24;
+      const delta = mode === 1 ? ev.deltaY * lineH : ev.deltaY;
+      scroller.scrollTop += delta;
+    };
+    scroller.addEventListener('wheel', onWheel, { capture: true, passive: false });
+    return () => { try { scroller.removeEventListener('wheel', onWheel, { capture: true } as any); } catch {} };
   }, [scrollWrapperRef]);
   // === END ADD-ONLY ===
   // Stabilize bid/ask cells: add classes to 2nd and 4th cell of each row for layer isolation
