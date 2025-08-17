@@ -114,20 +114,26 @@ export const TickLadder = memo(function TickLadder({
     };
   }, [scrollWrapperRef, normalizePriceKey]);
 
-  // Apply/remove yellow class to matched Price cells after each render
+  // Apply/remove yellow class to matched Price cells - optimized for scroll performance
   useEffect(() => {
     const root = scrollWrapperRef.current;
     if (!root) return;
-    const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
-    for (const cell of cells) {
-      const key = normalizePriceKey(cell.innerText);
-      if (key && highlightedPriceKeys.has(key)) {
-        cell.classList.add('tick-price--highlight');
-      } else {
-        cell.classList.remove('tick-price--highlight');
+    
+    // Use requestAnimationFrame to avoid blocking scroll
+    const updateHighlights = () => {
+      const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
+      for (const cell of cells) {
+        const key = normalizePriceKey(cell.innerText);
+        if (key && highlightedPriceKeys.has(key)) {
+          cell.classList.add('tick-price--highlight');
+        } else {
+          cell.classList.remove('tick-price--highlight');
+        }
       }
-    }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, normalizePriceKey]);
+    };
+    
+    requestAnimationFrame(updateHighlights);
+  }, [highlightedPriceKeys, normalizePriceKey]); // Removed tickLadder and currentPrice to reduce re-runs
   // === End added code ===
 
 
@@ -208,20 +214,7 @@ export const TickLadder = memo(function TickLadder({
     return () => { root.removeEventListener('mousedown', onMouseDownElem); };
   }, [scrollWrapperRef, getPriceKeyFromCellRobust]);
 
-  // Secondary apply effect using robust parsing, to ensure highlight even if text has thousands/locale
-  useEffect(() => {
-    const root = scrollWrapperRef.current;
-    if (!root) return;
-    const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
-    for (const cell of cells) {
-      const key = getPriceKeyFromCellRobust(cell);
-      if (key && highlightedPriceKeys.has(key)) {
-        cell.classList.add('tick-price--highlight');
-      } else {
-        cell.classList.remove('tick-price--highlight');
-      }
-    }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
+  // Secondary apply effect - removed to prevent duplicate DOM operations during scroll
   // === End robust additions ===
 
 
@@ -276,37 +269,7 @@ export const TickLadder = memo(function TickLadder({
     return () => { root.removeEventListener('mousedown', onMouseDownFallback, true); };
   }, [scrollWrapperRef, findPriceCellFromEvent, getPriceKeyFromCellRobust]);
 
-  // Apply effect using classless discovery if class selectors return 0 nodes
-  useEffect(() => {
-    const root = scrollWrapperRef.current;
-    if (!root) return;
-    let cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
-    if (cells.length === 0) {
-      const allDivs = Array.from(root.querySelectorAll('div')) as HTMLElement[];
-      const priceCells: HTMLElement[] = [];
-      for (const el of allDivs) {
-        try {
-          const cs = window.getComputedStyle(el);
-          if (cs.display === 'grid' && el.children.length === 5) {
-            const priceEl = el.children[2] as HTMLElement;
-            if (priceEl) {
-              const key = getPriceKeyFromCellRobust(priceEl);
-              if (key) priceCells.push(priceEl);
-            }
-          }
-        } catch {}
-      }
-      cells = priceCells;
-    }
-    for (const cell of cells) {
-      const key = getPriceKeyFromCellRobust(cell);
-      if (key && highlightedPriceKeys.has(key)) {
-        cell.classList.add('tick-price--highlight');
-      } else {
-        cell.classList.remove('tick-price--highlight');
-      }
-    }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
+  // Removed redundant apply effect to improve scroll performance
   // === End CLASSLESS FALLBACK ===
 
 
@@ -414,7 +377,7 @@ export const TickLadder = memo(function TickLadder({
 
       {/* Body - wrap with a listener to avoid editing existing inner div */}
       <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto" style={{ willChange: 'scroll-position' }}>
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
