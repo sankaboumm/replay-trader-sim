@@ -43,7 +43,9 @@ export const TickLadder = memo(function TickLadder({
   onCancelOrders,
   disabled = false,
   position,
-  setViewAnchorPrice
+  setViewAnchorPrice,
+  // --- ADD: expose visual lock from props
+  setVisualLock
 }: TickLadderProps) {
   const getOrdersAtPrice = (price: number, side: 'BUY' | 'SELL') =>
     orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
@@ -59,7 +61,10 @@ export const TickLadder = memo(function TickLadder({
     return 0.25;
   }, [tickLadder]);
 
-  
+  // --- ADD: idle timer for the visual lock (debounce unlock)
+  const wheelIdleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const WHEEL_IDLE_MS = 160;
+
   // === Added: Highlight Price cell with Cmd (Mac) / Ctrl (PC) + Left Click (additive only) ===
   // Keep a set of highlighted price keys (two-decimal strings like "15324.50")
   const [highlightedPriceKeys, setHighlightedPriceKeys] = useState<Set<string>>(new Set());
@@ -326,6 +331,13 @@ export const TickLadder = memo(function TickLadder({
     if (!setViewAnchorPrice || !tickLadder) return;
     e.preventDefault();
 
+    // --- ADD: lock visual updates while wheel is active
+    if (setVisualLock) {
+      setVisualLock(true);
+      if (wheelIdleTimerRef.current) clearTimeout(wheelIdleTimerRef.current);
+      wheelIdleTimerRef.current = setTimeout(() => setVisualLock(false), WHEEL_IDLE_MS);
+    }
+
     const deltaY = e.deltaY;
     const mode = (e.nativeEvent as any)?.deltaMode ?? 0; // 0: pixel, 1: line, 2: page
     let steps = 0;
@@ -357,7 +369,7 @@ export const TickLadder = memo(function TickLadder({
       const inner = scrollWrapperRef.current?.querySelector('.overflow-y-auto') as HTMLDivElement | null;
       if (inner) inner.scrollTop = 0;
     }
-  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice]);
+  }, [setViewAnchorPrice, tickLadder, tickSize, currentPrice, setVisualLock]);
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (!setViewAnchorPrice) return;
