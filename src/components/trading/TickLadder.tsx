@@ -121,7 +121,9 @@ export const TickLadder = memo(function TickLadder({
   }, [scrollWrapperRef, normalizePriceKey]);
 
   // Apply/remove yellow class to matched Price cells after each render
-  useEffect(() => {
+  // Optimized: Only run when not scrolling
+  const applyHighlightRef = useRef<() => void>();
+  applyHighlightRef.current = () => {
     const root = scrollWrapperRef.current;
     if (!root) return;
     const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
@@ -133,7 +135,15 @@ export const TickLadder = memo(function TickLadder({
         cell.classList.remove('tick-price--highlight');
       }
     }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, normalizePriceKey]);
+  };
+
+  useEffect(() => {
+    // Debounce highlight application during scrolling
+    const timeoutId = setTimeout(() => {
+      applyHighlightRef.current?.();
+    }, 16); // ~1 frame delay
+    return () => clearTimeout(timeoutId);
+  }, [tickLadder, currentPrice, highlightedPriceKeys]);
   // === End added code ===
 
 
@@ -214,8 +224,9 @@ export const TickLadder = memo(function TickLadder({
     return () => { root.removeEventListener('mousedown', onMouseDownElem); };
   }, [scrollWrapperRef, getPriceKeyFromCellRobust]);
 
-  // Secondary apply effect using robust parsing, to ensure highlight even if text has thousands/locale
-  useEffect(() => {
+  // Secondary apply effect using robust parsing - optimized
+  const applyHighlightRobustRef = useRef<() => void>();
+  applyHighlightRobustRef.current = () => {
     const root = scrollWrapperRef.current;
     if (!root) return;
     const cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
@@ -227,7 +238,15 @@ export const TickLadder = memo(function TickLadder({
         cell.classList.remove('tick-price--highlight');
       }
     }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
+  };
+
+  useEffect(() => {
+    // Debounce this effect too
+    const timeoutId = setTimeout(() => {
+      applyHighlightRobustRef.current?.();
+    }, 16);
+    return () => clearTimeout(timeoutId);
+  }, [tickLadder, currentPrice, highlightedPriceKeys]);
   // === End robust additions ===
 
 
@@ -282,8 +301,9 @@ export const TickLadder = memo(function TickLadder({
     return () => { root.removeEventListener('mousedown', onMouseDownFallback, true); };
   }, [scrollWrapperRef, findPriceCellFromEvent, getPriceKeyFromCellRobust]);
 
-  // Apply effect using classless discovery if class selectors return 0 nodes
-  useEffect(() => {
+  // Apply effect using classless discovery - optimized
+  const applyHighlightFallbackRef = useRef<() => void>();
+  applyHighlightFallbackRef.current = () => {
     const root = scrollWrapperRef.current;
     if (!root) return;
     let cells = Array.from(root.querySelectorAll('div.bg-ladder-price')) as HTMLElement[];
@@ -312,7 +332,15 @@ export const TickLadder = memo(function TickLadder({
         cell.classList.remove('tick-price--highlight');
       }
     }
-  }, [tickLadder, currentPrice, highlightedPriceKeys, getPriceKeyFromCellRobust]);
+  };
+
+  useEffect(() => {
+    // Debounce this effect as well
+    const timeoutId = setTimeout(() => {
+      applyHighlightFallbackRef.current?.();
+    }, 16);
+    return () => clearTimeout(timeoutId);
+  }, [tickLadder, currentPrice, highlightedPriceKeys]);
   // === End CLASSLESS FALLBACK ===
 
 
@@ -413,7 +441,7 @@ export const TickLadder = memo(function TickLadder({
   }
 
   return (
-    <div className="h-full flex flex-col bg-card trading-no-anim">
+    <div className="h-full flex flex-col bg-card" style={{ willChange: 'auto' }}>
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
@@ -425,9 +453,15 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Body - wrap with a listener to avoid editing existing inner div */}
-      <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
-        <div className="flex-1 overflow-y-auto">
+      {/* Body - optimized for scroll performance */}
+      <div 
+        ref={scrollWrapperRef} 
+        onWheel={handleWheel} 
+        onKeyDown={handleKeyDown} 
+        tabIndex={0}
+        style={{ contain: 'layout style paint' }}
+      >
+        <div className="flex-1 overflow-y-auto" style={{ transform: 'translateZ(0)' }}>
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
@@ -443,6 +477,7 @@ export const TickLadder = memo(function TickLadder({
                 className={cn(
                   "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6"
                 )}
+                style={{ contain: 'layout' }}
               >
                 {/* Size (window) */}
                 <div className="flex items-center justify-center border-r border-border/50">
