@@ -232,25 +232,14 @@
   animation: none !important;
 }
 
-/* --- Bid/Ask stability: isolate layer + tabular numbers + anti-flicker --- */
-.ladder-bid-cell,
-.ladder-ask-cell,
-/* Fallback structural selectors if classes not present */
-.overflow-y-auto > .grid > :nth-child(2),
-.overflow-y-auto > .grid > :nth-child(4) {
+/* --- Row-level isolation to eliminate scroll-time flicker (v3) --- */
+.overflow-y-auto > div.grid {
   backface-visibility: hidden;
   transform: translateZ(0);
-  contain: layout paint;
   will-change: transform;
+  contain: layout paint;
+}
+.overflow-y-auto > div.grid span {
   font-variant-numeric: tabular-nums;
   font-feature-settings: "tnum";
-  -webkit-font-smoothing: antialiased;
-  text-rendering: optimizeSpeed;
-}
-
-/* Promote inner text to its own layer to avoid glyph blinking */
-.ladder-bid-cell > span,
-.ladder-ask-cell > span {
-  transform: translateZ(0);
-  will-change: transform;
 }
