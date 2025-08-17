@@ -1,4 +1,4 @@
-import React, { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 interface Trade {
@@ -39,22 +39,34 @@ function formatPrice(p: number) {
   return p.toFixed(2);
 }
 
-function TimeAndSalesComponent({ trades, currentPrice }: TimeAndSalesProps) {
+/**
+ * Base non-mémoïsée pour pouvoir exporter à la fois en default et en named.
+ * On mémoïse ensuite et on exporte la version mémoïsée sous le même nom.
+ */
+function TimeAndSalesBase({ trades, currentPrice }: TimeAndSalesProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
-  // Auto-scroll vers le bas à chaque nouveau trade
+  /**
+   * NOUVEAU COMPORTEMENT SCROLL :
+   * - On affiche les nouveaux lots en HAUT (voir rendu plus bas via reverse()).
+   * - Le scroll reste par défaut EN HAUT : on force scrollTop = 0 à chaque màj.
+   */
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    el.scrollTop = el.scrollHeight;
+    el.scrollTop = 0;
   }, [trades]);
 
+  // Colonnes dynamiques selon les colonnes masquées/affichées
   const colClass =
     SHOW_TIME && SHOW_SIDE
       ? 'grid-cols-4'
       : SHOW_TIME || SHOW_SIDE
       ? 'grid-cols-3'
       : 'grid-cols-2';
+
+  // Rendu avec les NOUVEAUX TRADES EN HAUT
+  const renderTrades = trades.slice().reverse();
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border">
@@ -74,10 +86,10 @@ function TimeAndSalesComponent({ trades, currentPrice }: TimeAndSalesProps) {
 
       {/* Body */}
       <div ref={scrollerRef} className="flex-1 overflow-auto">
-        {trades.length === 0 ? (
+        {renderTrades.length === 0 ? (
           <div className="p-6 text-sm text-muted-foreground">No trades yet.</div>
         ) : (
-          trades.map((trade) => {
+          renderTrades.map((trade) => {
             const rowHighlight =
               trade.size > 10
                 ? trade.aggressor === 'BUY'
@@ -151,6 +163,9 @@ function TimeAndSalesComponent({ trades, currentPrice }: TimeAndSalesProps) {
   );
 }
 
-/** Export nommé + export par défaut pour satisfaire tous les imports */
-export const TimeAndSales = memo(TimeAndSalesComponent);
+/** Version mémoïsée exportée sous le même nom pour simplifier les imports */
+export const TimeAndSales = memo(TimeAndSalesBase);
 export default TimeAndSales;
+
+// (optionnel) si tu veux aussi exporter les types :
+// export type { Trade, TimeAndSalesProps };
