@@ -28,6 +28,7 @@ interface TickLadderProps {
   disabled?: boolean;
   position: Position;
   setViewAnchorPrice?: (price: number | null) => void;
+  setVisualLock?: (locked: boolean) => void;
 }
 
 const fmtPrice = (p: number) => p.toFixed(2).replace('.', ',');
