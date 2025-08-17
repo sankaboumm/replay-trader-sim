@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react';
+import React, { memo, useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 interface Trade {
@@ -39,7 +39,7 @@ function formatPrice(p: number) {
   return p.toFixed(2);
 }
 
-export default memo(function TimeAndSales({ trades, currentPrice }: TimeAndSalesProps) {
+function TimeAndSalesComponent({ trades, currentPrice }: TimeAndSalesProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   // Auto-scroll vers le bas à chaque nouveau trade
@@ -149,4 +149,8 @@ export default memo(function TimeAndSales({ trades, currentPrice }: TimeAndSales
       </div>
     </div>
   );
-});
+}
+
+/** Export nommé + export par défaut pour satisfaire tous les imports */
+export const TimeAndSales = memo(TimeAndSalesComponent);
+export default TimeAndSales;
