@@ -51,24 +51,21 @@ export const TickLadder = memo(function TickLadder({
   const scrollWrapperRef = useRef<HTMLDivElement | null>(null);
   const wheelRemainderRef = useRef(0);
   const ROW_HEIGHT_PX = 24; // Tailwind h-6
-
-  // === ADD-ONLY: Legacy Scroll Mode to match 'sans-clignotement' behavior ===
-  // When enabled, we stop the custom virtual-anchor wheel handler from running,
-  // letting the native scroll drive the DOMLadder infinite list (like the old version).
-  const LEGACY_SCROLL_MODE = true; // set to true to disable virtual scroll handler
+  // === ADD-ONLY: Legacy guard to disable virtual wheel handler without blocking native scroll ===
+  const LEGACY_SCROLL_GUARD = true;
   useEffect(() => {
-    if (!LEGACY_SCROLL_MODE) return;
-    const root = scrollWrapperRef.current;
-    if (!root) return;
-    const stopBubbling = (ev: WheelEvent) => {
-      // Don't preventDefault -> allow native scroll to run
+    if (!LEGACY_SCROLL_GUARD) return;
+    const el = scrollWrapperRef.current;
+    if (!el) return;
+    const handler = (ev: WheelEvent) => {
+      // We only stop propagation so React onWheel (handleWheel) doesn't fire,
+      // but we DO NOT preventDefault — native scrolling continues.
       ev.stopPropagation();
     };
-    root.addEventListener('wheel', stopBubbling, { capture: true, passive: true });
-    return () => root.removeEventListener('wheel', stopBubbling, { capture: true } as any);
+    el.addEventListener('wheel', handler, { capture: true, passive: true });
+    return () => { try { el.removeEventListener('wheel', handler, { capture: true } as any); } catch {} };
   }, [scrollWrapperRef]);
   // === END ADD-ONLY ===
-
   // Stabilize bid/ask cells: add classes to 2nd and 4th cell of each row for layer isolation
   useEffect(() => {
     const root = scrollWrapperRef.current;
