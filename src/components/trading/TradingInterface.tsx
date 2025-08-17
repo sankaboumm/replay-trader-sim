@@ -53,7 +53,7 @@ export function TradingInterface() {
   return (
     <div className="h-screen bg-background text-foreground overflow-hidden">
       {/* Header */}
-      <div className="h-16 bg-card border-b border-border flex min-h-0 items-center justify-between px-4">
+      <div className="h-16 bg-card border-b border-border flex items-center justify-between px-4">
         <div className="flex items-center gap-4">
           <h1 className="text-xl font-bold">Trading Simulator</h1>
           <FileUpload onFileSelect={loadMarketData} disabled={isPlaying} />
