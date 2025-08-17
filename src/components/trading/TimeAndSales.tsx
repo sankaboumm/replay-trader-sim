@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from 'react';
+import { memo, useEffect, useMemo, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 interface Trade {
@@ -18,7 +18,7 @@ interface TimeAndSalesProps {
 /** Options d’affichage (sans supprimer le code) */
 const SHOW_TIME = false;            // mettre true pour ré-afficher la colonne Time
 const SHOW_SIDE = false;            // mettre true pour ré-afficher la colonne Side
-const BIG_TEXT = 'text-[1.00rem]';  // taille de police demandée pour Price & Size
+const BIG_TEXT = 'text-[1.70rem]';  // taille de police demandée pour Price & Size
 
 /** Surlignage plus fort pour les gros prints (size > 10) */
 const BUY_HIGHLIGHT_CLASS = 'bg-trading-buy/40';   // avant: /20
@@ -47,15 +47,28 @@ function TimeAndSalesBase({ trades, currentPrice }: TimeAndSalesProps) {
   const scrollerRef = useRef<HTMLDivElement>(null);
 
   /**
-   * NOUVEAU COMPORTEMENT SCROLL :
-   * - On affiche les nouveaux lots en HAUT (voir rendu plus bas via reverse()).
-   * - Le scroll reste par défaut EN HAUT : on force scrollTop = 0 à chaque màj.
+   * NOUVEAU : tri explicite par timestamp DESC pour garantir
+   * "nouveau en haut" même si la source est triée ASC.
+   * Tiebreak sur id pour stabilité.
+   */
+  const renderTrades = useMemo(() => {
+    return [...trades].sort((a, b) => {
+      if (b.timestamp !== a.timestamp) return b.timestamp - a.timestamp; // DESC
+      // Tiebreak pour éviter les "sauts" visuels en cas de mêmes ms
+      if (a.id === b.id) return 0;
+      return a.id > b.id ? -1 : 1;
+    });
+  }, [trades]);
+
+  /**
+   * Scroll épinglé en HAUT pour voir les nouveaux prints arriver.
+   * On le force à 0 à chaque mise à jour.
    */
   useEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTop = 0;
-  }, [trades]);
+  }, [renderTrades]);
 
   // Colonnes dynamiques selon les colonnes masquées/affichées
   const colClass =
@@ -64,9 +77,6 @@ function TimeAndSalesBase({ trades, currentPrice }: TimeAndSalesProps) {
       : SHOW_TIME || SHOW_SIDE
       ? 'grid-cols-3'
       : 'grid-cols-2';
-
-  // Rendu avec les NOUVEAUX TRADES EN HAUT
-  const renderTrades = trades.slice().reverse();
 
   return (
     <div className="flex h-full flex-col overflow-hidden rounded-xl border border-border">
