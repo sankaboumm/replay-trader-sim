@@ -232,8 +232,17 @@
   animation: none !important;
 }
 
-/* Avoid native scroll chaining + anchor jumps during virtual scrolling */
-.no-scroll-jitter {
-  overscroll-behavior: contain;
-  overflow-anchor: none;
+/* --- Anti-flicker for bid/ask cells during scroll (layer isolation) --- */
+.bg-ladder-bid,
+.bg-ladder-ask {
+  backface-visibility: hidden;
+  transform: translateZ(0);
+  contain: paint;
+  will-change: transform;
+}
+
+/* Optional debug helper: add .debug-no-color on a parent to disable colors and verify flicker origin */
+.debug-no-color .bg-ladder-bid,
+.debug-no-color .bg-ladder-ask {
+  background-color: transparent !important;
 }
