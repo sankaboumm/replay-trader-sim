@@ -32,7 +32,6 @@ export function TradingInterface() {
     bestAsk,
     spread,
     spreadTicks,
-    etViewAnchorPrice,
     setVisualLock
   } = useTradingEngine();
 
@@ -122,7 +121,6 @@ export function TradingInterface() {
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
             position={position}
-            setViewAnchorPrice={setViewAnchorPrice}
             setVisualLock={setVisualLock}
           />
         </div>
