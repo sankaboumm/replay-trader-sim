@@ -51,6 +51,19 @@ export const TickLadder = memo(function TickLadder({
   const scrollWrapperRef = useRef<HTMLDivElement | null>(null);
   const wheelRemainderRef = useRef(0);
   const ROW_HEIGHT_PX = 24; // Tailwind h-6
+  // Stabilize bid/ask cells: add classes to 2nd and 4th cell of each row for layer isolation
+  useEffect(() => {
+    const root = scrollWrapperRef.current;
+    if (!root) return;
+    const rows = Array.from(root.querySelectorAll('.overflow-y-auto > div.grid')) as HTMLElement[];
+    for (const row of rows) {
+      const c = row.children;
+      if (c && c.length >= 5) {
+        (c[1] as HTMLElement).classList.add('ladder-bid-cell', 'bid-ask-stable');
+        (c[3] as HTMLElement).classList.add('ladder-ask-cell', 'bid-ask-stable');
+      }
+    }
+  }, [tickLadder?.levels?.length]);
   const tickSize = useMemo(() => {
     if (tickLadder?.levels && tickLadder.levels.length >= 2) {
       return Math.abs(tickLadder.levels[0].price - tickLadder.levels[1].price) || 0.25;
@@ -329,16 +342,6 @@ export const TickLadder = memo(function TickLadder({
     }
   }, [setViewAnchorPrice]);
 
-  /**
-   * Capture-phase wheel to prevent the browser's native scroll jitter,
-   * then delegate to the existing virtual scroll logic.
-   */
-  const handleWheelCapture = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (e.cancelable) e.preventDefault();
-    e.stopPropagation();
-    handleWheel(e);
-  }, [handleWheel]);
-
   const avgPrice = position.quantity !== 0 ? position.averagePrice : null;
 
   const handleCellClick = (price: number, column: 'bid' | 'ask') => {
@@ -386,7 +389,6 @@ export const TickLadder = memo(function TickLadder({
       </div>
 
       {/* Body - wrap with a listener to avoid editing existing inner div */}
-      <div onWheelCapture={handleWheelCapture} className="no-scroll-jitter">
       <div ref={scrollWrapperRef} onWheel={handleWheel} onKeyDown={handleKeyDown} tabIndex={0}>
         <div className="flex-1 overflow-y-auto" style={{ willChange: 'scroll-position' }}>
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
@@ -438,7 +440,6 @@ export const TickLadder = memo(function TickLadder({
                 >
                   {fmtPrice(level.price)}
                 </div>
-      </div>
 
                 {/* Asks */}
                 <div
