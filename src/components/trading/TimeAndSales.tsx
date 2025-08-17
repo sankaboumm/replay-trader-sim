@@ -18,7 +18,7 @@ interface TimeAndSalesProps {
 /** Options d’affichage (sans supprimer le code) */
 const SHOW_TIME = false;            // mettre true pour ré-afficher la colonne Time
 const SHOW_SIDE = false;            // mettre true pour ré-afficher la colonne Side
-const BIG_TEXT = 'text-[1.70rem]';  // taille de police demandée pour Price & Size
+const BIG_TEXT = 'text-[1.00rem]';  // taille de police demandée pour Price & Size
 
 /** Surlignage plus fort pour les gros prints (size > 10) */
 const BUY_HIGHLIGHT_CLASS = 'bg-trading-buy/40';   // avant: /20
