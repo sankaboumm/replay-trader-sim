@@ -356,7 +356,11 @@ export const TickLadder = memo(function TickLadder({
   };
 
   const handleWheel = useCallback((e: React.WheelEvent<HTMLDivElement>) => {
-    if (!setViewAnchorPrice || !tickLadder) return;
+    if (!setViewAnchorPrice || !tickLadder) {
+      // Allow normal scroll if no custom handling
+      return;
+    }
+    
     e.preventDefault();
 
     // --- ADD: lock visual updates while wheel is active
@@ -441,7 +445,7 @@ export const TickLadder = memo(function TickLadder({
   }
 
   return (
-    <div className="h-full flex flex-col bg-card" style={{ willChange: 'auto' }}>
+    <div className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs font-semibold text-muted-foreground">
@@ -453,15 +457,14 @@ export const TickLadder = memo(function TickLadder({
         </div>
       </div>
 
-      {/* Body - optimized for scroll performance */}
+      {/* Body - scroll optimized */}
       <div 
         ref={scrollWrapperRef} 
         onWheel={handleWheel} 
         onKeyDown={handleKeyDown} 
         tabIndex={0}
-        style={{ contain: 'layout style paint' }}
       >
-        <div className="flex-1 overflow-y-auto" style={{ transform: 'translateZ(0)' }}>
+        <div className="flex-1 overflow-y-auto">
           {(tickLadder.levels).slice().sort((a, b) => b.price - a.price).map((level) => {
             const isLastPrice = Math.abs(level.price - currentPrice) < 0.125;
             const isAvgPrice  = avgPrice !== null && Math.abs(level.price - (avgPrice as number)) < 0.125;
@@ -477,7 +480,6 @@ export const TickLadder = memo(function TickLadder({
                 className={cn(
                   "grid [grid-template-columns:64px_1fr_88px_1fr_64px] text-xs border-b border-border/50 h-6"
                 )}
-                style={{ contain: 'layout' }}
               >
                 {/* Size (window) */}
                 <div className="flex items-center justify-center border-r border-border/50">
