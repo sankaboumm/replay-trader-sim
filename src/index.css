@@ -232,6 +232,13 @@
   animation: none !important;
 }
 
+
+/* ADD-ONLY: generic anti-jitter for scroll containers */
+.no-scroll-jitter { overscroll-behavior: contain; overflow-anchor: none; }
+/* Reduce anchor jumps on virtualized ladder */
+.overflow-y-auto { overflow-anchor: none; }
+
+
 /* --- Row-level isolation to eliminate scroll-time flicker (v3) --- */
 .overflow-y-auto > div.grid {
   backface-visibility: hidden;

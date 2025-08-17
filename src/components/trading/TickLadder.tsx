@@ -341,6 +341,30 @@ export const TickLadder = memo(function TickLadder({
       setViewAnchorPrice(null);
     }
   }, [setViewAnchorPrice]);
+ // === ADD-ONLY: capture-phase wheel to neutralize native scroll jitter (no JSX changes) ===
+  const _captureWheelRef = useRef<(e: WheelEvent) => void | null>(null);
+  useEffect(() => {
+    const el = scrollWrapperRef.current;
+    if (!el) return;
+    const handler = (ev: WheelEvent) => {
+      if (ev.cancelable) ev.preventDefault();
+      ev.stopPropagation();
+      const fake: any = {
+        deltaY: ev.deltaY,
+        deltaX: ev.deltaX,
+        ctrlKey: ev.ctrlKey,
+        shiftKey: ev.shiftKey,
+        preventDefault: () => ev.preventDefault(),
+      };
+      try { (handleWheel as any)(fake); } catch {}
+    };
+    el.addEventListener('wheel', handler, { capture: true, passive: false });
+    _captureWheelRef.current = handler;
+    return () => {
+      try { el.removeEventListener('wheel', handler, { capture: true } as any); } catch {}
+      _captureWheelRef.current = null;
+    };
+  }, [scrollWrapperRef, handleWheel]);
 
   const avgPrice = position.quantity !== 0 ? position.averagePrice : null;
 
