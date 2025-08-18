@@ -9,10 +9,19 @@ interface TradeLite {
   timestamp?: number | Date;
 }
 
+interface Order {
+  id: string;
+  side: 'BUY' | 'SELL';
+  price: number;
+  quantity: number;
+  filled: number;
+}
+
 interface DOMProps {
   tickLadder: TickLadderType | null;
   currentPrice: number;
   trades?: TradeLite[];
+  orders?: Order[];
   disabled?: boolean;
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
@@ -32,6 +41,7 @@ export const DOM = memo(function DOM({
   tickLadder,
   currentPrice,
   trades = [],
+  orders = [],
   disabled,
   onLimitOrder,
   onMarketOrder,
@@ -60,22 +70,39 @@ export const DOM = memo(function DOM({
     return map;
   }, [trades]);
 
+  // Fonction pour récupérer les ordres à un prix donné
+  const getOrdersAtPrice = useCallback((price: number, side: 'BUY' | 'SELL') => {
+    return orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
+  }, [orders]);
+
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
     
-    if (column === 'bid') {
-      // Clic sur Bid: placer un ordre BUY
-      onLimitOrder('BUY', price, 1);
-    } else if (column === 'ask') {
-      // Clic sur Ask: placer un ordre SELL  
-      onLimitOrder('SELL', price, 1);
-    }
-  }, [disabled, onLimitOrder]);
+    const above = price > currentPrice;
+    const below = price < currentPrice;
 
-  const handlePriceClick = useCallback((price: number) => {
-    if (disabled || !onCancelOrders) return;
-    onCancelOrders(price);
-  }, [disabled, onCancelOrders]);
+    if (column === 'bid') {
+      const buyOrders = getOrdersAtPrice(price, 'BUY');
+      if (buyOrders.length > 0) {
+        // Si des ordres existent, les annuler
+        onCancelOrders?.(price);
+      } else {
+        // Sinon, placer un ordre
+        if (above) return onMarketOrder('BUY', 1);
+        return onLimitOrder('BUY', price, 1);
+      }
+    } else if (column === 'ask') {
+      const sellOrders = getOrdersAtPrice(price, 'SELL');
+      if (sellOrders.length > 0) {
+        // Si des ordres existent, les annuler
+        onCancelOrders?.(price);
+      } else {
+        // Sinon, placer un ordre
+        if (below) return onMarketOrder('SELL', 1);
+        return onLimitOrder('SELL', price, 1);
+      }
+    }
+  }, [disabled, currentPrice, onLimitOrder, onMarketOrder, onCancelOrders, getOrdersAtPrice]);
 
   const levels = tickLadder?.levels ?? [];
 
@@ -106,6 +133,11 @@ export const DOM = memo(function DOM({
             const lastSize = lastSizeByPrice.get(level.price) ?? 0;
             const volume = volumeByPrice.get(level.price) ?? 0;
             const isMid = Math.abs(level.price - currentPrice) < 1e-9;
+            
+            const buyOrders = getOrdersAtPrice(level.price, 'BUY');
+            const sellOrders = getOrdersAtPrice(level.price, 'SELL');
+            const totalBuy = buyOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
+            const totalSell = sellOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
 
             return (
               <div
@@ -129,7 +161,12 @@ export const DOM = memo(function DOM({
                   )}
                   onClick={() => handleCellClick(level.price, 'bid')}
                 >
-                  {level.price <= currentPrice && formatSize(level.bidSize)}
+                  {level.price <= currentPrice && (
+                    <>
+                      <span>{formatSize(level.bidSize)}</span>
+                      {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
+                    </>
+                  )}
                 </div>
 
                 {/* Price */}
@@ -139,7 +176,7 @@ export const DOM = memo(function DOM({
                     isMid && "text-yellow-400 font-semibold",
                     "hover:bg-muted/50"
                   )}
-                  onClick={() => handlePriceClick(level.price)}
+                  onClick={() => onCancelOrders?.(level.price)}
                 >
                   {formatPrice(level.price)}
                 </div>
@@ -153,7 +190,12 @@ export const DOM = memo(function DOM({
                   )}
                   onClick={() => handleCellClick(level.price, 'ask')}
                 >
-                  {level.price >= currentPrice && formatSize(level.askSize)}
+                  {level.price >= currentPrice && (
+                    <>
+                      <span>{formatSize(level.askSize)}</span>
+                      {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
+                    </>
+                  )}
                 </div>
 
                 {/* Volume */}

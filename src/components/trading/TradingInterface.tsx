@@ -116,6 +116,7 @@ export function TradingInterface() {
             tickLadder={currentTickLadder}
             currentPrice={currentPrice}
             trades={timeAndSales}
+            orders={orders}
             onLimitOrder={placeLimitOrder}
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
