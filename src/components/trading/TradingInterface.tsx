@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { FileUpload } from './FileUpload';
 import { PlaybackControls } from './PlaybackControls';
 import { PositionPanel } from './PositionPanel';
-import { TickLadder } from './TickLadder';
+import { DOM } from './DOM';
 import { TimeAndSales } from './TimeAndSales';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
 
@@ -110,18 +110,15 @@ export function TradingInterface() {
           )}
         </div>
 
-        {/* Center - Tick Ladder */}
-        <div className="flex-1 bg-background">
-          <TickLadder
+        {/* Center - DOM */}
+        <div className="w-160 bg-background">
+          <DOM
             tickLadder={currentTickLadder}
             currentPrice={currentPrice}
-            orders={orders}
+            trades={timeAndSales}
             onLimitOrder={placeLimitOrder}
             onMarketOrder={placeMarketOrder}
-            onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
-            position={position}
-            setViewAnchorPrice={setViewAnchorPrice}
           />
         </div>
 
