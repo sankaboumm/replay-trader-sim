@@ -48,6 +48,16 @@ export const DOM = memo(function DOM({
     return map;
   }, [trades]);
 
+  // Build volume lookup for each price level
+  const volumeByPrice = useMemo(() => {
+    const map = new Map<number, number>();
+    trades.forEach(trade => {
+      const current = map.get(trade.price) || 0;
+      map.set(trade.price, current + trade.size);
+    });
+    return map;
+  }, [trades]);
+
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
     const above = price > currentPrice;
@@ -71,11 +81,12 @@ export const DOM = memo(function DOM({
         <div className="p-3">
           <h3 className="text-sm font-semibold">DOM</h3>
         </div>
-        <div className="grid grid-cols-4 text-xs font-semibold text-muted-foreground border-t border-border">
+        <div className="grid grid-cols-5 text-xs font-semibold text-muted-foreground border-t border-border">
           <div className="p-2 text-center border-r border-border">Size</div>
           <div className="p-2 text-center border-r border-border">Bids</div>
           <div className="p-2 text-center border-r border-border">Price</div>
-          <div className="p-2 text-center">Asks</div>
+          <div className="p-2 text-center border-r border-border">Asks</div>
+          <div className="p-2 text-center">Volume</div>
         </div>
       </div>
 
@@ -88,13 +99,14 @@ export const DOM = memo(function DOM({
         ) : (
           levels.map((level) => {
             const lastSize = lastSizeByPrice.get(level.price) ?? 0;
+            const volume = volumeByPrice.get(level.price) ?? 0;
             const isMid = Math.abs(level.price - currentPrice) < 1e-9;
 
             return (
               <div
                 key={level.price}
                 className={cn(
-                  "grid grid-cols-4 text-xs border-b border-border/50 h-8 items-center",
+                  "grid grid-cols-5 text-xs border-b border-border/50 h-8 items-center",
                   "hover:bg-ladder-row-hover transition-colors"
                 )}
               >
@@ -128,13 +140,18 @@ export const DOM = memo(function DOM({
                 {/* Asks */}
                 <div
                   className={cn(
-                    "flex items-center justify-center cursor-pointer",
+                    "flex items-center justify-center cursor-pointer border-r border-border/50",
                     level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                     level.price > currentPrice && "hover:bg-trading-sell/10"
                   )}
                   onClick={() => handleCellClick(level.price, 'ask')}
                 >
                   {level.price >= currentPrice && formatSize(level.askSize)}
+                </div>
+
+                {/* Volume */}
+                <div className="flex items-center justify-center font-mono text-muted-foreground">
+                  {formatSize(volume)}
                 </div>
               </div>
             );
