@@ -218,7 +218,7 @@ export const DOM = memo(function DOM({
 
 
   return (
-    <div ref={wrapperRef} className=\"h-full flex flex-col bg-card\">
+    <div ref={wrapperRef} className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="p-3">
