@@ -16,6 +16,7 @@ interface DOMProps {
   disabled?: boolean;
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
+  onCancelOrders?: (price: number) => void;
 }
 
 function formatPrice(price: number): string {
@@ -34,6 +35,7 @@ export const DOM = memo(function DOM({
   disabled,
   onLimitOrder,
   onMarketOrder,
+  onCancelOrders,
 }: DOMProps) {
   // Build a quick lookup for the last trade size at a given price
   const lastSizeByPrice = useMemo(() => {
@@ -60,17 +62,20 @@ export const DOM = memo(function DOM({
 
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
     if (disabled) return;
-    const above = price > currentPrice;
-    const below = price < currentPrice;
+    
     if (column === 'bid') {
-      if (above) return onMarketOrder('BUY', 1);
-      return onLimitOrder('BUY', price, 1);
+      // Clic sur Bid: placer un ordre BUY
+      onLimitOrder('BUY', price, 1);
+    } else if (column === 'ask') {
+      // Clic sur Ask: placer un ordre SELL  
+      onLimitOrder('SELL', price, 1);
     }
-    if (column === 'ask') {
-      if (below) return onMarketOrder('SELL', 1);
-      return onLimitOrder('SELL', price, 1);
-    }
-  }, [disabled, currentPrice, onLimitOrder, onMarketOrder]);
+  }, [disabled, onLimitOrder]);
+
+  const handlePriceClick = useCallback((price: number) => {
+    if (disabled || !onCancelOrders) return;
+    onCancelOrders(price);
+  }, [disabled, onCancelOrders]);
 
   const levels = tickLadder?.levels ?? [];
 
@@ -130,9 +135,11 @@ export const DOM = memo(function DOM({
                 {/* Price */}
                 <div
                   className={cn(
-                    "flex items-center justify-center font-mono border-r border-border/50",
-                    isMid && "text-yellow-400 font-semibold"
+                    "flex items-center justify-center font-mono border-r border-border/50 cursor-pointer",
+                    isMid && "text-yellow-400 font-semibold",
+                    "hover:bg-muted/50"
                   )}
+                  onClick={() => handlePriceClick(level.price)}
                 >
                   {formatPrice(level.price)}
                 </div>
