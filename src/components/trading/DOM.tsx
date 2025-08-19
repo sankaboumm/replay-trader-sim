@@ -82,27 +82,18 @@ export const DOM = memo(function DOM({
     const below = price < currentPrice;
 
     if (column === 'bid') {
-      const buyOrders = getOrdersAtPrice(price, 'BUY');
-      if (buyOrders.length > 0) {
-        // Si des ordres existent, les annuler
-        onCancelOrders?.(price);
-      } else {
-        // Sinon, placer un ordre
-        if (above) return onMarketOrder('BUY', 1);
-        return onLimitOrder('BUY', price, 1);
-      }
+      if (above) return onMarketOrder('BUY', 1);
+      return onLimitOrder('BUY', price, 1);
     } else if (column === 'ask') {
-      const sellOrders = getOrdersAtPrice(price, 'SELL');
-      if (sellOrders.length > 0) {
-        // Si des ordres existent, les annuler
-        onCancelOrders?.(price);
-      } else {
-        // Sinon, placer un ordre
-        if (below) return onMarketOrder('SELL', 1);
-        return onLimitOrder('SELL', price, 1);
-      }
+      if (below) return onMarketOrder('SELL', 1);
+      return onLimitOrder('SELL', price, 1);
     }
-  }, [disabled, currentPrice, onLimitOrder, onMarketOrder, onCancelOrders, getOrdersAtPrice]);
+  }, [disabled, currentPrice, onLimitOrder, onMarketOrder]);
+
+  const handleOrderClick = useCallback((price: number) => {
+    if (disabled) return;
+    onCancelOrders?.(price);
+  }, [disabled, onCancelOrders]);
 
   
   // ===== Infinite scroll window (no external files, no TradingInterface changes) =====
@@ -270,7 +261,7 @@ export const DOM = memo(function DOM({
                     level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
                     level.price < currentPrice && "hover:bg-trading-buy/10"
                   )}
-                  onClick={() => handleCellClick(level.price, 'bid')}
+                  onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
                   {level.price <= currentPrice && (
                     <>
@@ -299,7 +290,7 @@ export const DOM = memo(function DOM({
                     level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                     level.price > currentPrice && "hover:bg-trading-sell/10"
                   )}
-                  onClick={() => handleCellClick(level.price, 'ask')}
+                  onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
                   {level.price >= currentPrice && (
                     <>
