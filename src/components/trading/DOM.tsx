@@ -269,6 +269,8 @@ export const DOM = memo(function DOM({
                       {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
                     </>
                   )}
+                  {/* Cellule cliquable même sans contenu visible pour ordres de marché */}
+                  {level.price > currentPrice && <span className="invisible">.</span>}
                 </div>
 
                 {/* Price */}
@@ -298,6 +300,8 @@ export const DOM = memo(function DOM({
                       {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
                     </>
                   )}
+                  {/* Cellule cliquable même sans contenu visible pour ordres de marché */}
+                  {level.price < currentPrice && <span className="invisible">.</span>}
                 </div>
 
                 {/* Volume */}
