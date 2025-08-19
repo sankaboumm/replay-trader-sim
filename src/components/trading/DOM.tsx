@@ -259,7 +259,7 @@ export const DOM = memo(function DOM({
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
                     level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
-                    level.price < currentPrice && "hover:bg-trading-buy/10"
+                    level.price <= currentPrice && "hover:bg-trading-buy/10"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
@@ -288,7 +288,7 @@ export const DOM = memo(function DOM({
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
                     level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
-                    level.price > currentPrice && "hover:bg-trading-sell/10"
+                    level.price >= currentPrice && "hover:bg-trading-sell/10"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
