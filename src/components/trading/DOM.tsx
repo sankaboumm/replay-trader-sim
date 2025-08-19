@@ -258,19 +258,15 @@ export const DOM = memo(function DOM({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price <= currentPrice && level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
+                    level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
                     "hover:bg-trading-buy/10"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
-                  {level.price <= currentPrice && (
-                    <>
-                      <span>{formatSize(level.bidSize)}</span>
-                      {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
-                    </>
-                  )}
-                  {/* Cellule cliquable même sans contenu visible pour ordres de marché */}
-                  {level.price > currentPrice && <span className="invisible">.</span>}
+                  <>
+                    <span>{formatSize(level.bidSize)}</span>
+                    {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
+                  </>
                 </div>
 
                 {/* Price */}
@@ -289,19 +285,15 @@ export const DOM = memo(function DOM({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price >= currentPrice && level.askSize > 0 && "bg-ladder-ask text-trading-sell",
+                    level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                     "hover:bg-trading-sell/10"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
-                  {level.price >= currentPrice && (
-                    <>
-                      <span>{formatSize(level.askSize)}</span>
-                      {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
-                    </>
-                  )}
-                  {/* Cellule cliquable même sans contenu visible pour ordres de marché */}
-                  {level.price < currentPrice && <span className="invisible">.</span>}
+                  <>
+                    <span>{formatSize(level.askSize)}</span>
+                    {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
+                  </>
                 </div>
 
                 {/* Volume */}
