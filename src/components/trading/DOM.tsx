@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback, useEffect, useRef, useState } from 'react';
+import { memo, useMemo, useCallback } from 'react';
 import { cn } from '@/lib/utils';
 import type { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -95,121 +95,11 @@ export const DOM = memo(function DOM({
     onCancelOrders?.(price);
   }, [disabled, onCancelOrders]);
 
-  
-  // ===== Infinite scroll window (no external files, no TradingInterface changes) =====
-  const [lowTick, setLowTick] = useState<number | null>(null);
-  const [highTick, setHighTick] = useState<number | null>(null);
-  const wrapperRef = useRef<HTMLDivElement>(null);
-  const pendingScrollAdjustRef = useRef<number>(0);
-  const BATCH_SIZE = 100;
-
-  // Base levels from props
-  const baseLevels = tickLadder?.levels ?? [];
-
-  // Deduce tickSize from known prices (fallback 0.25 for NQ)
-  const tickSize = useMemo(() => {
-    if (!tickLadder?.levels?.length) return 0.25;
-    const prices = Array.from(new Set(tickLadder.levels.map(l => l.price))).sort((a, b) => a - b);
-    let minStep = Number.POSITIVE_INFINITY;
-    for (let i = 1; i < prices.length; i++) {
-      const diff = Math.abs(prices[i] - prices[i - 1]);
-      if (diff > 0 && diff < minStep) minStep = diff;
-    }
-    return Number.isFinite(minStep) ? minStep : 0.25;
-  }, [tickLadder]);
-
-  // Initialize window once from current ladder
-  useEffect(() => {
-    if (!tickLadder) return;
-    if (lowTick == null || highTick == null) {
-      const visible = tickLadder.levels?.length ?? 101;
-      const half = Math.floor(visible / 2);
-      setLowTick(tickLadder.midTick - half);
-      setHighTick(tickLadder.midTick + half);
-    }
-  }, [tickLadder, lowTick, highTick]);
-
-  // Build fast lookup tick->level
-  const levelByTick = useMemo(() => {
-    const m = new Map<number, any>();
-    tickLadder?.levels?.forEach(l => m.set(l.tick, l));
-    return m;
-  }, [tickLadder]);
-
-  // Converter tick->price based on mid
-  const tickToPrice = useMemo(() => {
-    if (!tickLadder) return (t: number) => t;
-    const baseTick = tickLadder.midTick;
-    const basePx = tickLadder.midPrice;
-    return (t: number) => +(basePx + (t - baseTick) * tickSize).toFixed(10);
-  }, [tickLadder, tickSize]);
-
-  // Extended levels according to [lowTick..highTick] (descending)
-  const extendedLevels = useMemo(() => {
-    if (!tickLadder || lowTick == null || highTick == null) return null;
-    const out: any[] = [];
-    for (let t = highTick; t >= lowTick; t--) {
-      const known = levelByTick.get(t);
-      if (known) {
-        out.push(known);
-      } else {
-        out.push({ tick: t, price: tickToPrice(t), bidSize: 0, askSize: 0 });
-      }
-    }
-    return out;
-  }, [tickLadder, lowTick, highTick, levelByTick, tickToPrice]);
-
-  // Scroll listener to extend window
-  useEffect(() => {
-    const wrapper = wrapperRef.current;
-    if (!wrapper) return;
-    const el = wrapper.querySelector<HTMLElement>('.trading-scroll');
-    if (!el) return;
-
-    const THRESHOLD = 40;
-    let rowHeight = 32; // default ~h-8
-    const firstRow = el.querySelector('[data-dom-row]') as HTMLElement | null;
-    if (firstRow?.offsetHeight) rowHeight = firstRow.offsetHeight;
-
-    const onScroll = () => {
-      const top = el.scrollTop;
-      const maxScrollTop = el.scrollHeight - el.clientHeight;
-      const distToBottom = maxScrollTop - top;
-
-      if (top < THRESHOLD) {
-        pendingScrollAdjustRef.current += BATCH_SIZE * rowHeight;
-        setHighTick(h => (h == null ? h : h + BATCH_SIZE));
-      } else if (distToBottom < THRESHOLD) {
-        setLowTick(l => (l == null ? l : l - BATCH_SIZE));
-      }
-    };
-
-    el.addEventListener('scroll', onScroll, { passive: true });
-    return () => {
-      el.removeEventListener('scroll', onScroll);
-    };
-  }, [tickLadder, lowTick, highTick]);
-
-  // After extending up, compensate visual jump
-  useEffect(() => {
-    if (!pendingScrollAdjustRef.current) return;
-    const wrapper = wrapperRef.current;
-    if (!wrapper) { pendingScrollAdjustRef.current = 0; return; }
-    const el = wrapper.querySelector<HTMLElement>('.trading-scroll');
-    if (!el) { pendingScrollAdjustRef.current = 0; return; }
-    const delta = pendingScrollAdjustRef.current;
-    pendingScrollAdjustRef.current = 0;
-    requestAnimationFrame(() => {
-      el.scrollTop = el.scrollTop + delta;
-    });
-  }, [extendedLevels]);
-
-  // Final rows to render
-  const levels = extendedLevels ?? baseLevels;
+  const levels = tickLadder?.levels ?? [];
 
 
   return (
-    <div ref={wrapperRef} className="h-full flex flex-col bg-card">
+    <div className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="p-3">
