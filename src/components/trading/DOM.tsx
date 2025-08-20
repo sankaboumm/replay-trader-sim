@@ -147,14 +147,14 @@ export const DOM = memo(function DOM({
                 {/* Bids */}
                 <div
                   className={cn(
-                    "flex items-center justify-center cursor-pointer border-r border-border/50",
+                    "flex items-center justify-center cursor-pointer border-r border-border/50 min-h-[2rem]",
                     level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
                     "hover:bg-trading-buy/10"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
                   <>
-                    <span>{formatSize(level.bidSize)}</span>
+                    <span>{level.bidSize > 0 ? formatSize(level.bidSize) : ''}</span>
                     {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
                   </>
                 </div>
@@ -174,14 +174,14 @@ export const DOM = memo(function DOM({
                 {/* Asks */}
                 <div
                   className={cn(
-                    "flex items-center justify-center cursor-pointer border-r border-border/50",
+                    "flex items-center justify-center cursor-pointer border-r border-border/50 min-h-[2rem]",
                     level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                     "hover:bg-trading-sell/10"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
                   <>
-                    <span>{formatSize(level.askSize)}</span>
+                    <span>{level.askSize > 0 ? formatSize(level.askSize) : ''}</span>
                     {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
                   </>
                 </div>
