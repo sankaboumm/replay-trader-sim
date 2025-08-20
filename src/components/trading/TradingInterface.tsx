@@ -3,7 +3,7 @@ import { Button } from '@/components/ui/button';
 import { FileUpload } from './FileUpload';
 import { PlaybackControls } from './PlaybackControls';
 import { PositionPanel } from './PositionPanel';
-import { DOMInfinite } from './DOMInfinite';
+import { DOM } from './DOM';
 import { TimeAndSales } from './TimeAndSales';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
 
@@ -112,7 +112,7 @@ export function TradingInterface() {
 
         {/* Center - DOM */}
         <div className="w-160 bg-background">
-          <DOMInfinite
+          <DOM
             tickLadder={currentTickLadder}
             currentPrice={currentPrice}
             trades={timeAndSales}
