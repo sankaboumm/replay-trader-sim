@@ -63,14 +63,11 @@ export function useInfiniteTickWindow(
     lastMidTickRef.current = midTick;
   }, [tickLadder, initialWindow]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Dictionnaire tick → niveau pour hydrater rapidement + tous les niveaux possibles
+  // Dictionnaire tick → niveau pour hydrater rapidement
   const levelByTick = useMemo(() => {
     const map = new Map<number, TickLevel>();
     if (tickLadder?.levels) {
-      // Ajouter tous les niveaux connus
-      for (const lvl of tickLadder.levels) {
-        map.set(lvl.tick, lvl);
-      }
+      for (const lvl of tickLadder.levels) map.set(lvl.tick, lvl);
     }
     return map;
   }, [tickLadder]);
