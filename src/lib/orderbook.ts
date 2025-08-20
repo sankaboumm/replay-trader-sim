@@ -145,12 +145,16 @@ export class OrderBookProcessor {
     const askByTick = new Map<number, { size: number; orders?: number }>();
 
     for (let i = 0; i < snapshot.bidPrices.length; i++) {
-      const t = this.toTick(snapshot.bidPrices[i]);
+      // [MOD Romi 2025-08-20] ancien arrondi symétrique remplacé par snap directionnel côté BID
+      // const t = this.toTick(snapshot.bidPrices[i]);
+      const t = Math.floor((snapshot.bidPrices[i] + 1e-9) / this.tickSize);
       const s = snapshot.bidSizes[i] ?? 0;
       bidByTick.set(t, { size: s, orders: snapshot.bidOrders?.[i] });
     }
     for (let i = 0; i < snapshot.askPrices.length; i++) {
-      const t = this.toTick(snapshot.askPrices[i]);
+      // [MOD Romi 2025-08-20] ancien arrondi symétrique remplacé par snap directionnel côté ASK
+      // const t = this.toTick(snapshot.askPrices[i]);
+      const t = Math.ceil((snapshot.askPrices[i] - 1e-9) / this.tickSize);
       const s = snapshot.askSizes[i] ?? 0;
       askByTick.set(t, { size: s, orders: snapshot.askOrders?.[i] });
     }
@@ -172,9 +176,29 @@ export class OrderBookProcessor {
     }
 
     // 3) fenêtre autour du centre (large, l’UI en affiche 20)
+    /* [MOD Romi 2025-08-20] Fenêtre dynamique couvrant tous les ticks connus (+ marge). Ancien code ci-dessous.
     const HALF = 40;                       // fenêtre ±40 ticks
     const minTick = centerTick - HALF;
     const maxTick = centerTick + HALF;
+*/
+const allTicks = Array.from(new Set([
+  ...Array.from(bidByTick.keys()),
+  ...Array.from(askByTick.keys()),
+]));
+let minTick: number;
+let maxTick: number;
+if (allTicks.length > 0) {
+  minTick = Math.min(...allTicks) - 2;
+  maxTick = Math.max(...allTicks) + 2;
+  // s'assurer que le centre reste inclus
+  if (centerTick < minTick) minTick = centerTick - 2;
+  if (centerTick > maxTick) maxTick = centerTick + 2;
+} else {
+  const HALF = 40;
+  minTick = centerTick - HALF;
+  maxTick = centerTick + HALF;
+}
+
 
     const levels: TickLevel[] = [];
     for (let t = maxTick; t >= minTick; t--) {

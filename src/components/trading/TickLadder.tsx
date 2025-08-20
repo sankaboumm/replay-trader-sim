@@ -205,6 +205,7 @@ export const TickLadder = memo(function TickLadder({
                     isLastPrice && "text-trading-average font-bold",
                     isAvgPrice && "ring-2 ring-trading-average rounded-sm"
                   )}
+                  onClick={() => setViewAnchorPrice && setViewAnchorPrice(level.price)}
                   onDoubleClick={() => setViewAnchorPrice && setViewAnchorPrice(null)}
                   title="Double-clique pour recentrer"
                 >

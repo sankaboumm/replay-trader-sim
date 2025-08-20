@@ -596,10 +596,18 @@ export function useTradingEngine() {
         if (event.bookBidPrices || event.bookAskPrices) {
           // store 20 levels pour affichage
           setCurrentOrderBookData({
-            book_bid_prices: (event.bookBidPrices || []).slice(0, 20).map(toBidTick),
-            book_ask_prices: (event.bookAskPrices || []).slice(0, 20).map(toAskTick),
-            book_bid_sizes:  (event.bookBidSizes  || []).slice(0, 20),
-            book_ask_sizes:  (event.bookAskSizes  || []).slice(0, 20),
+            // [MOD Romi 2025-08-20] ancien tronquage 20 niveaux désactivé pour affichage global
+            // book_bid_prices: (event.bookBidPrices || []).slice(0, 20).map(toBidTick),
+            book_bid_prices: (event.bookBidPrices || []).map(toBidTick),
+            // [MOD Romi 2025-08-20] ancien tronquage 20 niveaux désactivé pour affichage global
+            // book_ask_prices: (event.bookAskPrices || []).slice(0, 20).map(toAskTick),
+            book_ask_prices: (event.bookAskPrices || []).map(toAskTick),
+            // [MOD Romi 2025-08-20] ancien tronquage 20 niveaux désactivé pour affichage global
+            // book_bid_sizes:  (event.bookBidSizes  || []).slice(0, 20),
+            book_bid_sizes:  (event.bookBidSizes  || []),
+            // [MOD Romi 2025-08-20] ancien tronquage 20 niveaux désactivé pour affichage global
+            // book_ask_sizes:  (event.bookAskSizes  || []).slice(0, 20),
+            book_ask_sizes:  (event.bookAskSizes  || []),
           });
 
           // Tick ladder
@@ -631,7 +639,8 @@ export function useTradingEngine() {
           const priceMap = new Map<number, OrderBookLevel>();
 
           if (event.bookBidPrices && event.bookBidSizes) {
-            for (let i = 0; i < Math.min(event.bookBidPrices.length, 10); i++) {
+            for (let i = 0; i < (event.bookBidPrices.length); i++) { // [MOD Romi 2025-08-20] suppression de la limite 10 (commentée ci-dessous)
+            // for (let i = 0; i < Math.min(event.bookBidPrices.length, 10); i++) {
               const bp = toBidTick(event.bookBidPrices[i]);
               const bs = event.bookBidSizes[i] || 0;
               if (bp > 0 && bs >= 0) {
@@ -647,7 +656,8 @@ export function useTradingEngine() {
           }
 
           if (event.bookAskPrices && event.bookAskSizes) {
-            for (let i = 0; i < Math.min(event.bookAskPrices.length, 10); i++) {
+            for (let i = 0; i < (event.bookAskPrices.length); i++) { // [MOD Romi 2025-08-20] suppression de la limite 10 (commentée ci-dessous)
+            // for (let i = 0; i < Math.min(event.bookAskPrices.length, 10); i++) {
               const ap = toAskTick(event.bookAskPrices[i]);
               const asz = event.bookAskSizes[i] || 0;
               if (ap > 0 && asz >= 0) {
