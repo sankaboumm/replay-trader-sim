@@ -70,76 +70,6 @@ const AGGREGATION_WINDOW_MS = 5;
 // [MOD Romi 2025-08-20] Cap d’ingestion pour ORDERBOOK (évite freeze tout en gardant profondeur)
 const ORDERBOOK_CAP = 200;
 
-// [FIX Sync 2025-08-21] Dynamic tick-size wiring (keeps UI rounding consistent with inferred book tick)
-const dynamicTickSizeRef = useRef<number>(0.25);
-const getDynTs = () => (dynamicTickSizeRef.current > 0 ? dynamicTickSizeRef.current : TICK_SIZE);
-const toDynTick = (p: number) => Math.round(p / getDynTs()) * getDynTs();
-const toDynBidTick = (p: number) => Math.floor((p + 1e-9) / getDynTs()) * getDynTs();
-const toDynAskTick = (p: number) => Math.ceil((p - 1e-9) / getDynTs()) * getDynTs();
-
-// [FIX Sync 2025-08-21] Coalesced anchor recenter to make the 20 visible levels follow the price immediately
-const anchorRafRef = useRef<number | null>(null);
-const pendingAnchorPriceRef = useRef<number | null>(null);
-
-const recenterAround = useCallback((anchorPrice: number) => {
-  try {
-    // move view anchor in OrderBookProcessor (no removal of old logic)
-    orderBookProcessor.setAnchorByPrice(anchorPrice);
-
-    // Rebuild ladder from the freshest source we have
-    const snaps = orderBookSnapshotsRef.current;
-    const tradesLatest = tradesRef.current;
-
-    let ladder: TickLadder | null = null;
-    if (snaps.length > 0) {
-      const lastSnap = snaps[snaps.length - 1];
-      ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
-    } else if (currentOrderBookDataRef.current) {
-      const s = currentOrderBookDataRef.current;
-      const snapshot = {
-        bidPrices: (s.book_bid_prices || []),
-        bidSizes:  (s.book_bid_sizes  || []),
-        bidOrders: (s.book_bid_orders || []),
-        askPrices: (s.book_ask_prices || []),
-        askSizes:  (s.book_ask_sizes  || []),
-        askOrders: (s.book_ask_orders || []),
-        timestamp: new Date()
-      } as ParsedOrderBook;
-      ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-    } else if (orderBookRef.current?.length) {
-      const bidLevels = orderBookRef.current.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
-      const askLevels = orderBookRef.current.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
-      const snapshot: ParsedOrderBook = {
-        bidPrices: bidLevels.map(l => l.price),
-        bidSizes:  bidLevels.map(l => l.bidSize || 0),
-        bidOrders: [],
-        askPrices: askLevels.map(l => l.price),
-        askSizes:  askLevels.map(l => l.askSize || 0),
-        askOrders: [],
-        timestamp: new Date()
-      };
-      ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-    }
-    if (ladder) {
-      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-    }
-  } catch (e) {
-    // swallow — recenter is best-effort
-  }
-}, [orderBookProcessor, volumeByPrice]);
-
-const scheduleAnchorRecenter = useCallback((anchorPrice: number) => {
-  pendingAnchorPriceRef.current = anchorPrice;
-  if (anchorRafRef.current != null) return;
-  anchorRafRef.current = requestAnimationFrame(() => {
-    const p = pendingAnchorPriceRef.current;
-    anchorRafRef.current = null;
-    if (p != null && isFinite(p)) recenterAround(p);
-  });
-}, [recenterAround]);
-
-
-
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
 
@@ -180,14 +110,6 @@ export function useTradingEngine() {
   } | null>(null);
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
   const [aggregationBuffer, setAggregationBuffer] = useState<{
-
-
-  // [FIX Sync 2025-08-21] keep refs to latest data for recentering without stale closures
-  const currentOrderBookDataRef = useRef<typeof currentOrderBookData>(null);
-  useEffect(() => { currentOrderBookDataRef.current = currentOrderBookData; }, [currentOrderBookData]);
-
-  const orderBookRef = useRef(orderBook);
-  useEffect(() => { orderBookRef.current = orderBook; }, [orderBook]);
     trades: Trade[];
     lastTimestamp: number;
     key: { price: number; aggressor: 'BUY' | 'SELL' };
@@ -371,10 +293,7 @@ export function useTradingEngine() {
           if (allPrices.length > 0) {
             const inferred = orderBookProcessor.inferTickSize(allPrices);
             orderBookProcessor.setTickSize(inferred);
-          
-          // [FIX Sync 2025-08-21]
-          dynamicTickSizeRef.current = inferred;
-}
+          }
 
           orderbookSnapshots.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
           tradeEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -521,7 +440,10 @@ export function useTradingEngine() {
     // last for unrealized
     setCurrentPrice(px);
 
-    // TAS synthétique
+    
+          // [SYNC 2025-08-21] Recenter 20-level ladder on last trade price
+          setViewAnchorPrice(px);
+// TAS synthétique
     const t: Trade = {
       id: `limit-${Date.now()}-${Math.random()}`,
       timestamp: Date.now(),
@@ -596,13 +518,7 @@ export function useTradingEngine() {
           // last
           setCurrentPrice(px);
 
-          // [FIX Sync 2025-08-21] Normalize to dynamic tick size and recenter 20 levels
-          const pxDyn = toDynTick(event.tradePrice);
-          if (isFinite(pxDyn)) {
-            setCurrentPrice(pxDyn);
-            scheduleAnchorRecenter(pxDyn);
-          }
-// volume by price
+          // volume by price
           const gridPrice = roundToGrid(px);
           setVolumeByPrice(prev => {
             const next = new Map(prev);
@@ -660,7 +576,24 @@ export function useTradingEngine() {
           });
         }
 
-        // Exécution LIMIT si top-of-book touche le prix limite
+        
+        // [SYNC 2025-08-21] Anchor the 20-level view around current BBO (mid if both sides present)
+        (function() {
+          const hasBid = typeof event.bidPrice === 'number' && event.bidPrice > 0;
+          const hasAsk = typeof event.askPrice === 'number' && event.askPrice > 0;
+          let anchorPx: number | null = null;
+          if (hasBid && hasAsk) {
+            const bb = toBidTick(event.bidPrice!);
+            const ba = toAskTick(event.askPrice!);
+            anchorPx = toTick((bb + ba) / 2);
+          } else if (hasBid) {
+            anchorPx = toBidTick(event.bidPrice!);
+          } else if (hasAsk) {
+            anchorPx = toAskTick(event.askPrice!);
+          }
+          if (anchorPx != null) setViewAnchorPrice(anchorPx);
+        })();
+// Exécution LIMIT si top-of-book touche le prix limite
         const bb = event.bidPrice !== undefined ? toBidTick(event.bidPrice) : undefined;
         const ba = event.askPrice !== undefined ? toAskTick(event.askPrice) : undefined;
 
@@ -690,26 +623,7 @@ export function useTradingEngine() {
           book_ask_sizes:  event.askSize  ? [event.askSize]  : (prevData?.book_ask_sizes ?? []),
         }));
 
-        
-        // [FIX Sync 2025-08-21] Recenter on BBO mid (or available side) so the 20 visible levels follow immediately
-        {
-          const hasBid = event.bidPrice && event.bidPrice > 0;
-          const hasAsk = event.askPrice && event.askPrice > 0;
-          let anchor: number | null = null;
-          if (hasBid && hasAsk) {
-            const bb = toDynBidTick(event.bidPrice!);
-            const ba = toDynAskTick(event.askPrice!);
-            anchor = (bb + ba) / 2;
-          } else if (hasBid) {
-            anchor = toDynBidTick(event.bidPrice!);
-          } else if (hasAsk) {
-            anchor = toDynAskTick(event.askPrice!);
-          }
-          if (anchor != null && isFinite(anchor)) {
-            scheduleAnchorRecenter(anchor);
-          }
-        }
-break;
+        break;
       }
 
       case 'ORDERBOOK': {
