@@ -27,6 +27,7 @@ interface DOMProps {
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
   onCancelOrders?: (price: number) => void;
+  position?: { averagePrice: number; quantity: number };
 }
 
 /**

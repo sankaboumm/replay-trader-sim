@@ -121,6 +121,7 @@ export function TradingInterface() {
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
             disabled={!isPlaying && marketData.length === 0}
+            position={position}
           />
         </div>
 

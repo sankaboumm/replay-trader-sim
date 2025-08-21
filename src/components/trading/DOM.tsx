@@ -1,4 +1,4 @@
-import { memo, useMemo, useCallback } from 'react';
+import { memo, useMemo, useCallback, useState } from 'react';
 import { cn } from '@/lib/utils';
 import type { TickLadder as TickLadderType } from '@/lib/orderbook';
 
@@ -26,6 +26,7 @@ interface DOMProps {
   onLimitOrder: (side: 'BUY' | 'SELL', price: number, quantity: number) => void;
   onMarketOrder: (side: 'BUY' | 'SELL', quantity: number) => void;
   onCancelOrders?: (price: number) => void;
+  position?: { averagePrice: number; quantity: number };
 }
 
 function formatPrice(price: number): string {
@@ -46,7 +47,10 @@ export const DOM = memo(function DOM({
   onLimitOrder,
   onMarketOrder,
   onCancelOrders,
+  position,
 }: DOMProps) {
+  // État pour les cellules de prix surlignées en jaune avec Ctrl+clic
+  const [highlightedPrices, setHighlightedPrices] = useState<Set<number>>(new Set());
   // Build a quick lookup for the last trade size at a given price
   const lastSizeByPrice = useMemo(() => {
     const map = new Map<number, number>();
@@ -95,6 +99,24 @@ export const DOM = memo(function DOM({
     onCancelOrders?.(price);
   }, [disabled, onCancelOrders]);
 
+  // Gestion du Ctrl+clic sur les cellules de prix
+  const handlePriceClick = useCallback((price: number, event: React.MouseEvent) => {
+    if (event.ctrlKey || event.metaKey) {
+      event.preventDefault();
+      setHighlightedPrices(prev => {
+        const newSet = new Set(prev);
+        if (newSet.has(price)) {
+          newSet.delete(price);
+        } else {
+          newSet.add(price);
+        }
+        return newSet;
+      });
+    } else {
+      onCancelOrders?.(price);
+    }
+  }, [onCancelOrders]);
+
   const levels = tickLadder?.levels ?? [];
 
 
@@ -105,8 +127,7 @@ export const DOM = memo(function DOM({
         <div className="p-3">
           <h3 className="text-sm font-semibold">DOM</h3>
         </div>
-        <div data-dom-row className="grid grid-cols-5 text-xs font-semibold text-muted-foreground border-t border-border">
-          <div className="p-2 text-center border-r border-border">Size</div>
+        <div data-dom-row className="grid grid-cols-4 text-xs font-semibold text-muted-foreground border-t border-border">
           <div className="p-2 text-center border-r border-border">Bids</div>
           <div className="p-2 text-center border-r border-border">Price</div>
           <div className="p-2 text-center border-r border-border">Asks</div>
@@ -115,16 +136,17 @@ export const DOM = memo(function DOM({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto trading-scroll">
+      <div className="flex-1 overflow-y-auto trading-scroll will-change-scroll">
         {levels.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
             Aucun niveau à afficher
           </div>
         ) : (
           levels.map((level) => {
-            const lastSize = lastSizeByPrice.get(level.price) ?? 0;
             const volume = volumeByPrice.get(level.price) ?? 0;
             const isMid = Math.abs(level.price - currentPrice) < 1e-9;
+            const isAveragePrice = position && position.quantity !== 0 && Math.abs(level.price - position.averagePrice) < 0.125;
+            const isHighlighted = highlightedPrices.has(level.price);
             
             const buyOrders = getOrdersAtPrice(level.price, 'BUY');
             const sellOrders = getOrdersAtPrice(level.price, 'SELL');
@@ -135,21 +157,16 @@ export const DOM = memo(function DOM({
               <div
                 key={level.price}
                 className={cn(
-                  "grid grid-cols-5 text-xs border-b border-border/50 h-8 items-center",
-                  "hover:bg-ladder-row-hover transition-colors"
+                  "grid grid-cols-4 text-xs border-b border-border/50 h-8 items-center will-change-transform",
+                  "hover:bg-ladder-row-hover transition-colors duration-100"
                 )}
               >
-                {/* Size (last trade @ price) */}
-                <div className="flex items-center justify-center border-r border-border/50 font-mono">
-                  {formatSize(lastSize)}
-                </div>
-
                 {/* Bids */}
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50 min-h-[2rem]",
                     level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
-                    "hover:bg-trading-buy/10"
+                    "hover:bg-trading-buy/10 transition-colors duration-100"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
@@ -164,9 +181,11 @@ export const DOM = memo(function DOM({
                   className={cn(
                     "flex items-center justify-center font-mono border-r border-border/50 cursor-pointer",
                     isMid && "text-yellow-400 font-semibold",
-                    "hover:bg-muted/50"
+                    isAveragePrice && "bg-blue-500/20 text-blue-300 font-semibold",
+                    isHighlighted && "bg-yellow-400/30 text-yellow-200",
+                    "hover:bg-muted/50 transition-colors duration-100"
                   )}
-                  onClick={() => onCancelOrders?.(level.price)}
+                  onClick={(e) => handlePriceClick(level.price, e)}
                 >
                   {formatPrice(level.price)}
                 </div>
@@ -176,7 +195,7 @@ export const DOM = memo(function DOM({
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50 min-h-[2rem]",
                     level.askSize > 0 && "bg-ladder-ask text-trading-sell",
-                    "hover:bg-trading-sell/10"
+                    "hover:bg-trading-sell/10 transition-colors duration-100"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
