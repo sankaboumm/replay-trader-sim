@@ -176,7 +176,8 @@ export class OrderBookProcessor {
           ? Math.floor((bestBid + bestAsk) / 2)
           : 0;
       }
-      this.anchorTick = centerTick;
+      // [PATCH 2025-08-21] Ne pas figer l'ancre automatiquement : rester en mode follow tant que l'utilisateur n'ancre pas.
+      // this.anchorTick = centerTick;
     }
 
     // 3) fenêtre autour du centre (large, l’UI en affiche 20)
