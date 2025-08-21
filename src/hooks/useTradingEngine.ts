@@ -327,6 +327,8 @@ export function useTradingEngine() {
 
           // [FIX] Forcer l'ancrage sur le prix initial du fichier pour centrer le DOM
           orderBookProcessor.setAnchorByPrice(initialPrice);
+          // [PATCH 2025-08-21] Suivre le prix après centrage initial
+          orderBookProcessor.clearAnchor();
           setCurrentPrice(initialPrice);
           
           // Center DOM on first market price after data is loaded
@@ -820,6 +822,40 @@ setCurrentOrderBookData({
       orderBookProcessor.setAnchorByPrice(price);
     }
 
+
+    // [PATCH 2025-08-21] Priorité aux données temps réel (ORDERBOOK/BBO) avant les snapshots préchargés
+    if (currentOrderBookData) {
+      const snapshot = {
+        bidPrices: (currentOrderBookData.book_bid_prices || []),
+        bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
+        bidOrders: (currentOrderBookData.book_bid_orders || []),
+        askPrices: (currentOrderBookData.book_ask_prices || []),
+        askSizes:  (currentOrderBookData.book_ask_sizes  || []),
+        askOrders: (currentOrderBookData.book_ask_orders || []),
+        timestamp: new Date()
+      } as ParsedOrderBook;
+      const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
+      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+      return;
+    }
+
+    if (orderBook.length > 0) {
+      // Fallback: construire un snapshot minimal à partir du mini-book (BBO étendu)
+      const bidLevels = orderBook.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
+      const askLevels = orderBook.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
+      const snapshot: ParsedOrderBook = {
+        bidPrices: bidLevels.map(l => l.price),
+        bidSizes:  bidLevels.map(l => l.bidSize || 0),
+        bidOrders: [],
+        askPrices: askLevels.map(l => l.price),
+        askSizes:  askLevels.map(l => l.askSize || 0),
+        askOrders: [],
+        timestamp: new Date()
+      };
+      const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
+      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+      return;
+    }
     // Recompute ladder from the latest available snapshot/trades
     const snaps = orderBookSnapshotsRef.current;
     const tradesLatest = tradesRef.current;
