@@ -70,6 +70,76 @@ const AGGREGATION_WINDOW_MS = 5;
 // [MOD Romi 2025-08-20] Cap d’ingestion pour ORDERBOOK (évite freeze tout en gardant profondeur)
 const ORDERBOOK_CAP = 200;
 
+// [FIX Sync 2025-08-21] Dynamic tick-size wiring (keeps UI rounding consistent with inferred book tick)
+const dynamicTickSizeRef = useRef<number>(0.25);
+const getDynTs = () => (dynamicTickSizeRef.current > 0 ? dynamicTickSizeRef.current : TICK_SIZE);
+const toDynTick = (p: number) => Math.round(p / getDynTs()) * getDynTs();
+const toDynBidTick = (p: number) => Math.floor((p + 1e-9) / getDynTs()) * getDynTs();
+const toDynAskTick = (p: number) => Math.ceil((p - 1e-9) / getDynTs()) * getDynTs();
+
+// [FIX Sync 2025-08-21] Coalesced anchor recenter to make the 20 visible levels follow the price immediately
+const anchorRafRef = useRef<number | null>(null);
+const pendingAnchorPriceRef = useRef<number | null>(null);
+
+const recenterAround = useCallback((anchorPrice: number) => {
+  try {
+    // move view anchor in OrderBookProcessor (no removal of old logic)
+    orderBookProcessor.setAnchorByPrice(anchorPrice);
+
+    // Rebuild ladder from the freshest source we have
+    const snaps = orderBookSnapshotsRef.current;
+    const tradesLatest = tradesRef.current;
+
+    let ladder: TickLadder | null = null;
+    if (snaps.length > 0) {
+      const lastSnap = snaps[snaps.length - 1];
+      ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
+    } else if (currentOrderBookDataRef.current) {
+      const s = currentOrderBookDataRef.current;
+      const snapshot = {
+        bidPrices: (s.book_bid_prices || []),
+        bidSizes:  (s.book_bid_sizes  || []),
+        bidOrders: (s.book_bid_orders || []),
+        askPrices: (s.book_ask_prices || []),
+        askSizes:  (s.book_ask_sizes  || []),
+        askOrders: (s.book_ask_orders || []),
+        timestamp: new Date()
+      } as ParsedOrderBook;
+      ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
+    } else if (orderBookRef.current?.length) {
+      const bidLevels = orderBookRef.current.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
+      const askLevels = orderBookRef.current.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
+      const snapshot: ParsedOrderBook = {
+        bidPrices: bidLevels.map(l => l.price),
+        bidSizes:  bidLevels.map(l => l.bidSize || 0),
+        bidOrders: [],
+        askPrices: askLevels.map(l => l.price),
+        askSizes:  askLevels.map(l => l.askSize || 0),
+        askOrders: [],
+        timestamp: new Date()
+      };
+      ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
+    }
+    if (ladder) {
+      setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
+    }
+  } catch (e) {
+    // swallow — recenter is best-effort
+  }
+}, [orderBookProcessor, volumeByPrice]);
+
+const scheduleAnchorRecenter = useCallback((anchorPrice: number) => {
+  pendingAnchorPriceRef.current = anchorPrice;
+  if (anchorRafRef.current != null) return;
+  anchorRafRef.current = requestAnimationFrame(() => {
+    const p = pendingAnchorPriceRef.current;
+    anchorRafRef.current = null;
+    if (p != null && isFinite(p)) recenterAround(p);
+  });
+}, [recenterAround]);
+
+
+
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
 
@@ -110,6 +180,14 @@ export function useTradingEngine() {
   } | null>(null);
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
   const [aggregationBuffer, setAggregationBuffer] = useState<{
+
+
+  // [FIX Sync 2025-08-21] keep refs to latest data for recentering without stale closures
+  const currentOrderBookDataRef = useRef<typeof currentOrderBookData>(null);
+  useEffect(() => { currentOrderBookDataRef.current = currentOrderBookData; }, [currentOrderBookData]);
+
+  const orderBookRef = useRef(orderBook);
+  useEffect(() => { orderBookRef.current = orderBook; }, [orderBook]);
     trades: Trade[];
     lastTimestamp: number;
     key: { price: number; aggressor: 'BUY' | 'SELL' };
@@ -135,97 +213,6 @@ export function useTradingEngine() {
   const orderBookSnapshotsRef = useRef<ParsedOrderBook[]>([]);
   const tradesRef = useRef<OrderBookTrade[]>([]);
   useEffect(() => { orderBookSnapshotsRef.current = orderBookSnapshots; }, [orderBookSnapshots]);
-
-  // --- [ADD 2025-08-21 Romi] Fast-follow: recenter 20-level window immediately on TRADE/BBO ---
-  const fastFollowAnchorRef = useRef<number | null>(null);
-  const fastFollowRafRef = useRef<number | null>(null);
-
-  const scheduleFastFollow = useCallback((anchorPrice: number | null) => {
-    if (anchorPrice == null || !isFinite(anchorPrice)) return;
-    fastFollowAnchorRef.current = anchorPrice;
-    if (typeof window === 'undefined' || typeof window.requestAnimationFrame !== 'function') {
-      // fallback immediate
-      try {
-        orderBookProcessor.setAnchorByPrice(anchorPrice);
-        const snaps = orderBookSnapshotsRef.current;
-        const tradesLatest = tradesRef.current;
-        let ladder: TickLadder | null = null;
-        if (snaps.length > 0) {
-          const lastSnap = snaps[snaps.length - 1];
-          ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
-        } else if (currentOrderBookData) {
-          const snapshot: ParsedOrderBook = {
-            bidPrices: (currentOrderBookData.book_bid_prices || []),
-            bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
-            bidOrders: (currentOrderBookData.book_bid_orders || []),
-            askPrices: (currentOrderBookData.book_ask_prices || []),
-            askSizes:  (currentOrderBookData.book_ask_sizes  || []),
-            askOrders: (currentOrderBookData.book_ask_orders || []),
-            timestamp: new Date()
-          };
-          ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-        } else if (orderBook.length > 0) {
-          const bidLevels = orderBook.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
-          const askLevels = orderBook.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
-          const snapshot: ParsedOrderBook = {
-            bidPrices: bidLevels.map(l => l.price),
-            bidSizes:  bidLevels.map(l => l.bidSize || 0),
-            bidOrders: [],
-            askPrices: askLevels.map(l => l.price),
-            askSizes:  askLevels.map(l => l.askSize || 0),
-            askOrders: [],
-            timestamp: new Date()
-          };
-          ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-        }
-        if (ladder) setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      } catch {}
-      return;
-    }
-    if (fastFollowRafRef.current != null) return;
-    fastFollowRafRef.current = window.requestAnimationFrame(() => {
-      fastFollowRafRef.current = null;
-      const price = fastFollowAnchorRef.current;
-      if (price == null) return;
-      try {
-        orderBookProcessor.setAnchorByPrice(price);
-        const snaps = orderBookSnapshotsRef.current;
-        const tradesLatest = tradesRef.current;
-        let ladder: TickLadder | null = null;
-        if (snaps.length > 0) {
-          const lastSnap = snaps[snaps.length - 1];
-          ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
-        } else if (currentOrderBookData) {
-          const snapshot: ParsedOrderBook = {
-            bidPrices: (currentOrderBookData.book_bid_prices || []),
-            bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
-            bidOrders: (currentOrderBookData.book_bid_orders || []),
-            askPrices: (currentOrderBookData.book_ask_prices || []),
-            askSizes:  (currentOrderBookData.book_ask_sizes  || []),
-            askOrders: (currentOrderBookData.book_ask_orders || []),
-            timestamp: new Date()
-          };
-          ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-        } else if (orderBook.length > 0) {
-          const bidLevels = orderBook.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
-          const askLevels = orderBook.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
-          const snapshot: ParsedOrderBook = {
-            bidPrices: bidLevels.map(l => l.price),
-            bidSizes:  bidLevels.map(l => l.bidSize || 0),
-            bidOrders: [],
-            askPrices: askLevels.map(l => l.price),
-            askSizes:  askLevels.map(l => l.askSize || 0),
-            askOrders: [],
-            timestamp: new Date()
-          };
-          ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-        }
-        if (ladder) setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      } catch {}
-    });
-  }, [orderBookProcessor, currentOrderBookData, orderBook, volumeByPrice]);
-
-
   useEffect(() => { tradesRef.current = trades; }, [trades]);
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
@@ -384,7 +371,10 @@ export function useTradingEngine() {
           if (allPrices.length > 0) {
             const inferred = orderBookProcessor.inferTickSize(allPrices);
             orderBookProcessor.setTickSize(inferred);
-          }
+          
+          // [FIX Sync 2025-08-21]
+          dynamicTickSizeRef.current = inferred;
+}
 
           orderbookSnapshots.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
           tradeEvents.sort((a, b) => a.timestamp.getTime() - b.timestamp.getTime());
@@ -606,10 +596,13 @@ export function useTradingEngine() {
           // last
           setCurrentPrice(px);
 
-          // [ADD 2025-08-21] Fast-follow 20 levels: recentre ladder on last traded price
-          scheduleFastFollow(px);
-
-          // volume by price
+          // [FIX Sync 2025-08-21] Normalize to dynamic tick size and recenter 20 levels
+          const pxDyn = toDynTick(event.tradePrice);
+          if (isFinite(pxDyn)) {
+            setCurrentPrice(pxDyn);
+            scheduleAnchorRecenter(pxDyn);
+          }
+// volume by price
           const gridPrice = roundToGrid(px);
           setVolumeByPrice(prev => {
             const next = new Map(prev);
@@ -698,19 +691,23 @@ export function useTradingEngine() {
         }));
 
         
-        // [ADD 2025-08-21] Fast-follow 20 levels on BBO mid (or available side)
+        // [FIX Sync 2025-08-21] Recenter on BBO mid (or available side) so the 20 visible levels follow immediately
         {
+          const hasBid = event.bidPrice && event.bidPrice > 0;
+          const hasAsk = event.askPrice && event.askPrice > 0;
           let anchor: number | null = null;
-          const hasBid = typeof event.bidPrice === 'number' && isFinite(event.bidPrice!);
-          const hasAsk = typeof event.askPrice === 'number' && isFinite(event.askPrice!);
           if (hasBid && hasAsk) {
-            anchor = (toBidTick(event.bidPrice!) + toAskTick(event.askPrice!)) / 2;
+            const bb = toDynBidTick(event.bidPrice!);
+            const ba = toDynAskTick(event.askPrice!);
+            anchor = (bb + ba) / 2;
           } else if (hasBid) {
-            anchor = toBidTick(event.bidPrice!);
+            anchor = toDynBidTick(event.bidPrice!);
           } else if (hasAsk) {
-            anchor = toAskTick(event.askPrice!);
+            anchor = toDynAskTick(event.askPrice!);
           }
-          scheduleFastFollow(anchor);
+          if (anchor != null && isFinite(anchor)) {
+            scheduleAnchorRecenter(anchor);
+          }
         }
 break;
       }
