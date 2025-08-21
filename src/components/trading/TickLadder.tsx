@@ -186,11 +186,11 @@ export const TickLadder = memo(function TickLadder({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price <= currentPrice && (level as any).bidSize > 0 && "bg-ladder-bid"
+                    (level as any).bidSize > 0 && "bg-ladder-bid"
                   )}
                   onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
                 >
-                  {level.price <= currentPrice && (
+                  {(
                     <>
                       <span>{fmtSize((level as any).bidSize ?? 0)}</span>
                       {totalBuy > 0 && <span className="ml-1 text-xs">({totalBuy})</span>}
@@ -216,11 +216,11 @@ export const TickLadder = memo(function TickLadder({
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50",
-                    level.price >= currentPrice && (level as any).askSize > 0 && "bg-ladder-ask"
+                    (level as any).askSize > 0 && "bg-ladder-ask"
                   )}
                   onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
                 >
-                  {level.price >= currentPrice && (
+                  {(
                     <>
                       <span>{fmtSize((level as any).askSize ?? 0)}</span>
                       {totalSell > 0 && <span className="ml-1 text-xs">({totalSell})</span>}
