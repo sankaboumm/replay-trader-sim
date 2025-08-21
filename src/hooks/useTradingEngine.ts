@@ -328,6 +328,12 @@ export function useTradingEngine() {
           // [FIX] Forcer l'ancrage sur le prix initial du fichier pour centrer le DOM
           orderBookProcessor.setAnchorByPrice(initialPrice);
           setCurrentPrice(initialPrice);
+          
+          // Center DOM on first market price after data is loaded
+          setTimeout(() => {
+            const spaceEvent = new KeyboardEvent('keydown', { code: 'Space' });
+            window.dispatchEvent(spaceEvent);
+          }, 100);
 
           if (orderbookSnapshots.length > 0) {
             const initialLadder = orderBookProcessor.createTickLadder(orderbookSnapshots[0], tradeEvents);

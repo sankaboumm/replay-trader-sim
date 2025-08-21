@@ -181,8 +181,8 @@ export const DOM = memo(function DOM({
                   className={cn(
                     "flex items-center justify-center font-mono border-r border-border/50 cursor-pointer",
                     isMid && "text-yellow-400 font-semibold",
-                    isAveragePrice && "bg-blue-500/20 text-blue-300 font-semibold",
-                    isHighlighted && "bg-yellow-400/30 text-yellow-200",
+                    isAveragePrice && "bg-position-average",
+                    isHighlighted && "bg-trading-highlight",
                     "hover:bg-muted/50 transition-colors duration-100"
                   )}
                   onClick={(e) => handlePriceClick(level.price, e)}

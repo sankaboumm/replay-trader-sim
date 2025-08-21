@@ -195,6 +195,19 @@
   .flash-sell {
     animation: flash-red 0.3s ease-out;
   }
+  
+  /* Price highlighting classes */
+  .bg-trading-highlight {
+    background-color: hsl(var(--trading-average)) !important;
+    color: hsl(220 13% 8%) !important;
+    font-weight: 600;
+  }
+  
+  .bg-position-average {
+    background-color: hsl(var(--trading-average)) !important;
+    color: hsl(220 13% 8%) !important;
+    font-weight: 600;
+  }
 }
 /* Colonne Price sticky (au milieu de 5 colonnes) */
 .sticky-price-cell {
