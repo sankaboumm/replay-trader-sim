@@ -472,35 +472,6 @@ export function useTradingEngine() {
     });
   }, [orderBookProcessor]);
 
-  
-  // [SYNC 2025-08-21] Recenter ladder around a price (BBO mid) without changing business logic
-  const recenterAroundPrice = useCallback((price: number) => {
-    if (!Number.isFinite(price)) return;
-    try {
-      orderBookProcessor.setAnchorByPrice(price);
-      const snaps = orderBookSnapshotsRef.current;
-      const tradesLatest = tradesRef.current;
-      if (snaps.length > 0) {
-        const lastSnap = snaps[snaps.length - 1];
-        const ladder = orderBookProcessor.createTickLadder(lastSnap, tradesLatest);
-        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      } else if (orderBook.length > 0) {
-        // Build a minimal snapshot from current mini-book (non-intrusive)
-        const bidPrices = orderBook.filter(l => (l.bidSize || 0) > 0).map(l => l.price);
-        const bidSizes  = orderBook.filter(l => (l.bidSize || 0) > 0).map(l => l.bidSize || 0);
-        const askPrices = orderBook.filter(l => (l.askSize || 0) > 0).map(l => l.price);
-        const askSizes  = orderBook.filter(l => (l.askSize || 0) > 0).map(l => l.askSize || 0);
-        const snapshot = {
-          bidPrices, bidSizes, bidOrders: [],
-          askPrices, askSizes, askOrders: [],
-          timestamp: new Date()
-        } as ParsedOrderBook;
-        const ladder = orderBookProcessor.createTickLadder(snapshot, tradesLatest);
-        setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
-      }
-    } catch {}
-  }, [orderBookProcessor, volumeByPrice, orderBook]);
-
   const processEvent = useCallback((event: MarketEvent) => {
     switch (event.eventType) {
       case 'TRADE': {
@@ -713,23 +684,6 @@ setCurrentOrderBookData({
 
           newBook.sort((a, b) => b.price - a.price);
           setOrderBook(newBook);
-
-          // [SYNC 2025-08-21] Recenter around BBO (mid if both), to make the 20 L2 lines follow price with spread
-          try {
-            const bbRaw = event.bidPrice;
-            const baRaw = event.askPrice;
-            let anchorPx: number | null = null;
-            if (typeof bbRaw === 'number' && bbRaw > 0 && typeof baRaw === 'number' && baRaw > 0) {
-              const bb = toBidTick(bbRaw);
-              const ba = toAskTick(baRaw);
-              anchorPx = toTick((bb + ba) / 2);
-            } else if (typeof bbRaw === 'number' && bbRaw > 0) {
-              anchorPx = toBidTick(bbRaw);
-            } else if (typeof baRaw === 'number' && baRaw > 0) {
-              anchorPx = toAskTick(baRaw);
-            }
-            if (anchorPx != null) recenterAroundPrice(anchorPx);
-          } catch {}
         }
         break;
       }
