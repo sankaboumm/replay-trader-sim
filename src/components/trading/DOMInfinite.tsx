@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef } from "react";
+import { memo, useEffect, useRef, useCallback } from "react";
 import { DOM } from "./DOM";
 import type { TickLadder as TickLadderType } from "@/lib/orderbook";
 import { useInfiniteTickWindow } from "@/hooks/useInfiniteTickWindow";
@@ -36,13 +36,35 @@ interface DOMProps {
  * - Ne modifie pas le composant DOM original: on lui passe juste un ladder étendu.
  */
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
-  const { tickLadder } = props;
+  const { tickLadder, currentPrice } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
 
-  const { ladder, extendUp, extendDown, batchSize } = useInfiniteTickWindow(tickLadder, {
+  const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
     batchSize: 100,
   });
+
+  // Centrage sur le prix courant avec la barre espace
+  const centerOnCurrentPrice = useCallback(() => {
+    if (!currentPrice || !ladder?.levels) return;
+    
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    
+    const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
+    if (!scrollEl) return;
+
+    // Trouve l'index du niveau le plus proche du prix courant
+    const currentPriceIndex = ladder.levels.findIndex(level => 
+      Math.abs(level.price - currentPrice) < 0.125
+    );
+    
+    if (currentPriceIndex >= 0) {
+      const ROW_HEIGHT = 32;
+      const targetScroll = currentPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
+      scrollEl.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+    }
+  }, [currentPrice, ladder]);
 
   // Ajustement du scrollTop après extension en haut pour éviter les "sauts"
   const pendingScrollAdjustRef = useRef<number | null>(null);
@@ -104,6 +126,19 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       scrollEl.scrollTop = scrollEl.scrollTop + delta;
     });
   }, [ladder]);
+
+  // Gestion des événements clavier pour la barre espace
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.code === 'Space') {
+        e.preventDefault();
+        centerOnCurrentPrice();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [centerOnCurrentPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">

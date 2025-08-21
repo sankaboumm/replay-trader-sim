@@ -325,6 +325,9 @@ export function useTradingEngine() {
           setOrderBookSnapshots(orderbookSnapshots);
           setTrades(tradeEvents);
 
+          // [FIX] Forcer l'ancrage sur le prix initial du fichier pour centrer le DOM
+          orderBookProcessor.setAnchorByPrice(initialPrice);
+
           if (orderbookSnapshots.length > 0) {
             const initialLadder = orderBookProcessor.createTickLadder(orderbookSnapshots[0], tradeEvents);
             setCurrentTickLadder(decorateLadderWithVolume(initialLadder, volumeByPrice));

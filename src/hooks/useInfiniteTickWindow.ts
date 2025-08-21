@@ -47,13 +47,15 @@ export function useInfiniteTickWindow(
   // Initialisation ou reinitialisation de la fenêtre à la réception du ladder
   useEffect(() => {
     if (!tickLadder) return;
-    const { midTick } = tickLadder;
+    const { midTick, lastTick } = tickLadder;
 
     // Première initialisation ou si aucune fenêtre encore définie
     if (lowTick == null || highTick == null || lastMidTickRef.current == null) {
       const half = Math.floor(initialWindow / 2);
-      setLowTick(midTick - half);
-      setHighTick(midTick + half);
+      // [FIX] Si on a un lastTick (dernier trade), on centre sur lui plutôt que sur midTick
+      const centerTick = lastTick !== undefined ? lastTick : midTick;
+      setLowTick(centerTick - half);
+      setHighTick(centerTick + half);
       lastMidTickRef.current = midTick;
       return;
     }
