@@ -136,6 +136,16 @@ export function useTradingEngine() {
   const tradesRef = useRef<OrderBookTrade[]>([]);
   useEffect(() => { orderBookSnapshotsRef.current = orderBookSnapshots; }, [orderBookSnapshots]);
   useEffect(() => { tradesRef.current = trades; }, [trades]);
+  // Anti-stale refs (added: top-of-book overlay)
+  const currentTickLadderRef = useRef<TickLadder | null>(null);
+  useEffect(() => { currentTickLadderRef.current = currentTickLadder; }, [currentTickLadder]);
+
+  const currentOrderBookDataRef = useRef<any>(null);
+  useEffect(() => { currentOrderBookDataRef.current = currentOrderBookData; }, [currentOrderBookData]);
+
+  // Coalesced patch with requestAnimationFrame
+  const topOfBookPatchRaf = useRef<number | null>(null);
+
 
   const playbackTimerRef = useRef<NodeJS.Timeout>();
   const orderIdCounter = useRef(0);
@@ -472,7 +482,43 @@ export function useTradingEngine() {
     });
   }, [orderBookProcessor]);
 
-  const processEvent = useCallback((event: MarketEvent) => {
+  
+  // Patch the ladder's best bid/ask immediately using latest BBO (without waiting for full ORDERBOOK)
+  const scheduleTopOfBookPatch = useCallback(() => {
+    if (topOfBookPatchRaf.current != null) return;
+    topOfBookPatchRaf.current = requestAnimationFrame(() => {
+      topOfBookPatchRaf.current = null;
+      const ladder = currentTickLadderRef.current;
+      const ob = currentOrderBookDataRef.current;
+      if (!ladder || !ob) return;
+
+      const bidP = ob.book_bid_prices?.[0];
+      const askP = ob.book_ask_prices?.[0];
+      const bidS = ob.book_bid_sizes?.[0];
+      const askS = ob.book_ask_sizes?.[0];
+
+      if (bidP == null && askP == null) return;
+
+      let changed = false;
+      const newLevels = ladder.levels.map((lvl) => {
+        let nl = lvl;
+        if (bidP != null && Math.abs(lvl.price - bidP) < 1e-9) {
+          const newBid = (bidS ?? 0);
+          if (lvl.bidSize !== newBid) { nl = { ...nl, bidSize: newBid }; changed = true; }
+        }
+        if (askP != null && Math.abs(lvl.price - askP) < 1e-9) {
+          const newAsk = (askS ?? 0);
+          if (nl.askSize !== newAsk) { nl = { ...nl, askSize: newAsk }; changed = true; }
+        }
+        return nl;
+      });
+
+      if (changed) {
+        setCurrentTickLadder({ ...ladder, levels: newLevels });
+      }
+    });
+  }, []);
+const processEvent = useCallback((event: MarketEvent) => {
     switch (event.eventType) {
       case 'TRADE': {
         if (event.tradePrice && event.tradeSize && event.aggressor) {
@@ -548,7 +594,9 @@ export function useTradingEngine() {
             return updated;
           });
         }
-        break;
+                // [ADDED] Patch top-of-book immediately
+        scheduleTopOfBookPatch();
+break;
       }
 
       case 'BBO': {
@@ -603,7 +651,9 @@ export function useTradingEngine() {
           book_ask_sizes:  event.askSize  ? [event.askSize]  : (prevData?.book_ask_sizes ?? []),
         }));
 
-        break;
+                // [ADDED] Patch top-of-book immediately
+        scheduleTopOfBookPatch();
+break;
       }
 
       case 'ORDERBOOK': {
@@ -688,7 +738,7 @@ setCurrentOrderBookData({
         break;
       }
     }
-  }, [executeLimitFill, orderBookProcessor, volumeByPrice]);
+  }, [executeLimitFill, orderBookProcessor, volumeByPrice, scheduleTopOfBookPatch]);
 
   // ---------- playback ----------
   const togglePlayback = useCallback(() => {
@@ -812,7 +862,12 @@ setCurrentOrderBookData({
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
 
 
-  // ---------- View anchor control (FIFO scrolling) ----------
+  
+  // Cleanup RAF on unmount
+  useEffect(() => {
+    return () => { if (topOfBookPatchRaf.current != null) cancelAnimationFrame(topOfBookPatchRaf.current); };
+  }, []);
+// ---------- View anchor control (FIFO scrolling) ----------
   const setViewAnchorPrice = useCallback((price: number | null) => {
     if (price == null) {
       orderBookProcessor.clearAnchor();
