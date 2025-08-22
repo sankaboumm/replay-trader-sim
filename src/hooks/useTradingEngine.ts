@@ -1,4 +1,16 @@
-import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
+i
+// --- Clip helper: keep arrays aligned while filtering by currentPrice ---
+function clipByPrice(prices: number[], sizes: number[], keepLower: boolean, currentPrice: number): {p:number[], s:number[]} {
+  if (!CLIP_DOM_TO_PRICE || !currentPrice || !prices || !sizes) return { p: prices || [], s: sizes || [] };
+  const outP:number[] = []; const outS:number[] = [];
+  for (let i=0; i<prices.length; i++) {
+    const p = prices[i]; const s = sizes[i] ?? 0;
+    if (keepLower) { if (p < currentPrice - 1e-9) { outP.push(p); outS.push(s); } }
+    else { if (p > currentPrice + 1e-9) { outP.push(p); outS.push(s); } }
+  }
+  return { p: outP, s: outS };
+}
+mport { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import {
   OrderBookProcessor,
@@ -64,8 +76,11 @@ interface PnL {
 }
 
 const TICK_SIZE = 0.25;
-const LAST_TRADE_STALE_MS = 400;
-const lastTradeTsRef = { current: 0 } as { current: number };   // NQ
+const CLIP_DOM_TO_PRICE = true; // force clip: bids < currentPrice, asks > currentPrice
+const LAST_TRADE_STALE_MS = 400; // fallback to BBO mid if no trade in this window
+const lastTradeTsRef = { current: 0 } as { current: number };
+const lastTradePriceRef = { current: 0 } as { current: number };
+   // NQ
 const TICK_VALUE = 5.0;   // $/tick
 const AGGREGATION_WINDOW_MS = 5;
 
@@ -443,7 +458,6 @@ export function useTradingEngine() {
 
     // last for unrealized
     setCurrentPrice(px);
-          lastTradeTsRef.current = event.timestamp;
 
     // TAS synthétique
     const t: Trade = {
@@ -489,6 +503,14 @@ export function useTradingEngine() {
             size: event.tradeSize,
             aggressor: event.aggressor
           };
+          // Update current price on valid trade
+          if (event.tradePrice && event.tradePrice > 0 && event.tradeSize && event.tradeSize > 0) {
+            setCurrentPrice(toTick(event.tradePrice));
+            lastTradePriceRef.current = toTick(event.tradePrice);
+            lastTradeTsRef.current = event.timestamp;
+            // console.debug('[ClipL2] currentPrice from TRADE', lastTradePriceRef.current, 'ts', lastTradeTsRef.current);
+          }
+
 
           // TAS aggregation
           setAggregationBuffer(prev => {
@@ -519,7 +541,6 @@ export function useTradingEngine() {
 
           // last
           setCurrentPrice(px);
-          lastTradeTsRef.current = event.timestamp;
 
           // volume by price
           const gridPrice = roundToGrid(px);
@@ -558,13 +579,16 @@ export function useTradingEngine() {
       }
 
       case 'BBO': {
-        // If no recent trade, use BBO mid as current price to keep L2 anchored
-        const nowTs = event.timestamp;
-        const stale = nowTs - (lastTradeTsRef.current || 0) > LAST_TRADE_STALE_MS;
-        if (stale && event.bidPrice && event.askPrice) {
+        // Fallback current price: if no recent trade, use BBO mid so DOM stays anchored
+        if (event.bidPrice && event.askPrice) {
           const mid = toTick((event.bidPrice + event.askPrice) / 2);
-          setCurrentPrice(mid);
+          const stale = (event.timestamp - (lastTradeTsRef.current || 0)) > LAST_TRADE_STALE_MS;
+          if (stale) {
+            setCurrentPrice(mid);
+            // console.debug('[ClipL2] currentPrice from BBO mid', mid, '(stale trades)');
+          }
         }
+
         // MAJ mini-book pour l'affichage
         if (event.bidPrice || event.askPrice) {
           setOrderBook(prev => {
@@ -837,11 +861,11 @@ setCurrentOrderBookData({
     // [PATCH 2025-08-21] Priorité aux données temps réel (ORDERBOOK/BBO) avant les snapshots préchargés
     if (currentOrderBookData) {
       const snapshot = {
-        bidPrices: (currentOrderBookData.book_bid_prices || []).filter(p => p < currentPrice - 1e-9),
-        bidSizes:  (currentOrderBookData.book_bid_prices || []).map((p,i)=> p < currentPrice - 1e-9 ? (currentOrderBookData.book_bid_sizes||[])[i] : 0),
+        bidPrices: clipByPrice((currentOrderBookData.book_bid_prices||[]), (currentOrderBookData.book_bid_sizes||[]), true, currentPrice).p,
+        bidSizes:  clipByPrice((currentOrderBookData.book_bid_prices||[]), (currentOrderBookData.book_bid_sizes||[]), true, currentPrice).s,
         bidOrders: (currentOrderBookData.book_bid_orders || []),
-        askPrices: (currentOrderBookData.book_ask_prices || []).filter(p => p > currentPrice + 1e-9),
-        askSizes:  (currentOrderBookData.book_ask_prices || []).map((p,i)=> p > currentPrice + 1e-9 ? (currentOrderBookData.book_ask_sizes||[])[i] : 0),
+        askPrices: clipByPrice((currentOrderBookData.book_ask_prices||[]), (currentOrderBookData.book_ask_sizes||[]), false, currentPrice).p,
+        askSizes:  clipByPrice((currentOrderBookData.book_ask_prices||[]), (currentOrderBookData.book_ask_sizes||[]), false, currentPrice).s,
         askOrders: (currentOrderBookData.book_ask_orders || []),
         timestamp: new Date()
       } as ParsedOrderBook;
