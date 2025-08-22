@@ -63,7 +63,9 @@ interface PnL {
   total: number;
 }
 
-const TICK_SIZE = 0.25;   // NQ
+const TICK_SIZE = 0.25;
+const LAST_TRADE_STALE_MS = 400;
+const lastTradeTsRef = { current: 0 } as { current: number };   // NQ
 const TICK_VALUE = 5.0;   // $/tick
 const AGGREGATION_WINDOW_MS = 5;
 
@@ -441,6 +443,7 @@ export function useTradingEngine() {
 
     // last for unrealized
     setCurrentPrice(px);
+          lastTradeTsRef.current = event.timestamp;
 
     // TAS synthétique
     const t: Trade = {
@@ -516,6 +519,7 @@ export function useTradingEngine() {
 
           // last
           setCurrentPrice(px);
+          lastTradeTsRef.current = event.timestamp;
 
           // volume by price
           const gridPrice = roundToGrid(px);
@@ -554,6 +558,13 @@ export function useTradingEngine() {
       }
 
       case 'BBO': {
+        // If no recent trade, use BBO mid as current price to keep L2 anchored
+        const nowTs = event.timestamp;
+        const stale = nowTs - (lastTradeTsRef.current || 0) > LAST_TRADE_STALE_MS;
+        if (stale && event.bidPrice && event.askPrice) {
+          const mid = toTick((event.bidPrice + event.askPrice) / 2);
+          setCurrentPrice(mid);
+        }
         // MAJ mini-book pour l'affichage
         if (event.bidPrice || event.askPrice) {
           setOrderBook(prev => {
@@ -826,11 +837,11 @@ setCurrentOrderBookData({
     // [PATCH 2025-08-21] Priorité aux données temps réel (ORDERBOOK/BBO) avant les snapshots préchargés
     if (currentOrderBookData) {
       const snapshot = {
-        bidPrices: (currentOrderBookData.book_bid_prices || []),
-        bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
+        bidPrices: (currentOrderBookData.book_bid_prices || []).filter(p => p < currentPrice - 1e-9),
+        bidSizes:  (currentOrderBookData.book_bid_prices || []).map((p,i)=> p < currentPrice - 1e-9 ? (currentOrderBookData.book_bid_sizes||[])[i] : 0),
         bidOrders: (currentOrderBookData.book_bid_orders || []),
-        askPrices: (currentOrderBookData.book_ask_prices || []),
-        askSizes:  (currentOrderBookData.book_ask_sizes  || []),
+        askPrices: (currentOrderBookData.book_ask_prices || []).filter(p => p > currentPrice + 1e-9),
+        askSizes:  (currentOrderBookData.book_ask_prices || []).map((p,i)=> p > currentPrice + 1e-9 ? (currentOrderBookData.book_ask_sizes||[])[i] : 0),
         askOrders: (currentOrderBookData.book_ask_orders || []),
         timestamp: new Date()
       } as ParsedOrderBook;
