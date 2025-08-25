@@ -151,8 +151,9 @@ export function useTradingEngine() {
 
   const loadMarketData = useCallback((file: File) => {
     console.log('🔥 loadMarketData called with file:', file.name);
+    console.log('🔥 Resetting playback state...');
     
-    // reset
+    // reset complet
     setMarketData([]);
     setCurrentEventIndex(0);
     setIsPlaying(false);
@@ -537,15 +538,24 @@ export function useTradingEngine() {
 
     if (nextIndex < marketData.length) {
       const nextTs = marketData[nextIndex].timestamp;
-      const diff = Math.max(0, nextTs - ts);
-      const adjusted = diff / playbackSpeed;
-      const delay = Math.max(playbackSpeed === 1 ? 1 : 2, Math.min(adjusted, 5000));
+      const realTimeDiff = nextTs - ts; // Différence réelle en millisecondes
+      
+      console.log(`⏱️ Real time diff: ${realTimeDiff}ms, Speed: ${playbackSpeed}x`);
+      
+      // Respecter le temps réel, ajusté par la vitesse de playback
+      const adjustedDelay = Math.max(1, realTimeDiff / playbackSpeed);
+      
+      // Limiter le délai maximum pour éviter les pauses trop longues
+      const finalDelay = Math.min(adjustedDelay, 10000); // Max 10 secondes
+      
+      console.log(`⏱️ Final delay: ${finalDelay}ms`);
       playbackTimerRef.current = setTimeout(() => {
         // l’effet se relancera avec l’index mis à jour
-      }, delay);
+      }, finalDelay);
     } else {
       flushAggregationBuffer();
       setIsPlaying(false);
+      console.log('🏁 Playback finished');
     }
 
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
