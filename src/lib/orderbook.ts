@@ -1,3 +1,6 @@
+// src/lib/orderbook.ts
+// Moteur d’order book + génération d’un ladder ancré (anti-jitter) + clamp dans le spread
+
 export type Side = "BUY" | "SELL";
 
 export interface Trade {
@@ -75,12 +78,12 @@ export class OrderBookProcessor {
     const tsStr = row.ts_exch_utc || row.ts_exch_madrid || row.ts_utc || row.ts_madrid;
     const ts = tsStr ? new Date(tsStr) : new Date();
     return {
-      bidPrices: arr(row.book_bid_prices),
-      bidSizes:  arr(row.book_bid_sizes),
-      bidOrders: arr(row.book_bid_orders),
-      askPrices: arr(row.book_ask_prices),
-      askSizes:  arr(row.book_ask_sizes),
-      askOrders: arr(row.book_ask_orders),
+      bidPrices: arr(row.book_bid_prices) ?? [],
+      bidSizes:  arr(row.book_bid_sizes)  ?? [],
+      bidOrders: arr(row.book_bid_orders) ?? [],
+      askPrices: arr(row.book_ask_prices) ?? [],
+      askSizes:  arr(row.book_ask_sizes)  ?? [],
+      askOrders: arr(row.book_ask_orders) ?? [],
       timestamp: ts
     };
   }
@@ -100,15 +103,22 @@ export class OrderBookProcessor {
     const bidByTick = new Map<number, { size: number; orders?: number }>();
     const askByTick = new Map<number, { size: number; orders?: number }>();
 
-    for (let i = 0; i < snapshot.bidPrices.length; i++) {
-      const t = Math.floor((snapshot.bidPrices[i] + 1e-9) / this.tickSize);
-      const s = snapshot.bidSizes[i] ?? 0;
-      bidByTick.set(t, { size: s, orders: snapshot.bidOrders?.[i] });
+    const bidPrices = snapshot.bidPrices ?? [];
+    const bidSizes  = snapshot.bidSizes  ?? [];
+    const bidOrders = snapshot.bidOrders ?? [];
+    const askPrices = snapshot.askPrices ?? [];
+    const askSizes  = snapshot.askSizes  ?? [];
+    const askOrders = snapshot.askOrders ?? [];
+
+    for (let i = 0; i < Math.min(bidPrices.length, bidSizes.length); i++) {
+      const t = Math.floor((bidPrices[i] + 1e-9) / this.tickSize);
+      const s = bidSizes[i] ?? 0;
+      bidByTick.set(t, { size: s, orders: bidOrders[i] });
     }
-    for (let i = 0; i < snapshot.askPrices.length; i++) {
-      const t = Math.ceil((snapshot.askPrices[i] - 1e-9) / this.tickSize);
-      const s = snapshot.askSizes[i] ?? 0;
-      askByTick.set(t, { size: s, orders: snapshot.askOrders?.[i] });
+    for (let i = 0; i < Math.min(askPrices.length, askSizes.length); i++) {
+      const t = Math.ceil((askPrices[i] - 1e-9) / this.tickSize);
+      const s = askSizes[i] ?? 0;
+      askByTick.set(t, { size: s, orders: askOrders[i] });
     }
 
     let centerTick = this.anchorTick;
@@ -116,8 +126,10 @@ export class OrderBookProcessor {
       const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
       if (lastTrade) centerTick = this.toTick(lastTrade.price);
       else {
-        const bestBidTick = bidByTick.size ? Math.max(...Array.from(bidByTick.keys())) : 0;
-        const bestAskTick = askByTick.size ? Math.min(...Array.from(askByTick.keys())) : 0;
+        const bidKeys = Array.from(bidByTick.keys());
+        const askKeys = Array.from(askByTick.keys());
+        const bestBidTick = bidKeys.length ? Math.max(...bidKeys) : 0;
+        const bestAskTick = askKeys.length ? Math.min(...askKeys) : 0;
         centerTick = Math.round((bestBidTick + bestAskTick) / 2);
       }
     }
@@ -128,10 +140,10 @@ export class OrderBookProcessor {
     const maxTick = centerTick + HALF;
 
     // clamp: rien “dans” le spread
-    const bidTicks = Array.from(bidByTick.keys());
-    const askTicks = Array.from(askByTick.keys());
-    const bestBidTick = bidTicks.length ? Math.max(...bidTicks) : Number.NEGATIVE_INFINITY;
-    const bestAskTick = askTicks.length ? Math.min(...askTicks) : Number.POSITIVE_INFINITY;
+    const bidKeys = Array.from(bidByTick.keys());
+    const askKeys = Array.from(askByTick.keys());
+    const bestBidTick = bidKeys.length ? Math.max(...bidKeys) : Number.NEGATIVE_INFINITY;
+    const bestAskTick = askKeys.length ? Math.min(...askKeys) : Number.POSITIVE_INFINITY;
 
     const levels: TickLevel[] = [];
     for (let t = maxTick; t >= minTick; t--) {
@@ -160,6 +172,4 @@ export class OrderBookProcessor {
       levels,
     };
   }
-
-  public clearAnchor() { this.anchorTick = null; }
 }
