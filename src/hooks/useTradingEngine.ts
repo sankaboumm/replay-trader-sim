@@ -100,6 +100,7 @@ export function useTradingEngine() {
 
   // ---------- utils parse ----------
   const parseTimestamp = (row: any): number => {
+    // Prioriser ts_exch_utc pour la synchronisation
     const fields = ['ts_exch_utc', 'ts_exch_madrid', 'ts_utc', 'ts_madrid'];
     for (const f of fields) {
       if (row[f]) {
@@ -111,7 +112,7 @@ export function useTradingEngine() {
       const ssboe = parseInt(row.ssboe, 10);
       const usecs = parseInt(row.usecs, 10);
       if (!isNaN(ssboe) && !isNaN(usecs)) {
-        return ssboe * 1000 + Math.floor(usecs / 1000); // fallback µs→ms approx
+        return ssboe * 1000 + Math.floor(usecs / 1000);
       }
     }
     return Date.now();
@@ -187,6 +188,7 @@ export function useTradingEngine() {
             const timestamp = parseTimestamp(row);
             const eventType = normalizeEventType(row.event_type);
 
+            // Ordre de priorité pour synchronisation parfaite: ORDERBOOK_FULL → BBO → TRADE
             let sortOrder = 0;
             if (eventType === 'ORDERBOOK' || eventType === 'ORDERBOOK_FULL') sortOrder = 0;
             else if (eventType === 'BBO') sortOrder = 1;
@@ -242,7 +244,7 @@ export function useTradingEngine() {
             }
           });
 
-          // tri : (timestamp, tieOrder)   [OB -> BBO -> TRADE]
+          // Tri synchrone: (ts_exch_utc, ordre ORDERBOOK → BBO → TRADE)
           rawEvents.sort((a, b) =>
             a.timestamp !== b.timestamp ? a.timestamp - b.timestamp : a.sortOrder - b.sortOrder
           );
@@ -293,7 +295,7 @@ export function useTradingEngine() {
           // ancre initiale puis suivi dynamique
           orderBookProcessor.setAnchorByPrice(initialPrice);
           orderBookProcessor.clearAnchor();
-          setCurrentPrice(initialPrice);
+          
 
           // centre l’affichage sur le prix initial (barre espace simulée)
           setTimeout(() => {
@@ -306,6 +308,8 @@ export function useTradingEngine() {
             const initialLadder = orderBookProcessor.createTickLadder(orderbookSnapshots[0], tradeEvents);
             setCurrentTickLadder(decorateLadderWithVolume(initialLadder, volumeByPrice));
           }
+          
+          console.log('🔥 File loaded successfully, ready for manual playback');
         }
       });
     };
@@ -512,12 +516,20 @@ export function useTradingEngine() {
 
     const processFrameGroup = (startIdx: number) => {
       if (startIdx >= marketData.length) return { nextIndex: startIdx, ts: 0 };
-      const ts = marketData[startIdx].timestamp;
+      
+      const baseTimestamp = marketData[startIdx].timestamp;
       let i = startIdx;
-      for (; i < marketData.length && marketData[i].timestamp === ts; i++) {
-        processEvent(marketData[i]);
+      
+      // Regroupement par timestamp exact pour synchronisation parfaite
+      const frameEvents: MarketEvent[] = [];
+      for (; i < marketData.length && marketData[i].timestamp === baseTimestamp; i++) {
+        frameEvents.push(marketData[i]);
       }
-      return { nextIndex: i, ts };
+      
+      // Traitement synchrone de la frame complète (ORDERBOOK → BBO → TRADE)
+      frameEvents.forEach(event => processEvent(event));
+      
+      return { nextIndex: i, ts: baseTimestamp };
     };
 
     const { nextIndex, ts } = processFrameGroup(currentEventIndex);
@@ -527,7 +539,7 @@ export function useTradingEngine() {
       const nextTs = marketData[nextIndex].timestamp;
       const diff = Math.max(0, nextTs - ts);
       const adjusted = diff / playbackSpeed;
-      const delay = Math.max(playbackSpeed === 1 ? 0 : 1, Math.min(adjusted, 5000));
+      const delay = Math.max(playbackSpeed === 1 ? 1 : 2, Math.min(adjusted, 5000));
       playbackTimerRef.current = setTimeout(() => {
         // l’effet se relancera avec l’index mis à jour
       }, delay);
