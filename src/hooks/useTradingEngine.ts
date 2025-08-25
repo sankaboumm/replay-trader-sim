@@ -25,7 +25,7 @@ interface MarketEvent {
 
 interface Trade {
   id: string;
-  timestamp: number | Date;
+  timestamp: number;
   price: number;
   size: number;
   aggressor: 'BUY' | 'SELL';
@@ -36,6 +36,7 @@ interface Order {
   side: 'BUY' | 'SELL';
   price: number;
   quantity: number;
+  filled: number;
 }
 
 interface OrderBookLevel {
@@ -148,11 +149,12 @@ export function useTradingEngine() {
   const orderBookProcessor = useMemo(() => new OrderBookProcessor(TICK_SIZE), []);
 
   const loadMarketData = useCallback((file: File) => {
+    console.log('🔥 loadMarketData called with file:', file.name);
+    
     // reset
     setMarketData([]);
     setCurrentEventIndex(0);
     setIsPlaying(false);
-    setOrderBookSnapshots([]);
     setTrades([]);
     setCurrentTickLadder(null);
     setOrders([]);
@@ -164,10 +166,6 @@ export function useTradingEngine() {
 
     const reader = new FileReader();
 
-    const setOrderBookSnapshots = (arr: ParsedOrderBook[]) => {
-      // placeholder pour conserver la signature originale si utilisée ailleurs
-    };
-
     reader.onload = () => {
       Papa.parse(reader.result as string, {
         header: true,
@@ -175,6 +173,10 @@ export function useTradingEngine() {
         skipEmptyLines: true,
         worker: true,
         complete: (results) => {
+          console.log('🔥 Papa.parse complete, results:', results);
+          console.log('🔥 Number of rows:', results.data.length);
+          console.log('🔥 First few rows:', results.data.slice(0, 3));
+          
           const rawEvents: Array<MarketEvent & { sortOrder: number }> = [];
           const orderbookSnapshots: ParsedOrderBook[] = [];
           const tradeEvents: OrderBookTrade[] = [];
@@ -245,6 +247,9 @@ export function useTradingEngine() {
             a.timestamp !== b.timestamp ? a.timestamp - b.timestamp : a.sortOrder - b.sortOrder
           );
           const events: MarketEvent[] = rawEvents.map(({ sortOrder, ...e }) => e);
+          console.log('🔥 Final events:', events.length);
+          console.log('🔥 Trade events:', tradeEvents.length);
+          console.log('🔥 Orderbook snapshots:', orderbookSnapshots.length);
 
           // tick size infer
           const allPrices = [
@@ -279,6 +284,8 @@ export function useTradingEngine() {
             }
           }
 
+          console.log('🔥 Initial price found:', initialPrice);
+          
           setCurrentPrice(toTick(initialPrice));
           setMarketData(events);
           setTrades(tradeEvents);
@@ -309,7 +316,7 @@ export function useTradingEngine() {
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
     setOrders(prev => [...prev, {
       id: `LMT-${++orderIdCounter.current}`,
-      side, price: toTick(price), quantity
+      side, price: toTick(price), quantity, filled: 0
     }]);
   }, []);
 
@@ -322,7 +329,7 @@ export function useTradingEngine() {
     if (!px) return;
     setOrders(prev => [...prev, {
       id: `MKT-${++orderIdCounter.current}`,
-      side, price: px, quantity
+      side, price: px, quantity, filled: 0
     }]);
   }, [currentPrice]);
 
