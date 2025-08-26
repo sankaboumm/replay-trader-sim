@@ -284,7 +284,8 @@ export function useTradingEngine() {
       if (obSnaps.length) {
         const ladder0 = obProcessor.createTickLadder(obSnaps[0], tradeRows);
         setCurrentTickLadder(ladder0);
-        console.log(`[DEBUG] Created initial ladder with ${ladder0.levels.length} levels, midPrice: ${ladder0.midPrice}`);
+        console.log(`[DEBUG] Created initial ladder with ${ladder0.levels.length} levels, midPrice: ${ladder0.midPrice}, midTick: ${ladder0.midTick}`);
+        console.log(`[DEBUG] First few levels:`, ladder0.levels.slice(0, 5).map(l => ({ price: l.price, bidSize: l.bidSize, askSize: l.askSize })));
       } else {
         setCurrentTickLadder(emptyLadder);
         console.log('[DEBUG] No orderbook snapshots, using empty ladder');
