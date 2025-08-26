@@ -1,3 +1,4 @@
+
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import {
@@ -150,6 +151,8 @@ export function useTradingEngine() {
     const tradeRows: OrderBookTrade[] = [];
 
     const parseRows = (rows: any[]) => {
+      console.log(`[DEBUG] Parsing ${rows.length} rows`);
+      
       for (const row of rows) {
         if (!row) continue;
         const ts = parseExchangeTsMs(row);
@@ -208,6 +211,8 @@ export function useTradingEngine() {
       const TIE: Record<EVT, number> = { ORDERBOOK:0, ORDERBOOK_FULL:0, BBO:1, TRADE:2 } as any;
       raw.sort((a,b) => (a.ts - b.ts) || (TIE[a.et] - TIE[b.et]));
 
+      console.log(`[DEBUG] Processed ${raw.length} events, ${obSnaps.length} orderbook snapshots, ${tradeRows.length} trades`);
+
       // Expose pour UI (marketData existe)
       setMarketData(raw);
 
@@ -224,35 +229,65 @@ export function useTradingEngine() {
         else cur.trades.push(e);
       }
       framesRef.current = frames;
+      console.log(`[DEBUG] Created ${frames.length} frames`);
 
       // Tick size & prix initial
       const allPrices = [
         ...tradeRows.map(t => t.price),
-        ...obSnaps.flatMap(s => [...s.bidPrices, ...s.askPrices])
-      ];
+        ...obSnaps.flatMap(s => [...s.bidPrices, ...s.askPrices]),
+        ...raw.filter(e => e.bidPrice || e.askPrice).map(e => e.bidPrice || e.askPrice!),
+      ].filter(p => p && Number.isFinite(p));
+      
       if (allPrices.length) {
         const inferred = obProcessor.inferTickSize(allPrices);
         obProcessor.setTickSize(inferred);
+        console.log(`[DEBUG] Inferred tick size: ${inferred}`);
       }
 
+      // Prix initial plus robuste
       let p0 = 0;
-      if (tradeRows.length > 0) p0 = tradeRows[0].price;
+      
+      // 1) Essayer le premier trade
+      if (tradeRows.length > 0) {
+        p0 = tradeRows[0].price;
+        console.log(`[DEBUG] Initial price from first trade: ${p0}`);
+      }
+      // 2) Essayer le premier BBO
+      else if (raw.find(e => e.et === 'BBO' && (e.bidPrice || e.askPrice))) {
+        const firstBBO = raw.find(e => e.et === 'BBO' && (e.bidPrice || e.askPrice))!;
+        p0 = firstBBO.bidPrice || firstBBO.askPrice || 0;
+        console.log(`[DEBUG] Initial price from first BBO: ${p0}`);
+      }
+      // 3) Essayer le premier orderbook
       else if (obSnaps.length > 0) {
         const s0 = obSnaps[0];
-        p0 = s0.bidPrices?.[0] ?? s0.askPrices?.[0] ?? 0;
-      } else if (frames.length > 0) {
-        const f0 = frames[0];
-        if (f0.ob.length) p0 = f0.ob[0].bookBidPrices?.[0] ?? f0.ob[0].bookAskPrices?.[0] ?? 0;
-        else if (f0.bbo.length) p0 = f0.bbo[0].bidPrice ?? f0.bbo[0].askPrice ?? 0;
+        p0 = s0.bidPrices?.[0] || s0.askPrices?.[0] || 0;
+        console.log(`[DEBUG] Initial price from first orderbook: ${p0}`);
       }
-      setCurrentPrice(toTickRound(p0));
+      // 4) Fallback sur les événements raw
+      else if (frames.length > 0) {
+        const f0 = frames[0];
+        if (f0.ob.length) p0 = f0.ob[0].bookBidPrices?.[0] || f0.ob[0].bookAskPrices?.[0] || 0;
+        else if (f0.bbo.length) p0 = f0.bbo[0].bidPrice || f0.bbo[0].askPrice || 0;
+        console.log(`[DEBUG] Initial price from first frame: ${p0}`);
+      }
+      
+      if (p0 > 0) {
+        setCurrentPrice(toTickRound(p0));
+        console.log(`[DEBUG] Set initial current price to: ${toTickRound(p0)}`);
+      } else {
+        console.warn('[DEBUG] Could not determine initial price, setting to 0');
+        setCurrentPrice(0);
+      }
 
       // Ladder initial
       if (obSnaps.length) {
         const ladder0 = obProcessor.createTickLadder(obSnaps[0], tradeRows);
         setCurrentTickLadder(ladder0);
+        console.log(`[DEBUG] Created initial ladder with ${ladder0.levels.length} levels, midPrice: ${ladder0.midPrice}`);
       } else {
         setCurrentTickLadder(emptyLadder);
+        console.log('[DEBUG] No orderbook snapshots, using empty ladder');
       }
 
       // stock trades
@@ -260,9 +295,10 @@ export function useTradingEngine() {
       setTrades(tradeRows);
 
       setLoaded(true);
+      console.log('[DEBUG] Market data loaded successfully');
     };
 
-    // Choix du mode d’entrée (File / URL / string CSV)
+    // Choix du mode d'entrée (File / URL / string CSV)
     if (isBlobLike(input)) {
       Papa.parse(input as File, {
         header: true,
@@ -325,6 +361,13 @@ export function useTradingEngine() {
 
     const arr = Array.from(map.values()).sort((a,b)=>b.price-a.price);
     setOrderBook(arr);
+
+    // Mettre à jour le prix courant si on a des données
+    if (bookBidPrices?.[0] && Number.isFinite(bookBidPrices[0])) {
+      setCurrentPrice(toTickRound(bookBidPrices[0]));
+    } else if (bookAskPrices?.[0] && Number.isFinite(bookAskPrices[0])) {
+      setCurrentPrice(toTickRound(bookAskPrices[0]));
+    }
   }, []);
 
   const applyBBOFrame = useCallback((e: MarketEvent) => {
@@ -358,12 +401,23 @@ export function useTradingEngine() {
       return Array.from(m.values()).sort((a,b)=>b.price-a.price);
     });
 
-    if (e.bidPrice != null) setCurrentPrice(toTickRound(e.bidPrice));
-    else if (e.askPrice != null) setCurrentPrice(toTickRound(e.askPrice));
+    // Mettre à jour le prix courant depuis le BBO
+    if (e.bidPrice != null && Number.isFinite(e.bidPrice)) {
+      setCurrentPrice(toTickRound(e.bidPrice));
+    } else if (e.askPrice != null && Number.isFinite(e.askPrice)) {
+      setCurrentPrice(toTickRound(e.askPrice));
+    }
   }, []);
 
   const applyTradesFrame = useCallback((arr: MarketEvent[]) => {
     if (!arr.length) return;
+    
+    // Mettre à jour le prix courant depuis les trades
+    const lastTrade = arr[arr.length - 1];
+    if (lastTrade.tradePrice && Number.isFinite(lastTrade.tradePrice)) {
+      setCurrentPrice(toTickRound(lastTrade.tradePrice));
+    }
+    
     setTimeAndSales(prev => {
       const next = [...prev];
       for (const ev of arr) {
@@ -447,10 +501,29 @@ export function useTradingEngine() {
   }, []);
 
   /** ---------- Best bid/ask + spread (compat UI) ---------- */
-  const bestBid = useMemo(() => orderBook.find(l => l.bidSize > 0)?.price, [orderBook]);
-  const bestAsk = useMemo(() => orderBook.find(l => l.askSize > 0)?.price, [orderBook]);
-  const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
-  const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
+  const bestBid = useMemo(() => {
+    const bidLevels = orderBook.filter(l => l.bidSize > 0);
+    return bidLevels.length > 0 ? Math.max(...bidLevels.map(l => l.price)) : undefined;
+  }, [orderBook]);
+  
+  const bestAsk = useMemo(() => {
+    const askLevels = orderBook.filter(l => l.askSize > 0);
+    return askLevels.length > 0 ? Math.min(...askLevels.map(l => l.price)) : undefined;
+  }, [orderBook]);
+  
+  const spread = useMemo(() => {
+    if (bestBid != null && bestAsk != null && bestBid < bestAsk) {
+      return bestAsk - bestBid;
+    }
+    return undefined;
+  }, [bestBid, bestAsk]);
+  
+  const spreadTicks = useMemo(() => {
+    if (spread != null) {
+      return Math.round(spread / TICK_SIZE);
+    }
+    return undefined;
+  }, [spread]);
 
   /** ---------- Ancrage vue ---------- */
   const setViewAnchorPrice = useCallback((price: number | null) => {
