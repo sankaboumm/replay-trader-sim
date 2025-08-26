@@ -118,11 +118,6 @@ export const DOM = memo(function DOM({
   }, [onCancelOrders]);
 
   const levels = tickLadder?.levels ?? [];
-  
-  // Debug logs
-  console.log(`[DOM] tickLadder:`, tickLadder ? { midPrice: tickLadder.midPrice, levelsCount: tickLadder.levels.length } : null);
-  console.log(`[DOM] currentPrice:`, currentPrice);
-  console.log(`[DOM] levels count:`, levels.length);
 
 
   return (

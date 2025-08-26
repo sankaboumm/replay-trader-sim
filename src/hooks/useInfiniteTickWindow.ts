@@ -54,11 +54,8 @@ export function useInfiniteTickWindow(
       const half = Math.floor(initialWindow / 2);
       // [FIX] Si on a un lastTick (dernier trade), on centre sur lui plutôt que sur midTick
       const centerTick = lastTick !== undefined ? lastTick : midTick;
-      const newLowTick = centerTick - half;
-      const newHighTick = centerTick + half;
-      console.log(`[DEBUG] Initializing infinite window: center=${centerTick}, low=${newLowTick}, high=${newHighTick}, window=${initialWindow}`);
-      setLowTick(newLowTick);
-      setHighTick(newHighTick);
+      setLowTick(centerTick - half);
+      setHighTick(centerTick + half);
       lastMidTickRef.current = midTick;
       return;
     }
@@ -108,8 +105,6 @@ export function useInfiniteTickWindow(
         });
       }
     }
-
-    console.log(`[DEBUG] Extended ladder: ${outLevels.length} levels from tick ${lowTick} to ${highTick}`);
 
     return {
       midTick: tickLadder.midTick,
