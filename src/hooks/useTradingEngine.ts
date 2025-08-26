@@ -25,12 +25,12 @@ type Frame = { t: number; ob: MarketEvent[]; bbo: MarketEvent[]; trades: MarketE
 
 interface Trade {
   id: string;
-  timestamp: number | Date;
+  timestamp: number;
   price: number;
   size: number;
   aggressor: 'BUY' | 'SELL';
 }
-interface Order { id: string; side: 'BUY'|'SELL'; price: number; quantity: number; }
+interface Order { id: string; side: 'BUY'|'SELL'; price: number; quantity: number; filled: number; }
 interface OrderBookLevel { price: number; bidSize: number; askSize: number; volume?: number; }
 
 /** ---------- Const ---------- */
@@ -273,15 +273,24 @@ export function useTradingEngine() {
         error: () => setLoaded(false)
       });
     } else if (typeof input === 'string') {
-      Papa.parse(input, {
-        header: true,
-        dynamicTyping: true,
-        worker: true,
-        skipEmptyLines: true,
-        download: /^https?:\/\//i.test(input), // si URL http(s)
-        complete: (res) => parseRows((res.data as any[]) || []),
-        error: () => setLoaded(false)
-      });
+      if (/^https?:\/\//i.test(input)) {
+        Papa.parse(input, {
+          header: true,
+          dynamicTyping: true,
+          skipEmptyLines: true,
+          download: true,
+          complete: (res) => parseRows((res.data as any[]) || []),
+          error: () => setLoaded(false)
+        });
+      } else {
+        Papa.parse(input, {
+          header: true,
+          dynamicTyping: true,
+          skipEmptyLines: true,
+          complete: (res) => parseRows((res.data as any[]) || []),
+          error: () => setLoaded(false)
+        });
+      }
     } else {
       console.warn('[replay] Unsupported input type for loadMarketData:', typeof input);
       setLoaded(false);
@@ -408,8 +417,9 @@ export function useTradingEngine() {
       if (nextIdx >= frames.length) { playingRef.current = false; setIsPlaying(false); return; }
 
       const dt = Math.max(0, frames[nextIdx].t - f.t);
-      const waitMsRaw = dt / Math.max(0.1, speedRef.current);
-      const waitMs = Math.max(MIN_FRAME_MS, Math.min(waitMsRaw, MAX_FRAME_MS));
+      const waitMsRaw = dt / speedRef.current;
+      const waitMs = Math.max(MIN_FRAME_MS, waitMsRaw);
+      console.log(`[DEBUG] Frame ${i}: dt=${dt}ms, speed=${speedRef.current}x, wait=${waitMs}ms`);
       timerRef.current = window.setTimeout(step, waitMs);
     };
 
@@ -457,6 +467,19 @@ export function useTradingEngine() {
     });
   }, [position, currentPrice, realizedPnLTotal]);
 
+  /** ---------- Fonctions ordres (stubs pour compatibilité) ---------- */
+  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
+    console.log('Ordre limite placé:', { side, price, quantity });
+  }, []);
+
+  const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number) => {
+    console.log('Ordre marché placé:', { side, quantity });
+  }, []);
+
+  const cancelOrdersAtPrice = useCallback((price: number) => {
+    console.log('Ordres annulés au prix:', price);
+  }, []);
+
   /** ---------- API hook ---------- */
   return {
     // données (compat UI)
@@ -479,6 +502,11 @@ export function useTradingEngine() {
 
     // fichiers
     loadMarketData,
+
+    // ordres
+    placeLimitOrder,
+    placeMarketOrder,
+    cancelOrdersAtPrice,
 
     // ancrage
     setViewAnchorPrice,
