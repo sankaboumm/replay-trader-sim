@@ -47,7 +47,7 @@ interface OrderBookLevel {
 }
 
 const TICK_SIZE = 0.25;
-// [MOD] cap d’ingestion ORDERBOOK (sécurité UI)
+// [MOD] cap d'ingestion ORDERBOOK (sécurité UI)
 const ORDERBOOK_CAP = 200;
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
@@ -297,7 +297,7 @@ export function useTradingEngine() {
           orderBookProcessor.clearAnchor();
           
 
-          // centre l’affichage sur le prix initial (barre espace simulée)
+          // centre l'affichage sur le prix initial (barre espace simulée)
           setTimeout(() => {
             const spaceEvent = new KeyboardEvent('keydown', { code: 'Space' });
             window.dispatchEvent(spaceEvent);
@@ -508,44 +508,38 @@ export function useTradingEngine() {
   const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
   const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
-  // ---------- playback loop : **FRAME GROUPED** ----------
-  // Traite toutes les lignes qui partagent le même timestamp d’échange dans le **même tick**
-  // (ORDERBOOK -> BBO -> TRADE), sans rendu intermédiaire => synchro parfaite DOM/prix.
+  // ---------- playback loop : **EVENT BY EVENT** ----------
+  // Traite un événement à la fois pour respecter le timing réel
   useEffect(() => {
     if (!isPlaying || currentEventIndex >= marketData.length) return;
 
-    const processFrameGroup = (startIdx: number) => {
-      if (startIdx >= marketData.length) return { nextIndex: startIdx, ts: 0 };
-      
-      const baseTimestamp = marketData[startIdx].timestamp;
-      let i = startIdx;
-      
-      // Regroupement par timestamp exact pour synchronisation parfaite
-      const frameEvents: MarketEvent[] = [];
-      for (; i < marketData.length && marketData[i].timestamp === baseTimestamp; i++) {
-        frameEvents.push(marketData[i]);
-      }
-      
-      // Traitement synchrone de la frame complète (ORDERBOOK → BBO → TRADE)
-      frameEvents.forEach(event => processEvent(event));
-      
-      return { nextIndex: i, ts: baseTimestamp };
-    };
-
-    const { nextIndex, ts } = processFrameGroup(currentEventIndex);
+    const currentEvent = marketData[currentEventIndex];
+    
+    // Traite l'événement actuel
+    processEvent(currentEvent);
+    
+    const nextIndex = currentEventIndex + 1;
     setCurrentEventIndex(nextIndex);
 
     if (nextIndex < marketData.length) {
-      const nextTs = marketData[nextIndex].timestamp;
-      const diff = Math.max(0, nextTs - ts);
-      const adjusted = diff / playbackSpeed;
-      const delay = Math.max(playbackSpeed === 1 ? 1 : 2, Math.min(adjusted, 5000));
+      const nextEvent = marketData[nextIndex];
+      const timeDiff = Math.max(0, nextEvent.timestamp - currentEvent.timestamp);
+      
+      // Délai ajusté selon la vitesse de playback
+      const baseDelay = timeDiff / playbackSpeed;
+      const minDelay = playbackSpeed >= 10 ? 1 : (playbackSpeed >= 5 ? 5 : 10);
+      const maxDelay = 1000; // Cap à 1 seconde
+      const delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
+      
+      console.log(`⏱️ Playback: event ${currentEventIndex}/${marketData.length}, delay: ${delay}ms (speed: ${playbackSpeed}x)`);
+      
       playbackTimerRef.current = setTimeout(() => {
-        // l’effet se relancera avec l’index mis à jour
+        // l'effet se relancera avec l'index mis à jour
       }, delay);
     } else {
       flushAggregationBuffer();
       setIsPlaying(false);
+      console.log('🏁 Playback terminé');
     }
 
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
