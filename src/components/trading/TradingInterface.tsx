@@ -11,7 +11,6 @@ export function TradingInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const {
     marketData,
-    frames,
     position,
     pnl,
     timeAndSales,
@@ -66,7 +65,7 @@ export function TradingInterface() {
             speed={playbackSpeed}
             onTogglePlayback={togglePlayback}
             onSpeedChange={setPlaybackSpeed}
-            disabled={!frames.length}
+            disabled={!marketData.length}
           />
         </div>
       </div>
