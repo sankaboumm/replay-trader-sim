@@ -654,8 +654,21 @@ export function useTradingEngine() {
 
   // ---------- toggle playback ----------
   const togglePlayback = useCallback(() => {
-    setIsPlaying(prev => !prev);
-  }, []);
+    console.log('🎮 Toggle playback called, frames available:', frames.length, 'current index:', currentFrameIndex);
+    if (frames.length === 0) {
+      console.log('❌ No frames loaded, cannot play');
+      return;
+    }
+    if (currentFrameIndex >= frames.length) {
+      console.log('🔄 Resetting to beginning');
+      setCurrentFrameIndex(0);
+    }
+    setIsPlaying(prev => {
+      console.log('🎮 Setting playing to:', !prev);
+      return !prev;
+    });
+  }, [frames.length, currentFrameIndex]);
+  
   const setPlaybackSpeedSafe = useCallback((speed: number) => setPlaybackSpeed(Math.max(0.1, speed)), []);
   const setPlaybackSpeedWrapper = useCallback((speed: number) => setPlaybackSpeedSafe(speed), [setPlaybackSpeedSafe]);
 
