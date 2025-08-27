@@ -48,7 +48,6 @@ interface OrderBookLevel {
 }
 
 const TICK_SIZE = 0.25;
-// [MOD] cap d'ingestion ORDERBOOK (sécurité UI)
 const ORDERBOOK_CAP = 200;
 
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
@@ -94,10 +93,8 @@ export function useTradingEngine() {
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
 
-  // [ADD] loading flag for streaming parse + background flush
+  // streaming parse
   const [isLoading, setIsLoading] = useState(false);
-
-  // [ADD] streaming buffers (not in React state to avoid thrash)
   const eventsBufferRef = useRef<MarketEvent[]>([]);
   const tradesBufferRef = useRef<OrderBookTrade[]>([]);
   const samplePricesRef = useRef<number[]>([]);
@@ -130,7 +127,6 @@ export function useTradingEngine() {
     if (Array.isArray(value)) return value.map(Number).filter(n => Number.isFinite(n));
     const s = String(value);
     try {
-      // accepte "[1,2,3]" ou "1,2,3"
       if (s.trim().startsWith('[')) return (JSON.parse(s) as any[]).map(Number).filter(Number.isFinite);
       const cleaned = value.toString().replace(/^\[|\]$/g, '').trim();
       if (!cleaned) return [];
@@ -158,10 +154,22 @@ export function useTradingEngine() {
     return undefined;
   };
 
-  // ---------- loader ----------
+  // ---------- orderbook processor ----------
   const orderBookProcessor = useMemo(() => new OrderBookProcessor(TICK_SIZE), []);
 
-  // [MOD] Loader en streaming: plus d’attente du `complete`
+  // ---------- FIX: déclarer flushParsingBuffers AVANT loadMarketData ----------
+  const flushParsingBuffers = useCallback(() => {
+    if (eventsBufferRef.current.length > 0) {
+      const chunk = eventsBufferRef.current.splice(0, eventsBufferRef.current.length);
+      setMarketData(prev => prev.concat(chunk));
+    }
+    if (tradesBufferRef.current.length > 0) {
+      const tchunk = tradesBufferRef.current.splice(0, tradesBufferRef.current.length);
+      setTrades(prev => prev.concat(tchunk));
+    }
+  }, []);
+
+  // ---------- loader (streaming) ----------
   const loadMarketData = useCallback((file: File) => {
     console.log('🔥 loadMarketData (streaming) called with file:', file.name);
 
@@ -184,9 +192,7 @@ export function useTradingEngine() {
     samplePricesRef.current = [];
     tickSizeLockedRef.current = false;
 
-    // loading flag
     setIsLoading(true);
-
     let initialPriceSet = false;
 
     Papa.parse(file, {
@@ -201,7 +207,6 @@ export function useTradingEngine() {
         const timestamp = parseTimestamp(row);
         const eventType = normalizeEventType(row.event_type);
 
-        // stream TRADE
         if (eventType === 'TRADE') {
           const price = parseFloat(row.trade_price);
           const size  = parseFloat(row.trade_size);
@@ -227,9 +232,7 @@ export function useTradingEngine() {
               initialPriceSet = true;
             }
           }
-        }
-        // stream BBO
-        else if (eventType === 'BBO') {
+        } else if (eventType === 'BBO') {
           const bp = parseFloat(row.bid_price);
           const ap = parseFloat(row.ask_price);
           const bs = parseFloat(row.bid_size);
@@ -258,9 +261,7 @@ export function useTradingEngine() {
               }
             }
           }
-        }
-        // stream ORDERBOOK / ORDERBOOK_FULL
-        else if (eventType === 'ORDERBOOK') {
+        } else if (eventType === 'ORDERBOOK') {
           const bidPrices = parseArrayField(row.book_bid_prices);
           const bidSizes  = parseArrayField(row.book_bid_sizes);
           const askPrices = parseArrayField(row.book_ask_prices);
@@ -294,7 +295,6 @@ export function useTradingEngine() {
           }
         }
 
-        // one-shot tick-size inference
         if (!tickSizeLockedRef.current && samplePricesRef.current.length >= 64) {
           const inferred = orderBookProcessor.inferTickSize(samplePricesRef.current);
           if (inferred && inferred > 0) {
@@ -306,7 +306,6 @@ export function useTradingEngine() {
       },
       complete: () => {
         setIsLoading(false);
-        // final flush to state
         flushParsingBuffers();
         console.log('✅ Streaming parse complete');
       },
@@ -337,13 +336,13 @@ export function useTradingEngine() {
     }]);
   }, [currentPrice]);
 
-  // ---------- AGRÉGATION TAS (petit buffer UI) ----------
+  // ---------- AGRÉGATION TAS ----------
   const [aggregationBuffer, setAggregationBuffer] = useState<Trade[]>([]);
   const flushAggregationBuffer = useCallback(() => {
     if (aggregationBuffer.length > 0) {
       setTimeAndSales(prev => {
         const merged = [...prev, ...aggregationBuffer];
-        return merged.slice(-1000); // garde les 1000 dernières lignes
+        return merged.slice(-1000);
       });
       setAggregationBuffer([]);
     }
@@ -375,42 +374,25 @@ export function useTradingEngine() {
         const totalQty = prevAbs + (order.side === 'BUY' ? qty : -qty);
         newAvg = (prevPos.averagePrice * prevAbs + px * (order.side === 'BUY' ? qty : -qty)) / (totalQty || 1);
       } else {
-        // reverse
         newAvg = px;
       }
-
       return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
     });
 
-    // remove filled order
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }, [currentPrice]);
 
-  // [ADD] Flush parsing buffers into React state (called by timer)
-  const flushParsingBuffers = useCallback(() => {
-    // events → marketData
-    if (eventsBufferRef.current.length > 0) {
-      const chunk = eventsBufferRef.current.splice(0, eventsBufferRef.current.length);
-      setMarketData(prev => prev.concat(chunk));
-    }
-    // trades (for ladder centering & volume)
-    if (tradesBufferRef.current.length > 0) {
-      const tchunk = tradesBufferRef.current.splice(0, tradesBufferRef.current.length);
-      setTrades(prev => prev.concat(tchunk));
-    }
-  }, []);
-
-  // [ADD] periodic UI flush while loading or playing
+  // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
     if (!(isLoading || isPlaying)) return;
     const id = setInterval(() => {
       flushAggregationBuffer();
       flushParsingBuffers();
-    }, 50); // ~20fps
+    }, 50);
     return () => clearInterval(id);
   }, [isLoading, isPlaying, flushAggregationBuffer, flushParsingBuffers]);
 
-  // ---------- EVENT PROCESSOR (playback) ----------
+  // ---------- EVENT PROCESSOR ----------
   const processEvent = useCallback((event: MarketEvent) => {
     if (!event) return;
 
@@ -426,7 +408,6 @@ export function useTradingEngine() {
             aggressor: event.aggressor
           };
 
-          // TAS aggregation
           setAggregationBuffer(prev => {
             const last = prev[prev.length - 1];
             if (last && last.price === trade.price && last.aggressor === trade.aggressor) {
@@ -436,10 +417,8 @@ export function useTradingEngine() {
             return [...prev, trade];
           });
 
-          // last price
           setCurrentPrice(px);
 
-          // vol by price
           const gridPrice = roundToGrid(px);
           setVolumeByPrice(prev => {
             const next = new Map(prev);
@@ -447,7 +426,6 @@ export function useTradingEngine() {
             return next;
           });
 
-          // bump volume in UI ladder
           setOrderBook(prev =>
             prev.map(level =>
               Math.abs(level.price - gridPrice) < 0.125
@@ -456,7 +434,6 @@ export function useTradingEngine() {
             )
           );
 
-          // sécurité : execution limites si le last traverse le prix
           setOrders(prev => {
             const updated: Order[] = [];
             for (const o of prev) {
@@ -476,7 +453,6 @@ export function useTradingEngine() {
       }
 
       case 'BBO': {
-        // MAJ best bid/ask immédiate + L1
         setCurrentOrderBookData(prevData => ({
           book_bid_prices: event.bidPrice ? [toBidTick(event.bidPrice)] : (prevData?.book_bid_prices ?? []),
           book_ask_prices: event.askPrice ? [toAskTick(event.askPrice)] : (prevData?.book_ask_prices ?? []),
@@ -484,7 +460,6 @@ export function useTradingEngine() {
           book_ask_sizes:  event.askSize  ? [event.askSize]            : (prevData?.book_ask_sizes  ?? []),
         }));
 
-        // Option: suivre le mid même sans trade
         if (event.bidPrice && event.askPrice) {
           const mid = toTick((toBidTick(event.bidPrice) + toAskTick(event.askPrice)) / 2);
           setCurrentPrice(mid);
@@ -493,7 +468,6 @@ export function useTradingEngine() {
       }
 
       case 'ORDERBOOK': {
-        // mini-livre pour le DOM “rapide”
         const priceMap = new Map<number, OrderBookLevel>();
         for (const l of orderBook) priceMap.set(l.price, l);
 
@@ -531,7 +505,6 @@ export function useTradingEngine() {
         newBook.sort((a, b) => b.price - a.price);
         setOrderBook(newBook);
 
-        // alimente aussi l’état “full” pour régénérer le ladder
         setCurrentOrderBookData({
           book_bid_prices: event.bookBidPrices?.map(toBidTick),
           book_bid_sizes:  event.bookBidSizes,
@@ -542,7 +515,7 @@ export function useTradingEngine() {
         break;
       }
     }
-  }, [executeLimitFill, volumeByPrice]);
+  }, [executeLimitFill, orderBook, volumeByPrice]);
 
   // ---------- dérivés best bid/ask & spread ----------
   const bestBid = useMemo(() => orderBook.find(l => l.bidSize > 0)?.price, [orderBook]);
@@ -550,48 +523,38 @@ export function useTradingEngine() {
   const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
   const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
-  // ---------- playback loop : **EVENT BY EVENT** ----------
+  // ---------- playback loop ----------
   useEffect(() => {
     if (!isPlaying || currentEventIndex >= marketData.length) return;
 
     const currentEvent = marketData[currentEventIndex];
-    
-    // Traite l'événement actuel
     processEvent(currentEvent);
-    
+
     const nextIndex = currentEventIndex + 1;
     setCurrentEventIndex(nextIndex);
 
     if (nextIndex < marketData.length) {
       const nextEvent = marketData[nextIndex];
       const timeDiff = Math.max(0, nextEvent.timestamp - currentEvent.timestamp);
-      
-      // Délai ajusté selon la vitesse de playback
       const baseDelay = timeDiff / playbackSpeed;
       const minDelay = playbackSpeed >= 10 ? 1 : (playbackSpeed >= 5 ? 5 : 10);
-      const maxDelay = 1000; // Cap à 1 seconde
+      const maxDelay = 1000;
       const delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
-      
-      console.log(`⏱️ Playback: event ${currentEventIndex}/${marketData.length}, delay: ${delay}ms (speed: ${playbackSpeed}x)`);
-      
-      playbackTimerRef.current = setTimeout(() => {
-        // l'effet se relancera avec l'index mis à jour
-      }, delay);
+
+      playbackTimerRef.current = setTimeout(() => {}, delay);
     } else {
       flushAggregationBuffer();
       setIsPlaying(false);
-      console.log('🏁 Playback terminé');
     }
 
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
 
-  // ---------- View anchor (centrage DOM) ----------
+  // ---------- View anchor ----------
   const setViewAnchorPrice = useCallback((price: number | null) => {
     if (price == null) orderBookProcessor.clearAnchor();
     else orderBookProcessor.setAnchorByPrice(price);
 
-    // refresh immédiat depuis currentOrderBookData si dispo
     if (currentOrderBookData) {
       const snapshot = {
         bidPrices: (currentOrderBookData.book_bid_prices || []),
@@ -605,7 +568,7 @@ export function useTradingEngine() {
     }
   }, [orderBookProcessor, currentOrderBookData, trades, volumeByPrice]);
 
-  // ---------- Reconstruit le ladder quand les données changent ----------
+  // ---------- Rebuild ladder ----------
   useEffect(() => {
     if (currentOrderBookData) {
       const snapshot: ParsedOrderBook = {
@@ -620,7 +583,6 @@ export function useTradingEngine() {
       return;
     }
 
-    // fallback mini-book
     if (orderBook.length > 0) {
       const bidLevels = orderBook.filter(l => (l.bidSize || 0) > 0).sort((a,b)=>b.price-a.price);
       const askLevels = orderBook.filter(l => (l.askSize || 0) > 0).sort((a,b)=>a.price-b.price);
@@ -638,7 +600,7 @@ export function useTradingEngine() {
     }
   }, [orderBookProcessor, currentOrderBookData, orderBook, trades, volumeByPrice]);
 
-  // ---------- toggle playback ----------
+  // ---------- controls ----------
   const togglePlayback = useCallback(() => {
     setIsPlaying(prev => !prev);
   }, []);
@@ -659,22 +621,27 @@ export function useTradingEngine() {
     bestAsk,
     spread,
     spreadTicks,
+
     // TAS & orders
     timeAndSales,
     orders,
     placeLimitOrder,
     cancelOrdersAtPrice,
     placeMarketOrder,
+
     // position/pnl
     position,
     pnl,
+
     // playback
     isPlaying,
     playbackSpeed,
     togglePlayback,
     setPlaybackSpeed: setPlaybackSpeedWrapper,
+
     // file
     loadMarketData,
+
     // utils
     orderBookProcessor,
     setViewAnchorPrice
