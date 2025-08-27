@@ -6,8 +6,8 @@ import {
   ParsedOrderBook,
   Trade as OrderBookTrade,
   TickLadder,
-} from '@/lib/orderbook';
-import { buildFramesSynced, Frame } from '@/lib/replayFrames';
+} from '@/lib/orderbook'; // ← passe en relatif si besoin: '../lib/orderbook'
+import { buildFramesSynced, Frame } from '@/lib/replayFrames'; // ← idem: '../lib/replayFrames'
 
 /** ===================== Types UI ===================== */
 interface Trade {
@@ -34,6 +34,7 @@ interface OrderBookLevel {
 /** ===================== Constantes ===================== */
 const TICK_SIZE = 0.25;
 const ORDERBOOK_CAP = 200; // cap de sécurité pour le processor/DOM
+
 const toTick = (p: number) => Math.round(p / TICK_SIZE) * TICK_SIZE;
 const toBidTick = (p: number) => Math.floor((p + 1e-9) / TICK_SIZE) * TICK_SIZE;
 const toAskTick = (p: number) => Math.ceil((p - 1e-9) / TICK_SIZE) * TICK_SIZE;
@@ -61,12 +62,24 @@ export function useTradingEngine() {
   // --- données UI ---
   const [orderBook, setOrderBook] = useState<OrderBookLevel[]>([]);
   const [currentOrderBookData, setCurrentOrderBookData] = useState<{
-    book_bid_prices?: number[];
-    book_ask_prices?: number[];
-    book_bid_sizes?: number[];
-    book_ask_sizes?: number[];
-  } | null>(null);
-  const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder | null>(null);
+    book_bid_prices: number[];
+    book_ask_prices: number[];
+    book_bid_sizes: number[];
+    book_ask_sizes: number[];
+  }>({
+    book_bid_prices: [],
+    book_ask_prices: [],
+    book_bid_sizes: [],
+    book_ask_sizes: [],
+  });
+
+  // Ladder jamais null pour éviter .length sur undefined
+  const emptyLadder: TickLadder = useMemo(
+    () => ({ midTick: 0, midPrice: 0, levels: [] }),
+    []
+  );
+  const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder>(emptyLadder);
+
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
   const [trades, setTrades] = useState<OrderBookTrade[]>([]);
   const [currentPrice, setCurrentPrice] = useState<number>(0);
@@ -80,6 +93,9 @@ export function useTradingEngine() {
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
+
+  // Certaines UIs activent Play via marketData.length — on le garde
+  const [marketData, setMarketData] = useState<any[]>([]);
 
   // --- timers / refs ---
   const playbackTimerRef = useRef<number | undefined>(undefined);
@@ -108,19 +124,26 @@ export function useTradingEngine() {
 
   /** ===================== Chargement CSV ===================== */
   const loadMarketData = useCallback((file: File) => {
-    // reset
+    // reset (⚠️ on garde des tableaux vides, jamais null)
     setFrames([]);
     setCurrentFrameIndex(0);
     setIsPlaying(false);
     setLoaded(false);
 
     setTrades([]);
-    setCurrentTickLadder(null);
+    setCurrentTickLadder(emptyLadder);
     setOrders([]);
     setPosition({ symbol: 'NQ', quantity: 0, averagePrice: 0, marketPrice: 0 });
     setPnl({ unrealized: 0, realized: 0, total: 0 });
     setRealizedPnLTotal(0);
     setVolumeByPrice(new Map());
+    setCurrentOrderBookData({
+      book_bid_prices: [],
+      book_ask_prices: [],
+      book_bid_sizes: [],
+      book_ask_sizes: [],
+    });
+    setMarketData([]);
     orderBookProcessor.resetVolume();
 
     const reader = new FileReader();
@@ -132,11 +155,14 @@ export function useTradingEngine() {
         worker: true,
         complete: (results) => {
           const rows = (results.data as any[]) || [];
+          setMarketData(rows); // compat éventuelle
+
+          // Construire les frames synchrones (MBP+BBO au même ts)
           const syncFrames = buildFramesSynced(rows);
           setFrames(syncFrames);
           setLoaded(syncFrames.length > 0);
 
-          // extraire trades & snapshots pour init
+          // extraire trades & snapshots pour init (conservé si le reste de l’app s’en sert)
           const tradeEvents: OrderBookTrade[] = [];
           const orderbookSnapshots: ParsedOrderBook[] = [];
           for (const f of syncFrames) {
@@ -187,7 +213,7 @@ export function useTradingEngine() {
           }
           setCurrentPrice(toTick(initialPrice));
 
-          // ancre (centrage)
+          // ancre (centrage visuel éventuel)
           orderBookProcessor.setAnchorByPrice(initialPrice);
 
           // ladder initial si dispo
@@ -199,7 +225,7 @@ export function useTradingEngine() {
       });
     };
     reader.readAsText(file);
-  }, [orderBookProcessor, volumeByPrice]);
+  }, [orderBookProcessor, volumeByPrice, emptyLadder]);
 
   /** ===================== Exécution d'ordres (simplifiée) ===================== */
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
@@ -251,7 +277,7 @@ export function useTradingEngine() {
     });
   }, [position, currentPrice, realizedPnLTotal]);
 
-  /** ===================== Traitement d’une frame ===================== */
+  /** ===================== Traitement d’une frame (OB → BBO → TRADES) ===================== */
   const processFrame = useCallback((frame: Frame) => {
     // 1) ORDERBOOK → construit le DOM book (quelques niveaux)
     if (frame.ob) {
@@ -272,7 +298,6 @@ export function useTradingEngine() {
           }
         }
       }
-
       // asks
       for (let i = 0; i < Math.min(frame.ob.askPrices.length, 10); i++) {
         const ap = toAskTick(frame.ob.askPrices[i]);
@@ -303,13 +328,13 @@ export function useTradingEngine() {
     // 2) BBO → L1 aligne prix courant / tailles L1
     if (frame.bbo) {
       setCurrentOrderBookData(prevData => ({
-        book_bid_prices: frame.bbo?.bidPrice ? [toBidTick(frame.bbo.bidPrice)] : (prevData?.book_bid_prices ?? []),
-        book_ask_prices: frame.bbo?.askPrice ? [toAskTick(frame.bbo.askPrice)] : (prevData?.book_ask_prices ?? []),
-        book_bid_sizes: frame.bbo?.bidSize ? [frame.bbo.bidSize] : (prevData?.book_bid_sizes ?? []),
-        book_ask_sizes: frame.bbo?.askSize ? [frame.bbo.askSize] : (prevData?.book_ask_sizes ?? []),
+        book_bid_prices: frame.bbo?.bidPrice != null ? [toBidTick(frame.bbo.bidPrice)] : (prevData?.book_bid_prices ?? []),
+        book_ask_prices: frame.bbo?.askPrice != null ? [toAskTick(frame.bbo.askPrice)] : (prevData?.book_ask_prices ?? []),
+        book_bid_sizes: frame.bbo?.bidSize != null ? [frame.bbo.bidSize] : (prevData?.book_bid_sizes ?? []),
+        book_ask_sizes: frame.bbo?.askSize != null ? [frame.bbo.askSize] : (prevData?.book_ask_sizes ?? []),
       }));
 
-      // prix courant (si info côté bid/ask)
+      // prix courant
       if (frame.bbo.bidPrice != null) setCurrentPrice(toTick(frame.bbo.bidPrice));
       else if (frame.bbo.askPrice != null) setCurrentPrice(toTick(frame.bbo.askPrice));
     }
@@ -319,7 +344,7 @@ export function useTradingEngine() {
       for (const tr of frame.trades) {
         const px = toTick(tr.price);
 
-        // TAS (merge agressor+price)
+        // TAS (merge aggressor+price)
         setAggregationBuffer(prev => {
           const last = prev[prev.length - 1];
           if (last && last.price === px && last.aggressor === (tr.aggressor || 'BUY')) {
@@ -338,7 +363,7 @@ export function useTradingEngine() {
           ];
         });
 
-        // volume par prix (pour heatmap ladder)
+        // volume par prix
         setVolumeByPrice(prev => {
           const next = new Map(prev);
           const gp = roundToGrid(px);
@@ -377,9 +402,8 @@ export function useTradingEngine() {
   /** ===================== Rebuild Ladder à chaque MAJ de book ===================== */
   useEffect(() => {
     if (
-      !currentOrderBookData ||
-      (!currentOrderBookData.book_bid_prices?.length &&
-        !currentOrderBookData.book_ask_prices?.length)
+      (!currentOrderBookData.book_bid_prices?.length) &&
+      (!currentOrderBookData.book_ask_prices?.length)
     ) {
       return;
     }
@@ -464,8 +488,6 @@ export function useTradingEngine() {
     if (isPlaying && playbackTimerRef.current) {
       window.clearTimeout(playbackTimerRef.current);
       playbackTimerRef.current = undefined;
-      // on laisse l'effet planifier avec le nouveau speed au prochain render
-      // (processFrame a déjà été appliqué pour l'index courant)
     }
   }, [isPlaying]);
 
@@ -481,9 +503,10 @@ export function useTradingEngine() {
     setPlaybackSpeed: setPlaybackSpeedSafe,
 
     // données UI
+    marketData, // compat d’UI qui affiche .length
     orderBook,
-    currentOrderBookData,
-    currentTickLadder,
+    currentOrderBookData,   // jamais null, toujours {book_*: []}
+    currentTickLadder,      // jamais null, toujours {levels: []}
     trades,
     timeAndSales,
 
