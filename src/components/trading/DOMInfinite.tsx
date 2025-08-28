@@ -31,7 +31,8 @@ interface DOMProps {
 }
 
 /**
- * Wrapper "drop-in" pour activer le scroll infini:
+ * DOMInfinite :
+ * - Fournit une fenêtre de ticks “extensible” autour du ladder courant (scroll infini).
  * - Etend la fenêtre de ticks vers le haut/bas par pas de 100 (par défaut)
  *   en écoutant les événements de scroll sur le conteneur interne (.trading-scroll).
  * - Ne modifie pas le composant DOM original: on lui passe juste un ladder étendu.
@@ -45,9 +46,23 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     batchSize: 100,
   });
 
-  // Centrage sur le prix courant avec la barre espace
+  // Auto-centrage une fois au premier ladder reçu
+  const didAutoCenterRef = useRef(false);
+  useEffect(() => {
+    if (didAutoCenterRef.current) return;
+    if (!ladder?.levels || ladder.levels.length === 0) return;
+    didAutoCenterRef.current = true;
+    // Recentre la fenêtre de ticks autour du mid, puis scroll sur le prix cible
+    resetAroundMid(ladder.levels.length);
+    // Laisse le temps au DOM de se mettre à jour
+    requestAnimationFrame(() => {
+      centerOnCurrentPrice();
+    });
+  }, [ladder, resetAroundMid, centerOnCurrentPrice]);
+
+  // Centrage sur le prix courant avec la barre espace (et au chargement via useEffect ci-dessus)
   const centerOnCurrentPrice = useCallback(() => {
-    if (!currentPrice || !ladder?.levels) return;
+    if (!ladder?.levels) return;
     
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
@@ -55,38 +70,44 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) return;
 
-    // Trouve l'index du niveau le plus proche du prix courant
-    const currentPriceIndex = ladder.levels.findIndex(level => 
-      Math.abs(level.price - currentPrice) < 0.125
+    // Cible: currentPrice, sinon lastPrice, sinon midPrice
+    const target = (currentPrice && Number.isFinite(currentPrice) && currentPrice)
+      || (ladder.lastPrice && Number.isFinite(ladder.lastPrice) && ladder.lastPrice)
+      || ladder.midPrice;
+
+    if (!target) return;
+
+    // Trouve l'index du niveau le plus proche de la cible
+    const targetIndex = ladder.levels.findIndex(level => 
+      Math.abs(level.price - target) < 0.125
     );
     
-    if (currentPriceIndex >= 0) {
+    if (targetIndex >= 0) {
       const ROW_HEIGHT = 32;
-      const targetScroll = currentPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
-      scrollEl.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+      const rowTop = targetIndex * ROW_HEIGHT;
+      const centerTop = rowTop - (scrollEl.clientHeight / 2) + ROW_HEIGHT / 2;
+      scrollEl.scrollTo({ top: Math.max(0, centerTop), behavior: 'smooth' });
     }
   }, [currentPrice, ladder]);
 
-  // Ajustement du scrollTop après extension en haut pour éviter les "sauts"
+  // Gestion du scroll infini : étendre en haut/bas selon la proximité des bords
   const pendingScrollAdjustRef = useRef<number | null>(null);
-
   useEffect(() => {
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
-
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) return;
 
-    const THRESHOLD = 40; // px du bord avant déclenchement
-    const ROW_HEIGHT = 32; // h-8 ≈ 2rem ≈ 32px (suffisant)
-
     const onScroll = () => {
-      const top = scrollEl.scrollTop;
-      const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
-      const distToBottom = maxScrollTop - top;
+      const { scrollTop, scrollHeight, clientHeight } = scrollEl;
+      const distToTop = scrollTop;
+      const distToBottom = scrollHeight - (scrollTop + clientHeight);
 
-      // Haut → on étend vers les prix plus élevés (ajout en haut)
-      if (top < THRESHOLD) {
+      const THRESHOLD = 200; // px
+      const ROW_HEIGHT = 32;
+
+      // Haut → on étend vers les prix plus hauts (ajout en haut → décale le scroll)
+      if (distToTop < THRESHOLD) {
         // On programmera un ajustement égal à batch * rowHeight pour conserver la vue
         pendingScrollAdjustRef.current = (pendingScrollAdjustRef.current ?? 0) + batchSize * ROW_HEIGHT;
         extendUp();
@@ -118,17 +139,12 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       return;
     }
 
-    const delta = pendingScrollAdjustRef.current;
-    // On reset avant de l'appliquer, pour éviter une accumulation
+    const adjust = pendingScrollAdjustRef.current;
     pendingScrollAdjustRef.current = 0;
-
-    // Appliquer au prochain frame pour que le DOM ait bien inséré les nouvelles lignes
-    requestAnimationFrame(() => {
-      scrollEl.scrollTop = scrollEl.scrollTop + delta;
-    });
+    scrollEl.scrollTop += adjust;
   }, [ladder]);
 
-  // Gestion des événements clavier pour la barre espace
+  // Espace = centrer sur current/last/mid
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
