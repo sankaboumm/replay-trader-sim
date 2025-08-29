@@ -426,6 +426,9 @@ export function useTradingEngine() {
           });
 
           setCurrentPrice(px);
+          
+          // Mettre à jour le market price de la position et le PnL unrealized
+          setPosition(prev => ({ ...prev, marketPrice: px }));
 
           const gridPrice = roundToGrid(px);
           setVolumeByPrice(prev => {
@@ -471,6 +474,7 @@ export function useTradingEngine() {
         if (event.bidPrice && event.askPrice) {
           const mid = toTick((toBidTick(event.bidPrice) + toAskTick(event.askPrice)) / 2);
           setCurrentPrice(mid);
+          setPosition(prev => ({ ...prev, marketPrice: mid }));
         }
         break;
       }
@@ -608,6 +612,29 @@ export function useTradingEngine() {
   }, []);
   const setPlaybackSpeedSafe = useCallback((speed: number) => setPlaybackSpeed(Math.max(0.1, speed)), []);
   const setPlaybackSpeedWrapper = useCallback((speed: number) => setPlaybackSpeedSafe(speed), [setPlaybackSpeedSafe]);
+
+  // ---------- Calcul du PnL unrealized ----------
+  useEffect(() => {
+    if (position.quantity !== 0 && position.averagePrice > 0) {
+      const unrealizedPnL = (position.marketPrice - position.averagePrice) * position.quantity * 20;
+      setPnl(prev => ({
+        ...prev,
+        unrealized: unrealizedPnL,
+        total: unrealizedPnL + prev.realized
+      }));
+    } else {
+      setPnl(prev => ({ ...prev, unrealized: 0, total: prev.realized }));
+    }
+  }, [position.quantity, position.averagePrice, position.marketPrice]);
+
+  // ---------- Mise à jour du PnL realized ----------
+  useEffect(() => {
+    setPnl(prev => ({
+      ...prev,
+      realized: realizedPnLTotal,
+      total: prev.unrealized + realizedPnLTotal
+    }));
+  }, [realizedPnLTotal]);
 
   // ---------- rendu ----------
   return {
