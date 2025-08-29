@@ -334,9 +334,14 @@ export function useTradingEngine() {
   const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number = 1) => {
-    // Pour un ordre market, on prend le meilleur prix disponible
+    // Pour un ordre market :
+    // - ACHAT (BUY) : prendre le meilleur ASK (prix le plus bas des vendeurs)
+    // - VENTE (SELL) : prendre le meilleur BID (prix le plus haut des acheteurs)
     const bestPrice = side === 'BUY' ? bestAsk : bestBid;
-    if (!bestPrice) return;
+    if (!bestPrice) {
+      console.warn(`Pas de ${side === 'BUY' ? 'ASK' : 'BID'} disponible pour l'ordre market`);
+      return;
+    }
     
     setOrders(prev => [...prev, {
       id: `MKT-${++orderIdCounter.current}`,
