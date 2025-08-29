@@ -15,7 +15,7 @@ interface Order {
   side: 'BUY' | 'SELL';
   price: number;
   quantity: number;
-  filled: number;
+  filled?: number;
 }
 
 interface DOMProps {
