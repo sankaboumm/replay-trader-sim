@@ -70,6 +70,8 @@ export function useTradingEngine() {
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackSpeed, setPlaybackSpeed] = useState(1);
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isPlayingRef = useRef(false);
+  useEffect(() => { isPlayingRef.current = isPlaying; }, [isPlaying]);
 
   const [orderBook, setOrderBook] = useState<OrderBookLevel[]>([]);
   const [currentOrderBookData, setCurrentOrderBookData] = useState<{
@@ -153,7 +155,7 @@ export function useTradingEngine() {
     return undefined;
   }
 
-  // ---------- AGRÉGATION T&S (functions HOISTED) ----------
+  // ---------- AGRÉGATION T&S ----------
   const [aggregationBuffer, setAggregationBuffer] = useState<Trade[]>([]);
   function flushAggregationBuffer() {
     if (aggregationBuffer.length === 0) return;
@@ -164,13 +166,12 @@ export function useTradingEngine() {
     setAggregationBuffer([]);
   }
 
-  // ---------- FILLS (function HOISTED) ----------
+  // ---------- FILLS ----------
   const orderIdCounter = useRef(0);
 
   function executeLimitFill(order: Order, px: number) {
     const qty = Math.min(order.quantity - (order.filled ?? 0), 1);
 
-    // Enregistrer le fill côté T&S
     const fillTrade: Trade = {
       id: `fill-${order.id}-${Date.now()}`,
       timestamp: Date.now(),
@@ -180,7 +181,6 @@ export function useTradingEngine() {
     };
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
-    // Position + realized PnL
     setPosition(prevPos => {
       const prevQty = prevPos.quantity;
       const prevAvg = prevPos.averagePrice;
@@ -204,13 +204,9 @@ export function useTradingEngine() {
       if (realizedDelta !== 0) setRealizedPnLTotal(prev => prev + realizedDelta);
 
       let newAvg = prevAvg;
-      if (newQty === 0) {
-        newAvg = 0;
-      } else if ((prevQty > 0 && newQty < 0) || (prevQty < 0 && newQty > 0)) {
-        // flip
-        newAvg = px;
-      } else if ((prevQty >= 0 && order.side === 'BUY') || (prevQty <= 0 && order.side === 'SELL')) {
-        // même sens → moyenne pondérée
+      if (newQty === 0) newAvg = 0;
+      else if ((prevQty > 0 && newQty < 0) || (prevQty < 0 && newQty > 0)) newAvg = px; // flip
+      else if ((prevQty >= 0 && order.side === 'BUY') || (prevQty <= 0 && order.side === 'SELL')) {
         const prevAbs = Math.abs(prevQty);
         const addAbs  = qty;
         const totalAbs = prevAbs + addAbs;
@@ -220,11 +216,10 @@ export function useTradingEngine() {
       return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
     });
 
-    // retirer l’ordre “travaillant” s’il existait
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }
 
-  // ---------- ORDERS (callbacks légers ; dépendent de fonctions hoistées) ----------
+  // ---------- ORDERS ----------
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
     setOrders(prev => [...prev, {
       id: `LMT-${++orderIdCounter.current}`,
@@ -237,7 +232,6 @@ export function useTradingEngine() {
   }, []);
 
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL') => {
-    // BBO en priorité, sinon book, sinon prix courant
     const bboBid = currentOrderBookData?.book_bid_prices?.[0] != null
       ? toBidTick(currentOrderBookData.book_bid_prices[0]!)
       : undefined;
@@ -248,7 +242,6 @@ export function useTradingEngine() {
     const obBestBid = orderBook.find(l => l.bidSize > 0)?.price;
     const obBestAsk = orderBook.find(l => l.askSize > 0)?.price;
 
-    // Market-at-touch : BUY => bestBid ; SELL => bestAsk
     const px = side === 'BUY'
       ? (bboBid ?? obBestBid ?? currentPrice)
       : (bboAsk ?? obBestAsk ?? currentPrice);
@@ -257,9 +250,9 @@ export function useTradingEngine() {
 
     const tmpOrder: Order = { id: `MKT-${++orderIdCounter.current}`, side, price: px, quantity: 1, filled: 0 };
     executeLimitFill(tmpOrder, px);
-  }, [currentOrderBookData, orderBook, currentPrice]); // executeLimitFill est hoisté (pas de TDZ)
+  }, [currentOrderBookData, orderBook, currentPrice]);
 
-  // ---------- PARSING (function HOISTED) ----------
+  // ---------- PARSING ----------
   function flushParsingBuffers() {
     if (tradesBufferRef.current.length > 0) {
       setTrades(prev => {
@@ -275,7 +268,6 @@ export function useTradingEngine() {
     }
   }
 
-  // ---------- LOAD MARKET DATA (function HOISTED) ----------
   function loadMarketData(file: File) {
     // reset UI
     setMarketData([]);
@@ -408,7 +400,7 @@ export function useTradingEngine() {
     });
   }
 
-  // ---------- EVENT PROCESSOR (function HOISTED) ----------
+  // ---------- EVENT PROCESSOR ----------
   function processEvent(event: MarketEvent) {
     if (!event) return;
 
@@ -526,7 +518,7 @@ export function useTradingEngine() {
     }
   }
 
-  // ---------- PNL (recalc continu) ----------
+  // ---------- PNL ----------
   useEffect(() => {
     const multiplier = 20; // $/point
     const unreal = (currentPrice - position.averagePrice) * position.quantity * multiplier;
@@ -543,7 +535,7 @@ export function useTradingEngine() {
       flushParsingBuffers();
     }, 50);
     return () => clearInterval(id);
-  }, [isLoading, isPlaying, aggregationBuffer]); // flush* sont hoistés → pas de TDZ
+  }, [isLoading, isPlaying, aggregationBuffer, marketData.length]);
 
   // ---------- VIEW ANCHOR ----------
   const setViewAnchorPrice = useCallback((price: number | null) => {
@@ -577,26 +569,49 @@ export function useTradingEngine() {
     setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
   }, [currentOrderBookData, orderBookProcessor, trades, volumeByPrice]);
 
-  // ---------- LOOP DE LECTURE ----------
+  // ---------- LECTURE (play/pause) ----------
   useEffect(() => {
-    if (!isPlaying || currentEventIndex >= marketData.length) return;
+    if (!isPlaying) return;
 
-    const currentEvent = marketData[currentEventIndex];
-    processEvent(currentEvent);
-
-    const nextIndex = currentEventIndex + 1;
-    setCurrentEventIndex(nextIndex);
-
-    if (nextIndex < marketData.length) {
-      const dt = Math.max(1, Math.floor(10 / playbackSpeed));
-      playbackTimerRef.current = setTimeout(() => {}, dt);
-    } else {
-      flushAggregationBuffer();
-      setIsPlaying(false);
+    // si pas de données, on tente périodiquement tant que isPlaying est actif
+    if (marketData.length === 0) {
+      playbackTimerRef.current = setTimeout(() => {
+        if (isPlayingRef.current) setCurrentEventIndex(i => i); // no-op pour relancer l’effet
+      }, 50);
+      return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
     }
 
+    const tick = () => {
+      setCurrentEventIndex(prevIdx => {
+        const idx = prevIdx;
+
+        if (!isPlayingRef.current) return idx; // pause
+        if (idx >= marketData.length) {
+          setIsPlaying(false);
+          flushAggregationBuffer();
+          return idx;
+        }
+
+        const ev = marketData[idx];
+        processEvent(ev);
+
+        const next = idx + 1;
+        if (next < marketData.length && isPlayingRef.current) {
+          const dt = Math.max(1, Math.floor(10 / playbackSpeed));
+          playbackTimerRef.current = setTimeout(tick, dt);
+        } else {
+          flushAggregationBuffer();
+          setIsPlaying(false);
+        }
+        return next;
+      });
+    };
+
+    // premier tick (immédiat)
+    playbackTimerRef.current = setTimeout(tick, 0);
+
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
-  }, [isPlaying, currentEventIndex, marketData, playbackSpeed]); // processEvent hoisté
+  }, [isPlaying, playbackSpeed, marketData]);
 
   // ---------- DÉRIVÉS BEST BID/ASK + SPREAD ----------
   const bestBid = useMemo(() => {
