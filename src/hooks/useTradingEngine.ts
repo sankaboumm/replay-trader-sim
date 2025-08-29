@@ -64,7 +64,7 @@ return { …ladder, levels };
 }
 
 export function useTradingEngine() {
-// ––––– ÉTATS –––––
+// ––––– ETATS –––––
 const [marketData, setMarketData] = useState<MarketEvent[]>([]);
 const [currentEventIndex, setCurrentEventIndex] = useState(0);
 const [isPlaying, setIsPlaying] = useState(false);
@@ -155,7 +155,7 @@ if (a === ‘SELL’ || a === ‘S’) return ‘SELL’;
 return undefined;
 }
 
-// ––––– AGRÉGATION T&S –––––
+// ––––– AGREGATION T&S –––––
 const [aggregationBuffer, setAggregationBuffer] = useState<Trade[]>([]);
 function flushAggregationBuffer() {
 if (aggregationBuffer.length === 0) return;
@@ -389,8 +389,7 @@ Papa.parse(file, {
     if (!tickSizeLockedRef.current && samplePricesRef.current.length >= 64) {
       const inferred = orderBookProcessor.inferTickSize(samplePricesRef.current);
       if (inferred && inferred > 0) {
-        // eslint-disable-next-line no-console
-        console.log('🔎 Inferred tick size (stream):', inferred);
+        console.log('Inferred tick size (stream):', inferred);
         orderBookProcessor.setTickSize(inferred as any);
         tickSizeLockedRef.current = true;
       }
@@ -399,12 +398,10 @@ Papa.parse(file, {
   complete: () => {
     setIsLoading(false);
     flushParsingBuffers();
-    // eslint-disable-next-line no-console
-    console.log('✅ Streaming parse complete');
+    console.log('Streaming parse complete');
   },
   error: (err) => {
-    // eslint-disable-next-line no-console
-    console.error('❌ Papa.parse error', err);
+    console.error('Papa.parse error', err);
     setIsLoading(false);
   }
 });
@@ -573,7 +570,7 @@ if (currentOrderBookData) {
 
 }, [orderBookProcessor, currentOrderBookData, trades, volumeByPrice]);
 
-// ––––– REBUILD LADDER SUR MÀJ BBO/BOOK –––––
+// ––––– REBUILD LADDER SUR MAJ BBO/BOOK –––––
 useEffect(() => {
 if (!currentOrderBookData) return;
 const snapshot: ParsedOrderBook = {
@@ -592,7 +589,7 @@ useEffect(() => {
 if (!isPlaying) return;
 
 ```
-// si pas de données, on tente périodiquement tant que isPlaying est actif
+// si pas de donnees, on tente periodiquement tant que isPlaying est actif
 if (marketData.length === 0) {
   playbackTimerRef.current = setTimeout(() => {
     if (isPlayingRef.current) setCurrentEventIndex(i => i); // no-op pour relancer l'effet
@@ -626,7 +623,7 @@ const tick = () => {
   });
 };
 
-// premier tick (immédiat)
+// premier tick (immediat)
 playbackTimerRef.current = setTimeout(tick, 0);
 
 return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
@@ -634,7 +631,7 @@ return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.curre
 
 }, [isPlaying, playbackSpeed, marketData, aggregationBuffer]);
 
-// ––––– DÉRIVÉS BEST BID/ASK + SPREAD –––––
+// ––––– DERIVES BEST BID/ASK + SPREAD –––––
 const bestBid = useMemo(() => {
 const fromBbo = currentOrderBookData?.book_bid_prices?.[0];
 if (fromBbo != null) return toBidTick(fromBbo);
@@ -650,7 +647,7 @@ return orderBook.find(l => l.askSize > 0)?.price;
 const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
 const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
-// Ajout d’un état dérivé pour savoir si le playback peut être activé
+// Ajout d’un etat derive pour savoir si le playback peut etre active
 const canPlay = useMemo(() => {
 return !isLoading && marketData.length > 0 && currentEventIndex < marketData.length;
 }, [isLoading, marketData.length, currentEventIndex]);
@@ -660,7 +657,7 @@ const togglePlayback = useCallback(() => setIsPlaying(p => !p), []);
 const setPlaybackSpeedWrapper = useCallback((s: number) => setPlaybackSpeed(s), []);
 
 return {
-// marché
+// marche
 marketData,
 currentEventIndex,
 
@@ -690,11 +687,11 @@ isPlaying,
 playbackSpeed,
 togglePlayback,
 setPlaybackSpeed: setPlaybackSpeedWrapper,
-canPlay, // AJOUTÉ
+canPlay, // AJOUTE
 
 // file
 loadMarketData,
-isLoading, // AJOUTÉ
+isLoading, // AJOUTE
 
 // utils
 orderBookProcessor
