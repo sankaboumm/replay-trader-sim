@@ -32,10 +32,8 @@ interface DOMProps {
 
 /**
  * DOMInfinite :
- * - Fournit une fenêtre de ticks “extensible” autour du ladder courant (scroll infini).
- * - Etend la fenêtre de ticks vers le haut/bas par pas de 100 (par défaut)
- *   en écoutant les événements de scroll sur le conteneur interne (.trading-scroll).
- * - Ne modifie pas le composant DOM original: on lui passe juste un ladder étendu.
+ * - Fenêtre de ticks “infinie” autour du ladder courant.
+ * - Etend la fenêtre vers le haut/bas en fonction du scroll.
  */
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice } = props;
@@ -46,27 +44,13 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     batchSize: 100,
   });
 
-  // Auto-centrage une fois au premier ladder reçu
-  const didAutoCenterRef = useRef(false);
-  useEffect(() => {
-    if (didAutoCenterRef.current) return;
-    if (!ladder?.levels || ladder.levels.length === 0) return;
-    didAutoCenterRef.current = true;
-    // Recentre la fenêtre de ticks autour du mid, puis scroll sur le prix cible
-    resetAroundMid(ladder.levels.length);
-    // Laisse le temps au DOM de se mettre à jour
-    requestAnimationFrame(() => {
-      centerOnCurrentPrice();
-    });
-  }, [ladder, resetAroundMid, centerOnCurrentPrice]);
-
-  // Centrage sur le prix courant avec la barre espace (et au chargement via useEffect ci-dessus)
+  // Déclare centerOnCurrentPrice AVANT de l'utiliser dans un useEffect (évite TDZ)
   const centerOnCurrentPrice = useCallback(() => {
     if (!ladder?.levels) return;
-    
+
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
-    
+
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) return;
 
@@ -78,10 +62,10 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     if (!target) return;
 
     // Trouve l'index du niveau le plus proche de la cible
-    const targetIndex = ladder.levels.findIndex(level => 
+    const targetIndex = ladder.levels.findIndex(level =>
       Math.abs(level.price - target) < 0.125
     );
-    
+
     if (targetIndex >= 0) {
       const ROW_HEIGHT = 32;
       const rowTop = targetIndex * ROW_HEIGHT;
@@ -89,6 +73,19 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       scrollEl.scrollTo({ top: Math.max(0, centerTop), behavior: 'smooth' });
     }
   }, [currentPrice, ladder]);
+
+  // Auto-centrage une fois au premier ladder reçu
+  const didAutoCenterRef = useRef(false);
+  useEffect(() => {
+    if (didAutoCenterRef.current) return;
+    if (!ladder?.levels || ladder.levels.length === 0) return;
+    didAutoCenterRef.current = true;
+    // Recentre la fenêtre de ticks autour du mid, puis scroll sur la cible
+    resetAroundMid(ladder.levels.length);
+    requestAnimationFrame(() => {
+      centerOnCurrentPrice();
+    });
+  }, [ladder, resetAroundMid, centerOnCurrentPrice]);
 
   // Gestion du scroll infini : étendre en haut/bas selon la proximité des bords
   const pendingScrollAdjustRef = useRef<number | null>(null);
@@ -108,7 +105,6 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
       // Haut → on étend vers les prix plus hauts (ajout en haut → décale le scroll)
       if (distToTop < THRESHOLD) {
-        // On programmera un ajustement égal à batch * rowHeight pour conserver la vue
         pendingScrollAdjustRef.current = (pendingScrollAdjustRef.current ?? 0) + batchSize * ROW_HEIGHT;
         extendUp();
       }

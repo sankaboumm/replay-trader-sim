@@ -289,37 +289,6 @@ export function useTradingEngine() {
     });
   }, [flushParsingBuffers, orderBookProcessor]);
 
-  // ---------- ORDRES ----------
-  const orderIdCounter = useRef(0);
-  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
-    setOrders(prev => [...prev, {
-      id: `LMT-${++orderIdCounter.current}`,
-      side, price, quantity, filled: 0
-    }]);
-  }, []);
-  const cancelOrdersAtPrice = useCallback((price: number) => {
-    setOrders(prev => prev.filter(o => o.price !== price));
-  }, []);
-  const placeMarketOrder = useCallback((side: 'BUY' | 'SELL') => {
-    // Exécuter immédiatement au meilleur prix offert
-    const bookPx = side === 'BUY' ? bestAskRef.current : bestBidRef.current;
-    const px = (bookPx ?? currentPrice);
-    if (!px || !Number.isFinite(px)) return;
-  
-    const order: Order = {
-      id: `MKT-${++orderIdCounter.current}`,
-      side,
-      price: px,
-      quantity: 1,
-      filled: 0,
-    };
-  
-    // Ajoute puis exécute instantanément pour conserver les side-effects homogènes
-    setOrders(prev => [...prev, order]);
-    executeLimitFill(order, px);
-    setOrders(prev => prev.filter(o => o.id !== order.id));
-  }, [currentPrice, executeLimitFill]);
-
   // ---------- AGRÉGATION TAS ----------
   const [aggregationBuffer, setAggregationBuffer] = useState<Trade[]>([]);
   const flushAggregationBuffer = useCallback(() => {
@@ -332,6 +301,7 @@ export function useTradingEngine() {
     }
   }, [aggregationBuffer, setTimeAndSales]);
 
+  // ---------- FILL LIMIT (déclaré AVANT placeMarketOrder pour éviter TDZ) ----------
   const executeLimitFill = useCallback((order: Order, px: number) => {
     const qty = Math.min(order.quantity - (order.filled ?? 0), 1);
     const fillTrade: Trade = {
@@ -369,6 +339,37 @@ export function useTradingEngine() {
 
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }, [currentPrice]);
+
+  // ---------- ORDRES ----------
+  const orderIdCounter = useRef(0);
+  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
+    setOrders(prev => [...prev, {
+      id: `LMT-${++orderIdCounter.current}`,
+      side, price, quantity, filled: 0
+    }]);
+  }, []);
+  const cancelOrdersAtPrice = useCallback((price: number) => {
+    setOrders(prev => prev.filter(o => o.price !== price));
+  }, []);
+  const placeMarketOrder = useCallback((side: 'BUY' | 'SELL') => {
+    // Exécuter immédiatement au meilleur prix offert
+    const bookPx = side === 'BUY' ? bestAskRef.current : bestBidRef.current;
+    const px = (bookPx ?? currentPrice);
+    if (!px || !Number.isFinite(px)) return;
+
+    const order: Order = {
+      id: `MKT-${++orderIdCounter.current}`,
+      side,
+      price: px,
+      quantity: 1,
+      filled: 0,
+    };
+
+    // Ajoute puis exécute instantanément pour conserver les side-effects homogènes
+    setOrders(prev => [...prev, order]);
+    executeLimitFill(order, px);
+    setOrders(prev => prev.filter(o => o.id !== order.id));
+  }, [currentPrice, executeLimitFill]);
 
   // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
