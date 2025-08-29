@@ -329,43 +329,8 @@ export function useTradingEngine() {
 
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
-  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
-    setOrders(prev => [...prev, {
-      id: `LMT-${++orderIdCounter.current}`,
-      side, price, quantity, filled: 0
-    }]);
-  }, []);
-  const cancelOrdersAtPrice = useCallback((price: number) => {
-    setOrders(prev => prev.filter(o => o.price !== price));
-  }, []);
 
-  const placeMarketOrder = useCallback((side: 'BUY' | 'SELL') => {
-    // Determine best available price from BBO first, then fallback to aggregated orderBook, then current price
-    const bboBid = currentOrderBookData?.book_bid_prices && currentOrderBookData.book_bid_prices.length > 0
-      ? toBidTick(currentOrderBookData.book_bid_prices[0])
-      : undefined;
-    const bboAsk = currentOrderBookData?.book_ask_prices && currentOrderBookData.book_ask_prices.length > 0
-      ? toAskTick(currentOrderBookData.book_ask_prices[0])
-      : undefined;
-
-    const obBestBid = orderBook.find(l => l.bidSize > 0)?.price;
-    const obBestAsk = orderBook.find(l => l.askSize > 0)?.price;
-
-    // Market-at-touch semantics:
-    // - BUY -> execute at best bid
-    // - SELL -> execute at best ask
-    const px = side === 'BUY'
-      ? (bboBid ?? obBestBid ?? currentPrice)
-      : (bboAsk ?? obBestAsk ?? currentPrice);
-
-    if (!px || !Number.isFinite(px)) return;
-
-    // Execute immediately rather than enqueueing a synthetic order
-    const tmpOrder: Order = { id: `MKT-${++orderIdCounter.current}`, side, price: px, quantity: 1, filled: 0 };
-    executeLimitFill(tmpOrder, px);
-  }, [currentOrderBookData, orderBook, currentPrice, executeLimitFill]);
-
-  // ---------- AGRÉGATION TAS ----------
+  // ⬇️⬇️ IMPORTANT: on déclare executeLimitFill AVANT placeMarketOrder pour éviter la TDZ ⬇️⬇️
   const [aggregationBuffer, setAggregationBuffer] = useState<Trade[]>([]);
   const flushAggregationBuffer = useCallback(() => {
     if (aggregationBuffer.length > 0) {
@@ -443,6 +408,47 @@ export function useTradingEngine() {
     // Remove order from working list if it exists there
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }, []);
+  // ⬆️⬆️ FIN: executeLimitFill déclaré en amont ⬆️⬆️
+
+  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
+    setOrders(prev => [...prev, {
+      id: `LMT-${++orderIdCounter.current}`,
+      side, price, quantity, filled: 0
+    }]);
+  }, []);
+
+  const cancelOrdersAtPrice = useCallback((price: number) => {
+    setOrders(prev => prev.filter(o => o.price !== price));
+  }, []);
+
+  const placeMarketOrder = useCallback((side: 'BUY' | 'SELL') => {
+    // Determine best available price from BBO first, then fallback to aggregated orderBook, then current price
+    const bboBid = currentOrderBookData?.book_bid_prices && currentOrderBookData.book_bid_prices.length > 0
+      ? toBidTick(currentOrderBookData.book_bid_prices[0])
+      : undefined;
+    const bboAsk = currentOrderBookData?.book_ask_prices && currentOrderBookData.book_ask_prices.length > 0
+      ? toAskTick(currentOrderBookData.book_ask_prices[0])
+      : undefined;
+
+    const obBestBid = orderBook.find(l => l.bidSize > 0)?.price;
+    const obBestAsk = orderBook.find(l => l.askSize > 0)?.price;
+
+    // Market-at-touch semantics:
+    // - BUY -> execute at best bid
+    // - SELL -> execute at best ask
+    const px = side === 'BUY'
+      ? (bboBid ?? obBestBid ?? currentPrice)
+      : (bboAsk ?? obBestAsk ?? currentPrice);
+
+    if (!px || !Number.isFinite(px)) return;
+
+    // Execute immediately rather than enqueueing a synthetic order
+    const tmpOrder: Order = { id: `MKT-${++orderIdCounter.current}`, side, price: px, quantity: 1, filled: 0 };
+    executeLimitFill(tmpOrder, px);
+  }, [currentOrderBookData, orderBook, currentPrice, executeLimitFill]);
+
+  // ---------- AGRÉGATION TAS ----------
+  // (flushAggregationBuffer + state déjà déclarés au-dessus avec executeLimitFill)
 
   // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
@@ -585,11 +591,13 @@ export function useTradingEngine() {
     if (fromBbo != null) return toBidTick(fromBbo);
     return orderBook.find(l => l.bidSize > 0)?.price;
   }, [currentOrderBookData, orderBook]);
+
   const bestAsk = useMemo(() => {
     const fromBbo = currentOrderBookData?.book_ask_prices?.[0];
     if (fromBbo != null) return toAskTick(fromBbo);
     return orderBook.find(l => l.askSize > 0)?.price;
   }, [currentOrderBookData, orderBook]);
+
   const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
   const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
@@ -686,7 +694,6 @@ export function useTradingEngine() {
     loadMarketData,
 
     // utils
-    orderBookProcessor,
-    setViewAnchorPrice
+    orderBookProcessor
   };
-}
+}!
