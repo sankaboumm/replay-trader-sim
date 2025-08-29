@@ -173,7 +173,13 @@ export function useTradingEngine() {
   const [tickData, setTickData] = useState<Tick[]>([]);
   const [timeAndSales, setTimeAndSales] = useState<Trade[]>([]);
   const [position, setPosition] = useState<Position>({ size: 0, averagePrice: 0 });
+
+  // 👉 currentPrice = LTP uniquement (suivi des trades)
   const [currentPrice, setCurrentPrice] = useState<number | null>(null);
+
+  // 👉 Nouveau : markPrice (mid ou micro, mis à jour par le BBO) — optionnel pour l’UI/PnL
+  const [markPrice, setMarkPrice] = useState<number | null>(null);
+
   const [priceAction, setPriceAction] = useState<PriceAction | null>(null);
   const [lastEventTime, setLastEventTime] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -189,8 +195,9 @@ export function useTradingEngine() {
 
   const processEvent = useCallback((event: MarketEvent) => {
     setLastEventTime(event.timestamp);
+
     if (event.eventType === 'BBO') {
-      // Update order book state (best levels)
+      // --- BBO: on met à jour le carnet (indépendamment), un côté à la fois ---
       setOrderBookData(prev => {
         const bidPrices = event.bidPrice != null ? [event.bidPrice] : (prev?.book_bid_prices || []);
         const askPrices = event.askPrice != null ? [event.askPrice] : (prev?.book_ask_prices || []);
@@ -207,6 +214,7 @@ export function useTradingEngine() {
       const mid = computeMid(event.bidPrice, event.askPrice, tickSize);
       const micro = computeMicro(event.bidPrice, event.askPrice, event.bidSize, event.askSize, tickSize);
 
+      // On logge un "quote tick" pour visualiser les mouvements du BBO (on préfère mid si dispo)
       setTickData(prev => ([
         ...prev,
         {
@@ -216,15 +224,23 @@ export function useTradingEngine() {
         }
       ]));
 
+      // 🔁 Mise à jour du markPrice (mid/micro) pour l’UI/PnL si souhaité
       if (showMicroPrice && micro !== null) {
-        setCurrentPrice(micro);
+        setMarkPrice(micro);
       } else if (!showMicroPrice && mid !== null) {
-        setCurrentPrice(mid);
+        setMarkPrice(mid);
       }
+
+      // ❌ Avant: on mettait currentPrice = mid/micro ici.
+      // ⛔ Désormais, currentPrice ne bouge PAS sur BBO (LTP uniquement).
+      // if (showMicroPrice && micro !== null) setCurrentPrice(micro);
+      // else if (!showMicroPrice && mid !== null) setCurrentPrice(mid);
+
     } else if (event.eventType === 'TRADE') {
+      // --- TRADE: seul endroit où currentPrice est mis à jour ---
       const tradePrice = toTick(event.tradePrice ?? null, tickSize);
       if (tradePrice !== null) {
-        setCurrentPrice(tradePrice);
+        setCurrentPrice(tradePrice); // LTP
         setTimeAndSales(prev => ([
           ...prev,
           {
@@ -247,7 +263,6 @@ export function useTradingEngine() {
       const ob = event.orderBook;
       if (ob) {
         const ladd = ob.tickLadder as TickLadder | undefined;
-        // Fill order book arrays if provided
         if (ladd) {
           setOrderBookData({
             book_bid_prices: ladd.bids.map(l => l.price),
@@ -257,7 +272,7 @@ export function useTradingEngine() {
           });
         }
       }
-      // We can also log a console tick to visualize
+      // Console tick pour visualiser (ne touche pas currentPrice)
       setTickData(prev => ([
         ...prev,
         {
@@ -286,6 +301,7 @@ export function useTradingEngine() {
     setPosition({ size: 0, averagePrice: 0 });
     setOrderBookData(null);
     setCurrentPrice(null);
+    setMarkPrice(null); // reset mark aussi
     setPriceAction(null);
     setWindowStartIndex(0);
     setWindowEndIndex(windowSize);
@@ -332,10 +348,6 @@ export function useTradingEngine() {
     setWindowStartIndex(0);
     setWindowEndIndex(newSize[0]);
   }, [setWindowStartIndex, setWindowEndIndex]);
-
-  const ensureIndexVisible = useCallback((index: number) => {
-    // no-op placeholder; real hook provides this
-  }, []);
 
   // Playback loop
   useEffect(() => {
@@ -415,6 +427,7 @@ export function useTradingEngine() {
       setTimeAndSales([]);
       setOrderBookData(null);
       setCurrentPrice(null);
+      setMarkPrice(null);
       setPriceAction(null);
       setPlaybackState('stopped');
       setWindowStartIndex(0);
@@ -474,6 +487,7 @@ export function useTradingEngine() {
       setTimeAndSales([]);
       setOrderBookData(null);
       setCurrentPrice(null);
+      setMarkPrice(null);
       setPriceAction(null);
       setPlaybackState('stopped');
       setWindowStartIndex(0);
@@ -520,7 +534,8 @@ export function useTradingEngine() {
     timeAndSales,
     position,
     setPosition,
-    currentPrice,
+    currentPrice,   // LTP uniquement (mis à jour sur TRADE)
+    markPrice,      // mid/micro dérivé du BBO (optionnel)
     priceAction,
     lastEventTime,
     isLoading,
