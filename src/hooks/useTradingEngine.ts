@@ -1,19 +1,19 @@
 // src/hooks/useTradingEngine.ts
-import { useState, useCallback, useRef, useEffect, useMemo } from ‘react’;
-import Papa from ‘papaparse’;
+import { useState, useCallback, useRef, useEffect, useMemo } from “react”;
+import Papa from “papaparse”;
 import {
 OrderBookProcessor,
 ParsedOrderBook,
 Trade as OrderBookTrade,
 TickLadder
-} from ‘@/lib/orderbook’;
+} from “@/lib/orderbook”;
 
 interface MarketEvent {
 timestamp: number;
-eventType: ‘TRADE’ | ‘BBO’ | ‘ORDERBOOK’;
+eventType: “TRADE” | “BBO” | “ORDERBOOK”;
 tradePrice?: number;
 tradeSize?: number;
-aggressor?: ‘BUY’ | ‘SELL’;
+aggressor?: “BUY” | “SELL”;
 bidPrice?: number;
 bidSize?: number;
 askPrice?: number;
@@ -29,12 +29,12 @@ id: string;
 timestamp?: number | Date;
 price: number;
 size: number;
-aggressor: ‘BUY’ | ‘SELL’;
+aggressor: “BUY” | “SELL”;
 }
 
 interface Order {
 id: string;
-side: ‘BUY’ | ‘SELL’;
+side: “BUY” | “SELL”;
 price: number;
 quantity: number;
 filled?: number;
@@ -89,7 +89,7 @@ const [currentPrice, setCurrentPrice] = useState<number>(0);
 const [orders, setOrders] = useState<Order[]>([]);
 
 const [position, setPosition] = useState<{ symbol: string; quantity: number; averagePrice: number; marketPrice: number }>({
-symbol: ‘NQ’, quantity: 0, averagePrice: 0, marketPrice: 0
+symbol: “NQ”, quantity: 0, averagePrice: 0, marketPrice: 0
 });
 const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
 const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
@@ -128,8 +128,8 @@ if (value == null) return [];
 if (Array.isArray(value)) return value.map(Number).filter(n => Number.isFinite(n));
 const s = String(value);
 try {
-if (s.trim().startsWith(’[’)) return (JSON.parse(s) as any[]).map(Number).filter(Number.isFinite);
-const cleaned = value.toString().replace(/^[|]$/g, ‘’).trim();
+if (s.trim().startsWith(”[”)) return (JSON.parse(s) as any[]).map(Number).filter(Number.isFinite);
+const cleaned = value.toString().replace(/^[|]$/g, “”).trim();
 if (!cleaned) return [];
 return cleaned
 .split(/[\s,]+/)
@@ -140,18 +140,18 @@ return [];
 }
 }
 
-function normalizeEventType(v: any): MarketEvent[‘eventType’] {
+function normalizeEventType(v: any): MarketEvent[“eventType”] {
 const s = v?.toString().toUpperCase().trim();
-if (s === ‘TRADE’ || s === ‘T’) return ‘TRADE’;
-if (s === ‘BBO’ || s === ‘QUOTE’) return ‘BBO’;
-if (s === ‘ORDERBOOK’ || s === ‘ORDERBOOK_FULL’ || s === ‘BOOK’ || s === ‘OB’) return ‘ORDERBOOK’;
-return ‘BBO’;
+if (s === “TRADE” || s === “T”) return “TRADE”;
+if (s === “BBO” || s === “QUOTE”) return “BBO”;
+if (s === “ORDERBOOK” || s === “ORDERBOOK_FULL” || s === “BOOK” || s === “OB”) return “ORDERBOOK”;
+return “BBO”;
 }
 
-function normalizeAggressor(aggressor: any): ‘BUY’ | ‘SELL’ | undefined {
+function normalizeAggressor(aggressor: any): “BUY” | “SELL” | undefined {
 const a = aggressor?.toString().toUpperCase().trim();
-if (a === ‘BUY’ || a === ‘B’) return ‘BUY’;
-if (a === ‘SELL’ || a === ‘S’) return ‘SELL’;
+if (a === “BUY” || a === “B”) return “BUY”;
+if (a === “SELL” || a === “S”) return “SELL”;
 return undefined;
 }
 
@@ -178,7 +178,7 @@ const fillTrade: Trade = {
   timestamp: Date.now(),
   price: px,
   size: qty,
-  aggressor: order.side === 'BUY' ? 'BUY' : 'SELL'
+  aggressor: order.side === "BUY" ? "BUY" : "SELL"
 };
 setAggregationBuffer(prev => [...prev, fillTrade]);
 
@@ -186,17 +186,17 @@ setPosition(prevPos => {
   const prevQty = prevPos.quantity;
   const prevAvg = prevPos.averagePrice;
 
-  const delta = order.side === 'BUY' ? qty : -qty;
+  const delta = order.side === "BUY" ? qty : -qty;
   const newQty = prevQty + delta;
 
   let realizedDelta = 0;
-  const isClosing = (prevQty > 0 && order.side === 'SELL') || (prevQty < 0 && order.side === 'BUY');
+  const isClosing = (prevQty > 0 && order.side === "SELL") || (prevQty < 0 && order.side === "BUY");
   if (isClosing) {
     const closedQty = Math.min(Math.abs(prevQty), qty);
     if (closedQty > 0) {
-      if (prevQty > 0 && order.side === 'SELL') {
+      if (prevQty > 0 && order.side === "SELL") {
         realizedDelta += (px - prevAvg) * closedQty * 20;
-      } else if (prevQty < 0 && order.side === 'BUY') {
+      } else if (prevQty < 0 && order.side === "BUY") {
         realizedDelta += (prevAvg - px) * closedQty * 20;
       }
     }
@@ -207,7 +207,7 @@ setPosition(prevPos => {
   let newAvg = prevAvg;
   if (newQty === 0) newAvg = 0;
   else if ((prevQty > 0 && newQty < 0) || (prevQty < 0 && newQty > 0)) newAvg = px; // flip
-  else if ((prevQty >= 0 && order.side === 'BUY') || (prevQty <= 0 && order.side === 'SELL')) {
+  else if ((prevQty >= 0 && order.side === "BUY") || (prevQty <= 0 && order.side === "SELL")) {
     const prevAbs = Math.abs(prevQty);
     const addAbs  = qty;
     const totalAbs = prevAbs + addAbs;
@@ -223,7 +223,7 @@ setOrders(prev => prev.filter(o => o.id !== order.id));
 }
 
 // ––––– ORDERS –––––
-const placeLimitOrder = useCallback((side: ‘BUY’ | ‘SELL’, price: number, quantity: number) => {
+const placeLimitOrder = useCallback((side: “BUY” | “SELL”, price: number, quantity: number) => {
 setOrders(prev => […prev, {
 id: `LMT-${++orderIdCounter.current}`,
 side, price, quantity, filled: 0
@@ -234,7 +234,7 @@ const cancelOrdersAtPrice = useCallback((price: number) => {
 setOrders(prev => prev.filter(o => o.price !== price));
 }, []);
 
-const placeMarketOrder = useCallback((side: ‘BUY’ | ‘SELL’) => {
+const placeMarketOrder = useCallback((side: “BUY” | “SELL”) => {
 const bboBid = currentOrderBookData?.book_bid_prices?.[0] != null
 ? toBidTick(currentOrderBookData.book_bid_prices[0]!)
 : undefined;
@@ -246,7 +246,7 @@ const bboAsk = currentOrderBookData?.book_ask_prices?.[0] != null
 const obBestBid = orderBook.find(l => l.bidSize > 0)?.price;
 const obBestAsk = orderBook.find(l => l.askSize > 0)?.price;
 
-const px = side === 'BUY'
+const px = side === "BUY"
   ? (bboBid ?? obBestBid ?? currentPrice)
   : (bboAsk ?? obBestAsk ?? currentPrice);
 
@@ -285,7 +285,7 @@ setIsPlaying(false);
 setTrades([]);
 setCurrentTickLadder(null);
 setOrders([]);
-setPosition({ symbol: ‘NQ’, quantity: 0, averagePrice: 0, marketPrice: 0 });
+setPosition({ symbol: “NQ”, quantity: 0, averagePrice: 0, marketPrice: 0 });
 setPnl({ unrealized: 0, realized: 0, total: 0 });
 setRealizedPnLTotal(0);
 setVolumeByPrice(new Map());
@@ -312,13 +312,13 @@ Papa.parse(file, {
     const timestamp = parseTimestamp(row);
     const eventType = normalizeEventType(row.event_type);
 
-    if (eventType === 'TRADE') {
+    if (eventType === "TRADE") {
       const price = parseFloat(row.price ?? row.trade_price ?? row.last_price);
       const size = parseFloat(row.size ?? row.trade_size ?? row.last_size);
       const agg = normalizeAggressor(row.aggressor ?? row.side ?? row.buy_sell);
       if (!isNaN(price) && !isNaN(size) && agg) {
         tradesBufferRef.current.push({ timestamp, price, size, aggressor: agg });
-        eventsBufferRef.current.push({ timestamp, eventType: 'TRADE', tradePrice: price, tradeSize: size, aggressor: agg });
+        eventsBufferRef.current.push({ timestamp, eventType: "TRADE", tradePrice: price, tradeSize: size, aggressor: agg });
 
         if (!initialPriceSet) {
           setCurrentPrice(toTick(price));
@@ -327,7 +327,7 @@ Papa.parse(file, {
           initialPriceSet = true;
         }
       }
-    } else if (eventType === 'BBO') {
+    } else if (eventType === "BBO") {
       const bp = parseFloat(row.bid_price);
       const ap = parseFloat(row.ask_price);
       const bs = parseFloat(row.bid_size);
@@ -339,7 +339,7 @@ Papa.parse(file, {
       if (hasB || hasA) {
         eventsBufferRef.current.push({
           timestamp,
-          eventType: 'BBO',
+          eventType: "BBO",
           bidPrice: hasB ? bp : undefined,
           bidSize:  !isNaN(bs) ? bs : undefined,
           askPrice: hasA ? ap : undefined,
@@ -357,7 +357,7 @@ Papa.parse(file, {
           }
         }
       }
-    } else if (eventType === 'ORDERBOOK') {
+    } else if (eventType === "ORDERBOOK") {
       const bidPrices = parseArrayField(row.book_bid_prices);
       const bidSizes  = parseArrayField(row.book_bid_sizes);
       const askPrices = parseArrayField(row.book_ask_prices);
@@ -366,7 +366,7 @@ Papa.parse(file, {
       if ((bidPrices.length && bidSizes.length) || (askPrices.length && askSizes.length)) {
         eventsBufferRef.current.push({
           timestamp,
-          eventType: 'ORDERBOOK',
+          eventType: "ORDERBOOK",
           bookBidPrices: bidPrices,
           bookBidSizes: bidSizes,
           bookAskPrices: askPrices,
@@ -389,7 +389,7 @@ Papa.parse(file, {
     if (!tickSizeLockedRef.current && samplePricesRef.current.length >= 64) {
       const inferred = orderBookProcessor.inferTickSize(samplePricesRef.current);
       if (inferred && inferred > 0) {
-        console.log('Inferred tick size (stream):', inferred);
+        console.log("Inferred tick size (stream):", inferred);
         orderBookProcessor.setTickSize(inferred as any);
         tickSizeLockedRef.current = true;
       }
@@ -398,10 +398,10 @@ Papa.parse(file, {
   complete: () => {
     setIsLoading(false);
     flushParsingBuffers();
-    console.log('Streaming parse complete');
+    console.log("Streaming parse complete");
   },
   error: (err) => {
-    console.error('Papa.parse error', err);
+    console.error("Papa.parse error", err);
     setIsLoading(false);
   }
 });
@@ -415,7 +415,7 @@ if (!event) return;
 
 ```
 switch (event.eventType) {
-  case 'TRADE': {
+  case "TRADE": {
     if (event.tradePrice && event.tradeSize && event.aggressor) {
       const px = toTick(event.tradePrice);
       const trade: Trade = {
@@ -456,8 +456,8 @@ switch (event.eventType) {
         const updated: Order[] = [];
         for (const o of prev) {
           const should =
-            (o.side === 'BUY'  && px <= o.price) ||
-            (o.side === 'SELL' && px >= o.price);
+            (o.side === "BUY"  && px <= o.price) ||
+            (o.side === "SELL" && px >= o.price);
           if (should) {
             executeLimitFill(o, o.price);
           } else {
@@ -470,7 +470,7 @@ switch (event.eventType) {
     break;
   }
 
-  case 'BBO': {
+  case "BBO": {
     setCurrentOrderBookData(prevData => ({
       book_bid_prices: event.bidPrice ? [toBidTick(event.bidPrice)] : (prevData?.book_bid_prices ?? []),
       book_ask_prices: event.askPrice ? [toAskTick(event.askPrice)] : (prevData?.book_ask_prices ?? []),
@@ -485,7 +485,7 @@ switch (event.eventType) {
     break;
   }
 
-  case 'ORDERBOOK': {
+  case "ORDERBOOK": {
     const priceMap = new Map<number, OrderBookLevel>();
     for (const l of orderBook) priceMap.set(l.price, l);
 
