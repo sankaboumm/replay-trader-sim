@@ -14,7 +14,7 @@ interface Order {
   side: 'BUY' | 'SELL';
   price: number;
   quantity: number;
-  filled?: number;
+  filled: number;
 }
 
 interface DOMProps {
@@ -76,7 +76,7 @@ export const DOM = memo(function DOM({
 
   // Fonction pour récupérer les ordres à un prix donné
   const getOrdersAtPrice = useCallback((price: number, side: 'BUY' | 'SELL') => {
-    return orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > (o.filled ?? 0));
+    return orders.filter(o => o.side === side && Math.abs(o.price - price) < 0.125 && o.quantity > o.filled);
   }, [orders]);
 
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
@@ -148,16 +148,10 @@ export const DOM = memo(function DOM({
             const isAveragePrice = position && position.quantity !== 0 && Math.abs(level.price - position.averagePrice) < 0.125;
             const isHighlighted = highlightedPrices.has(level.price);
             
-            // Détection du spread (entre le meilleur bid et ask)
-            const isSpread = level.bidSize === 0 && level.askSize === 0 && 
-                           tickLadder?.levels && tickLadder.levels.length > 0 &&
-                           level.price > tickLadder.levels.find(l => l.bidSize > 0)?.price! &&
-                           level.price < tickLadder.levels.find(l => l.askSize > 0)?.price!;
-            
             const buyOrders = getOrdersAtPrice(level.price, 'BUY');
             const sellOrders = getOrdersAtPrice(level.price, 'SELL');
-            const totalBuy = buyOrders.reduce((s, o) => s + (o.quantity - (o.filled ?? 0)), 0);
-            const totalSell = sellOrders.reduce((s, o) => s + (o.quantity - (o.filled ?? 0)), 0);
+            const totalBuy = buyOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
+            const totalSell = sellOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
 
             return (
               <div
@@ -189,7 +183,6 @@ export const DOM = memo(function DOM({
                     isMid && "text-yellow-400 font-semibold",
                     isAveragePrice && "bg-position-average",
                     isHighlighted && "bg-trading-highlight",
-                    isSpread && "bg-muted/30",
                     "hover:bg-muted/50 transition-colors duration-100"
                   )}
                   onClick={(e) => handlePriceClick(level.price, e)}
