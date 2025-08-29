@@ -102,8 +102,9 @@ export function useTradingEngine() {
 
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
 
-  // flush cadence
+  // flush cadence + parsing flag
   const lastFlushTsRef = useRef<number>(0);
+  const isParsingRef = useRef<boolean>(false);
 
   const parseTimestamp = (row: any): number => {
     const t = row?.timestamp ?? row?.time ?? row?.ts;
@@ -145,7 +146,15 @@ export function useTradingEngine() {
   // ---------- flush buffers ----------
   const flushParsingBuffers = useCallback(() => {
     if (eventsBufferRef.current.length > 0) {
-      setMarketData(prev => [...prev, ...eventsBufferRef.current]);
+      // Dégrise le Play dès le 1er batch
+      setMarketData(prev => {
+        const merged = [...prev, ...eventsBufferRef.current];
+        if (prev.length === 0 && merged.length > 0) {
+          // On autorise déjà la lecture
+          setIsLoading(false);
+        }
+        return merged;
+      });
       eventsBufferRef.current = [];
     }
     if (tradesBufferRef.current.length > 0) {
@@ -168,6 +177,8 @@ export function useTradingEngine() {
 
   const loadMarketData = useCallback((file: File) => {
     setIsLoading(true);
+    isParsingRef.current = true;
+
     setMarketData([]);
     setTimeAndSales([]);
     setTrades([]);
@@ -179,6 +190,7 @@ export function useTradingEngine() {
     setPnl({ unrealized: 0, realized: 0, total: 0 });
     setCurrentPrice(0);
     initialPriceSetRef.current = false;
+
     eventsBufferRef.current = [];
     tradesBufferRef.current = [];
     samplePricesRef.current = [];
@@ -277,19 +289,20 @@ export function useTradingEngine() {
           }
         }
 
-        // ---- NEW: flush régulier pendant le parsing ----
+        // ---- Flush périodique pendant le parsing (dégrise Play dès le 1er flush) ----
         const now = Date.now();
         const shouldFlush = (eventsBufferRef.current.length >= 400) || (now - lastFlushTsRef.current >= 120);
         if (shouldFlush) {
           flushParsingBuffers();
         }
       },
-      // NB: avec `step`, `chunk` n'est pas appelé. On garde `complete` pour un dernier flush.
       complete: () => {
         flushParsingBuffers();
+        isParsingRef.current = false;
         setIsLoading(false);
       },
       error: () => {
+        isParsingRef.current = false;
         setIsLoading(false);
       }
     });
@@ -516,7 +529,17 @@ export function useTradingEngine() {
 
   // ---------- playback loop ----------
   useEffect(() => {
-    if (!isPlaying || currentEventIndex >= marketData.length) return;
+    if (!isPlaying) return;
+
+    if (currentEventIndex >= marketData.length) {
+      // Pas (encore) d'événements suivants.
+      // Si on est encore en parsing, ne stoppe pas : on attend de nouveaux events (l'effet sera relancé quand marketData changera).
+      if (!isParsingRef.current) {
+        flushAggregationBuffer();
+        setIsPlaying(false);
+      }
+      return;
+    }
 
     const currentEvent = marketData[currentEventIndex];
     processEvent(currentEvent);
@@ -531,11 +554,13 @@ export function useTradingEngine() {
       const minDelay = playbackSpeed >= 10 ? 1 : (playbackSpeed >= 5 ? 5 : 10);
       const maxDelay = 1000;
       const delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
-
       playbackTimerRef.current = setTimeout(() => {}, delay);
     } else {
-      flushAggregationBuffer();
-      setIsPlaying(false);
+      // Fin du buffer courant : on ne stoppe pas si le parsing continue.
+      if (!isParsingRef.current) {
+        flushAggregationBuffer();
+        setIsPlaying(false);
+      }
     }
 
     return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
@@ -555,7 +580,6 @@ export function useTradingEngine() {
           askOrders: [],
           timestamp: new Date()
         };
-        // Centre initial : currentPrice (si premier build)
         if (!currentTickLadder && currentPrice) {
           orderBookProcessor.setAnchorByPrice(currentPrice);
         }
@@ -669,7 +693,8 @@ export function useTradingEngine() {
     togglePlayback,
     setPlaybackSpeed: setPlaybackSpeedWrapper,
 
-    // file
-    loadMarketData
+    // file / état
+    loadMarketData,
+    isLoading
   };
 }
