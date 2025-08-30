@@ -228,14 +228,12 @@ export function useTradingEngine() {
           const hasA = !isNaN(ap) && ap > 0;
 
           if (hasB || hasA) {
-            eventsBufferRef.current.push({
-              timestamp,
-              eventType: 'BBO',
-              bidPrice: hasB ? bp : undefined,
-              bidSize: !isNaN(bs) ? bs : undefined,
-              askPrice: hasA ? ap : undefined,
-              askSize: !isNaN(as) ? as : undefined
-            });
+            setCurrentOrderBookData(prevData => ({
+              book_bid_prices: hasB ? [toBidTick(bp)] : (prevData?.book_bid_prices ?? []),
+              book_ask_prices: hasA ? [toAskTick(ap)] : (prevData?.book_ask_prices ?? []),
+              book_bid_sizes:  !isNaN(bs) ? [bs] : (prevData?.book_bid_sizes ?? []),
+              book_ask_sizes:  !isNaN(as) ? [as] : (prevData?.book_ask_sizes ?? []),
+            }));
 
             if (!initialPriceSet && hasB && hasA) {
               const mid = toTick((toBidTick(bp) + toAskTick(ap)) / 2);
@@ -269,11 +267,19 @@ export function useTradingEngine() {
               bookAskSizes:  askSizes
             });
 
+            // Maintenir aussi le snapshot courant BBO/BOOK pour accès immédiat
+            setCurrentOrderBookData({
+              book_bid_prices: bidPrices.map(toBidTick),
+              book_bid_sizes:  bidSizes,
+              book_ask_prices: askPrices.map(toAskTick),
+              book_ask_sizes:  askSizes,
+            });
+
             if (!initialPriceSet) {
-              const bestBid = bidPrices.length ? Math.max(...bidPrices) : undefined;
-              const bestAsk = askPrices.length ? Math.min(...askPrices) : undefined;
-              if (bestBid && bestAsk) {
-                const p0 = (toBidTick(bestBid) + toAskTick(bestAsk)) / 2;
+              const bestBid0 = bidPrices.length ? Math.max(...bidPrices) : undefined;
+              const bestAsk0 = askPrices.length ? Math.min(...askPrices) : undefined;
+              if (bestBid0 && bestAsk0) {
+                const p0 = (toBidTick(bestBid0) + toAskTick(bestAsk0)) / 2;
                 setCurrentPrice(toTick(p0));
                 orderBookProcessor.setAnchorByPrice(p0);
                 orderBookProcessor.clearAnchor();
@@ -341,20 +347,57 @@ export function useTradingEngine() {
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }, [currentPrice]);
 
-  // ---------- helper: best bid/ask corrects ----------
-  const computeBestBidAsk = useCallback((book: OrderBookLevel[]) => {
-    let bestBid: number | undefined = undefined; // max price with bidSize>0
-    let bestAsk: number | undefined = undefined; // min price with askSize>0
-    for (const l of book) {
-      if (l.bidSize > 0) {
-        bestBid = bestBid === undefined ? l.price : (l.price > bestBid ? l.price : bestBid);
+  // ---------- helpers best bid/ask ----------
+  const bestFromBbo = useCallback((snap: {
+    book_bid_prices?: number[];
+    book_bid_sizes?: number[];
+    book_ask_prices?: number[];
+    book_ask_sizes?: number[];
+  } | null) => {
+    let bb: number | undefined;
+    let ba: number | undefined;
+    if (snap) {
+      const { book_bid_prices = [], book_bid_sizes = [], book_ask_prices = [], book_ask_sizes = [] } = snap;
+      // max prix avec taille > 0 côté bid
+      for (let i = 0; i < Math.min(book_bid_prices.length, book_bid_sizes.length); i++) {
+        const sz = book_bid_sizes[i];
+        const px = book_bid_prices[i];
+        if (sz > 0 && Number.isFinite(px)) {
+          bb = bb === undefined ? px : (px > bb ? px : bb);
+        }
       }
-      if (l.askSize > 0) {
-        bestAsk = bestAsk === undefined ? l.price : (l.price < bestAsk ? l.price : bestAsk);
+      // min prix avec taille > 0 côté ask
+      for (let i = 0; i < Math.min(book_ask_prices.length, book_ask_sizes.length); i++) {
+        const sz = book_ask_sizes[i];
+        const px = book_ask_prices[i];
+        if (sz > 0 && Number.isFinite(px)) {
+          ba = ba === undefined ? px : (px < ba ? px : ba);
+        }
       }
     }
-    return { bestBid, bestAsk };
+    return { bb, ba };
   }, []);
+
+  const bestFromAggregated = useCallback((book: OrderBookLevel[]) => {
+    let bb: number | undefined;
+    let ba: number | undefined;
+    for (const l of book) {
+      if (l.bidSize > 0) bb = bb === undefined ? l.price : (l.price > bb ? l.price : bb);
+      if (l.askSize > 0) ba = ba === undefined ? l.price : (l.price < ba ? l.price : ba);
+    }
+    return { bb, ba };
+  }, []);
+
+  const getBestBidAsk = useCallback(() => {
+    // 1) priorité au snapshot BBO/BOOK courant
+    const { bb: bb1, ba: ba1 } = bestFromBbo(currentOrderBookData);
+    if (bb1 !== undefined || ba1 !== undefined) return { bestBid: bb1, bestAsk: ba1 };
+    // 2) fallback sur l’agrégé (ancienne méthode)
+    const { bb: bb2, ba: ba2 } = bestFromAggregated(orderBook);
+    if (bb2 !== undefined || ba2 !== undefined) return { bestBid: bb2, bestAsk: ba2 };
+    // 3) fallback ultime
+    return { bestBid: undefined, bestAsk: undefined };
+  }, [currentOrderBookData, orderBook, bestFromBbo, bestFromAggregated]);
 
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
@@ -368,9 +411,10 @@ export function useTradingEngine() {
     setOrders(prev => prev.filter(o => o.price !== price));
   }, []);
 
-  // MARKET = best bid/ask + exécution immédiate
+  // MARKET = best bid/ask (BBO prioritaire) + exécution immédiate
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number = 1) => {
-    const { bestBid, bestAsk } = computeBestBidAsk(orderBook);
+    const { bestBid, bestAsk } = getBestBidAsk();
+    // BUY market -> best bid ; SELL market -> best ask (conformément à ta demande)
     const execPx = side === 'BUY' ? (bestBid ?? currentPrice) : (bestAsk ?? currentPrice);
     if (execPx == null) return;
 
@@ -382,7 +426,10 @@ export function useTradingEngine() {
       filled: 0
     };
     executeLimitFill(ord, execPx);
-  }, [orderBook, currentPrice, executeLimitFill, computeBestBidAsk]);
+
+    // DEBUG facultatif (peut aider à diagnostiquer si un spread improbable réapparaît)
+    // console.debug('MKT', { side, execPx, bestBid, bestAsk, currentPrice });
+  }, [getBestBidAsk, currentPrice, executeLimitFill]);
 
   // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
@@ -529,10 +576,12 @@ export function useTradingEngine() {
         break;
       }
     }
-  }, [executeLimitFill, orderBook, volumeByPrice]);
+  }, [executeLimitFill, orderBook, volumeByPrice, orderBookProcessor, trades]);
 
-  // ---------- dérivés best bid/ask & spread (corrigés) ----------
-  const { bestBid, bestAsk } = useMemo(() => computeBestBidAsk(orderBook), [orderBook, computeBestBidAsk]);
+  // ---------- dérivés best bid/ask & spread (BBO prioritaire) ----------
+  const { bestBid, bestAsk } = useMemo(() => {
+    return getBestBidAsk();
+  }, [getBestBidAsk]);
   const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
   const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
@@ -587,10 +636,10 @@ export function useTradingEngine() {
       const snapshot: ParsedOrderBook = {
         bidPrices: (currentOrderBookData.book_bid_prices || []),
         bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
-        askPrices: (currentOrderBookData.book_ask_prices || []),
-        askSizes:  (currentOrderBookData.book_ask_sizes  || []),
+        askPrices: (currentOrderOrderBookData?.book_ask_prices || currentOrderBookData.book_ask_prices || []), // safeguard ref
+        askSizes:  (currentOrderOrderBookData?.book_ask_sizes  || currentOrderBookData.book_ask_sizes  || []),
         timestamp: new Date()
-      };
+      } as ParsedOrderBook;
       const ladder = orderBookProcessor.createTickLadder(snapshot, trades);
       setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
     }
