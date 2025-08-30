@@ -89,7 +89,7 @@ export function useTradingEngine() {
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
 
-  // ⚠️ Déclarer volumeByPrice AVANT tout hook qui l'utilise en dépendance
+  // volume by price doit être déclaré avant tout hook qui l'utilise
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
 
   // streaming parse
@@ -196,13 +196,11 @@ export function useTradingEngine() {
     if (samplePricesRef.current.length && !tickSizeLockedRef.current) {
       const inferred = inferTickSize(samplePricesRef.current);
       if (inferred && inferred !== TICK_SIZE) {
-        // eslint-disable-next-line no-console
         console.log('🔎 Inferred tick size (stream):', inferred);
         orderBookProcessor.setTickSize(inferred as any);
         tickSizeLockedRef.current = true;
       }
     }
-  // ✅ pas d’auto-référence ici
   }, [orderBookProcessor, inferTickSize]);
 
   // ---------- Orders ----------
@@ -276,7 +274,7 @@ export function useTradingEngine() {
         const totalQty = prevAbs + (order.side === 'BUY' ? qty : -qty);
         newAvg = (prevPos.averagePrice * prevAbs + px * (order.side === 'BUY' ? qty : -qty)) / (totalQty || 1);
       } else {
-        newAvg = prevPos.averagePrice; // réduction de position
+        newAvg = prevPos.averagePrice; // réduction de position : on réalise du PnL
       }
       return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: currentPrice || prevPos.marketPrice };
     });
@@ -393,7 +391,6 @@ export function useTradingEngine() {
         break;
       }
     }
-  // ✅ pas de volumeByPrice ici (il n'est pas lu), évite TDZ
   }, [executeLimitFill, orderBook]);
 
   // ---------- dérivés best bid/ask & spread ----------
@@ -421,37 +418,62 @@ export function useTradingEngine() {
     });
   }, [currentPrice, position.quantity, position.averagePrice, realizedPnLTotal]);
 
-  // ---------- playback loop ----------
+  // ---------- Refs pour une boucle de replay robuste ----------
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => {
-    if (!isPlaying) return;
+  const idxRef = useRef(currentEventIndex);
+  const speedRef = useRef(playbackSpeed);
+  const dataRef = useRef(marketData);
+  const flushAggRef = useRef(flushAggregationBuffer);
 
-    // Fin
-    if (currentEventIndex >= marketData.length) {
-      flushAggregationBuffer();
-      setIsPlaying(false);
+  useEffect(() => { idxRef.current = currentEventIndex; }, [currentEventIndex]);
+  useEffect(() => { speedRef.current = playbackSpeed; }, [playbackSpeed]);
+  useEffect(() => { dataRef.current = marketData; }, [marketData]);
+  useEffect(() => { flushAggRef.current = flushAggregationBuffer; }, [flushAggregationBuffer]);
+
+  // ---------- playback loop (anti-StrictMode + pas de deps volatiles) ----------
+  useEffect(() => {
+    if (!isPlaying) {
+      if (playbackTimerRef.current) {
+        clearTimeout(playbackTimerRef.current);
+        playbackTimerRef.current = null;
+      }
       return;
     }
 
-    // Traite l’évènement courant
-    const curr = marketData[currentEventIndex];
-    processEvent(curr);
+    // Empêche un double démarrage en mode Strict (montage/démontage fantôme)
+    if (playbackTimerRef.current) return;
 
-    // Calcule le délai jusqu’au suivant
-    let delay = 10;
-    if (currentEventIndex + 1 < marketData.length) {
-      const next = marketData[currentEventIndex + 1];
-      const timeDiff = Math.max(0, next.timestamp - curr.timestamp);
-      const baseDelay = timeDiff / playbackSpeed;
-      const minDelay = playbackSpeed >= 10 ? 1 : (playbackSpeed >= 5 ? 5 : 10);
-      const maxDelay = 1000;
-      delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
-    }
+    const tick = () => {
+      const data = dataRef.current;
+      const idx = idxRef.current;
 
-    if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
-    playbackTimerRef.current = setTimeout(() => {
-      setCurrentEventIndex(i => i + 1);
-    }, delay);
+      if (idx >= data.length) {
+        flushAggRef.current?.();
+        setIsPlaying(false);
+        return;
+      }
+
+      const curr = data[idx];
+      processEvent(curr);
+
+      let delay = 10;
+      if (idx + 1 < data.length) {
+        const next = data[idx + 1];
+        const timeDiff = Math.max(0, next.timestamp - curr.timestamp);
+        const baseDelay = timeDiff / speedRef.current;
+        const minDelay = speedRef.current >= 10 ? 1 : (speedRef.current >= 5 ? 5 : 10);
+        const maxDelay = 1000;
+        delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
+      }
+
+      playbackTimerRef.current = setTimeout(() => {
+        playbackTimerRef.current = null; // libère le verrou pour le tick suivant
+        setCurrentEventIndex(i => i + 1);
+        tick();
+      }, delay);
+    };
+
+    tick();
 
     return () => {
       if (playbackTimerRef.current) {
@@ -459,7 +481,7 @@ export function useTradingEngine() {
         playbackTimerRef.current = null;
       }
     };
-  }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
+  }, [isPlaying, processEvent]);
 
   // ---------- View anchor ----------
   const setViewAnchorPrice = useCallback((price: number | null) => {
@@ -597,10 +619,9 @@ export function useTradingEngine() {
         setIsLoading(false);
         flushParsingBuffers();
         setIsParsing(false);
-        setIsPlaying(true);
+        setIsPlaying(true); // auto-play comme avant; si tu veux démarrer manuellement, mets false ici.
       },
       error: (err) => {
-        // eslint-disable-next-line no-console
         console.error('Papa.parse error', err);
         setIsLoading(false);
         setIsParsing(false);
