@@ -26,7 +26,7 @@ interface MarketEvent {
 
 interface Trade {
   id: string;
-  timestamp?: number | Date;
+  timestamp: number;
   price: number;
   size: number;
   aggressor: 'BUY' | 'SELL';
@@ -37,7 +37,7 @@ interface Order {
   side: 'BUY' | 'SELL';
   price: number;
   quantity: number;
-  filled?: number;
+  filled: number;
 }
 
 interface OrderBookLevel {
@@ -313,7 +313,7 @@ export function useTradingEngine() {
           const size = parseFloat(row.size ?? row.trade_size ?? row.last_size);
           const agg = normalizeAggressor(row.aggressor ?? row.side ?? row.buy_sell);
           if (!isNaN(price) && !isNaN(size) && agg) {
-            tradesBufferRef.current.push({ timestamp, price, size, aggressor: agg });
+            tradesBufferRef.current.push({ timestamp: new Date(timestamp), price, size, aggressor: agg });
             eventsBufferRef.current.push({ timestamp, eventType: 'TRADE', tradePrice: price, tradeSize: size, aggressor: agg });
 
             // init prix courant si première donnée
@@ -563,7 +563,7 @@ export function useTradingEngine() {
         bidSizes:  currentOrderBookData.book_bid_sizes  || [],
         askPrices: currentOrderBookData.book_ask_prices || [],
         askSizes:  currentOrderBookData.book_ask_sizes  || [],
-        timestamp: new Date()
+      timestamp: new Date()
       };
       const ladder = orderBookProcessor.createTickLadder(snapshot, trades);
       setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
@@ -653,6 +653,7 @@ export function useTradingEngine() {
 
     // DOM
     orderBook,
+    currentOrderBookData,
     currentTickLadder,
     setViewAnchorPrice,
     bestBid,
@@ -676,6 +677,7 @@ export function useTradingEngine() {
     playbackSpeed,
     togglePlayback,
     setPlaybackSpeed: setPlaybackSpeedWrapper,
+    currentPrice,
 
     // file
     loadMarketData,
