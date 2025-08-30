@@ -226,24 +226,6 @@ export function useTradingEngine() {
     rebuildTickLadder();
   }, [rebuildTickLadder]);
 
-  // ---------- dérivés best bid/ask & spread ----------
-  const bestBid = useMemo(() => {
-    // Le meilleur bid est le prix le plus élevé avec une taille > 0 côté bid
-    const bidLevels = orderBook.filter(l => l.bidSize > 0);
-    if (bidLevels.length === 0) return undefined;
-    return Math.max(...bidLevels.map(l => l.price));
-  }, [orderBook]);
-
-  const bestAsk = useMemo(() => {
-    // Le meilleur ask est le prix le plus bas avec une taille > 0 côté ask
-    const askLevels = orderBook.filter(l => l.askSize > 0);
-    if (askLevels.length === 0) return undefined;
-    return Math.min(...askLevels.map(l => l.price));
-  }, [orderBook]);
-
-  const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
-  const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
-
   // ---------- AGRÉGATION TAS ----------
   const [aggregationBuffer, setAggregationBuffer] = useState<Trade[]>([]);
   const flushAggregationBuffer = useCallback(() => {
@@ -289,6 +271,24 @@ export function useTradingEngine() {
 
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }, [currentPrice]);
+
+  // ---------- dérivés best bid/ask & spread ----------
+  const bestBid = useMemo(() => {
+    // Le meilleur bid est le prix le plus élevé avec une taille > 0 côté bid
+    const bidLevels = orderBook.filter(l => l.bidSize > 0);
+    if (bidLevels.length === 0) return undefined;
+    return Math.max(...bidLevels.map(l => l.price));
+  }, [orderBook]);
+
+  const bestAsk = useMemo(() => {
+    // Le meilleur ask est le prix le plus bas avec une taille > 0 côté ask
+    const askLevels = orderBook.filter(l => l.askSize > 0);
+    if (askLevels.length === 0) return undefined;
+    return Math.min(...askLevels.map(l => l.price));
+  }, [orderBook]);
+
+  const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
+  const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
