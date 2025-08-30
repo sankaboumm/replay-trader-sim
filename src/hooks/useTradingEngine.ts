@@ -92,13 +92,13 @@ export function useTradingEngine() {
   // volume by price doit être déclaré avant tout hook qui l'utilise
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
 
-  // streaming parse
-  const fileReaderRef = useRef<FileReader | null>(null);
+  // refs parsing
   const eventsBufferRef = useRef<MarketEvent[]>([]);
   const tradesBufferRef = useRef<OrderBookTrade[]>([]);
   const samplePricesRef = useRef<number[]>([]);
   const tickSizeLockedRef = useRef(false);
   const initialPriceSetRef = useRef(false);
+  const flushTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const [isParsing, setIsParsing] = useState(false);
 
@@ -118,6 +118,10 @@ export function useTradingEngine() {
     setTopOfBook({});
     setVolumeByPrice(new Map());
     initialPriceSetRef.current = false;
+    eventsBufferRef.current = [];
+    tradesBufferRef.current = [];
+    samplePricesRef.current = [];
+    tickSizeLockedRef.current = false;
     orderBookProcessor.resetVolume();
   }, [orderBookProcessor]);
 
@@ -185,17 +189,23 @@ export function useTradingEngine() {
   }, []);
 
   const flushParsingBuffers = useCallback(() => {
+    // 1) events -> state
     if (eventsBufferRef.current.length) {
-      setMarketData(prev => [...prev, ...eventsBufferRef.current]);
+      const batch = eventsBufferRef.current;
       eventsBufferRef.current = [];
+      setMarketData(prev => prev.length ? [...prev, ...batch] : batch);
     }
+    // 2) trades -> state
     if (tradesBufferRef.current.length) {
-      setTrades(prev => [...prev, ...tradesBufferRef.current]);
+      const tBatch = tradesBufferRef.current;
       tradesBufferRef.current = [];
+      setTrades(prev => prev.length ? [...prev, ...tBatch] : tBatch);
     }
+    // 3) tick size inference (une seule fois)
     if (samplePricesRef.current.length && !tickSizeLockedRef.current) {
       const inferred = inferTickSize(samplePricesRef.current);
       if (inferred && inferred !== TICK_SIZE) {
+        // eslint-disable-next-line no-console
         console.log('🔎 Inferred tick size (stream):', inferred);
         orderBookProcessor.setTickSize(inferred as any);
         tickSizeLockedRef.current = true;
@@ -274,7 +284,7 @@ export function useTradingEngine() {
         const totalQty = prevAbs + (order.side === 'BUY' ? qty : -qty);
         newAvg = (prevPos.averagePrice * prevAbs + px * (order.side === 'BUY' ? qty : -qty)) / (totalQty || 1);
       } else {
-        newAvg = prevPos.averagePrice; // réduction de position : on réalise du PnL
+        newAvg = prevPos.averagePrice; // réduction de position
       }
       return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: currentPrice || prevPos.marketPrice };
     });
@@ -298,8 +308,8 @@ export function useTradingEngine() {
         const gridPrice = roundToGrid(px);
         setVolumeByPrice(prev => {
           const next = new Map(prev);
-          next.set(gridPrice, (next.get(gridPrice) ?? 0) + event.tradeSize!);
-          return next;
+          next.set(gridPrice, (next.get(gridPrice) ?? 0) + (event.tradeSize || 0));
+        return next;
         });
 
         setOrderBook(prev =>
@@ -430,7 +440,7 @@ export function useTradingEngine() {
   useEffect(() => { dataRef.current = marketData; }, [marketData]);
   useEffect(() => { flushAggRef.current = flushAggregationBuffer; }, [flushAggregationBuffer]);
 
-  // ---------- playback loop (anti-StrictMode + pas de deps volatiles) ----------
+  // ---------- playback loop ----------
   useEffect(() => {
     if (!isPlaying) {
       if (playbackTimerRef.current) {
@@ -439,8 +449,6 @@ export function useTradingEngine() {
       }
       return;
     }
-
-    // Empêche un double démarrage en mode Strict (montage/démontage fantôme)
     if (playbackTimerRef.current) return;
 
     const tick = () => {
@@ -467,7 +475,7 @@ export function useTradingEngine() {
       }
 
       playbackTimerRef.current = setTimeout(() => {
-        playbackTimerRef.current = null; // libère le verrou pour le tick suivant
+        playbackTimerRef.current = null;
         setCurrentEventIndex(i => i + 1);
         tick();
       }, delay);
@@ -526,105 +534,138 @@ export function useTradingEngine() {
     };
   };
 
-  // ---------- file loading ----------
+  // ---------- file loading (STEP + flush timer) ----------
   const loadMarketData = useCallback((file: File) => {
     reset();
     setIsLoading(true);
     setIsParsing(true);
 
+    // flush périodique pendant le parsing (sécurise le cas où la callback n'est pas appelée avant complete)
+    if (flushTimerRef.current) clearInterval(flushTimerRef.current);
+    flushTimerRef.current = setInterval(() => {
+      flushParsingBuffers();
+    }, 50);
+
+    // petit buffer pour ne pas pousser event par event
+    let pendingEvents: MarketEvent[] = [];
+    let rowsSinceLastPush = 0;
+    const PUSH_EVERY_ROWS = 1000;
+
     Papa.parse<any>(file, {
       header: true,
       skipEmptyLines: 'greedy',
       worker: true,
-      chunkSize: 1024 * 128,
-      chunk: (results) => {
-        const rows = results.data;
-        const events: MarketEvent[] = [];
+      // 🔁 STEP: appelé pour chaque ligne (fiable sur fichiers locaux)
+      step: (result /*: Papa.ParseStepResult<any>*/) => {
+        const row = result?.data;
+        if (!row) return;
 
-        for (const row of rows) {
-          try {
-            const eventType = normalizeEventType(row.event_type);
-            const timestamp = parseTimestamp(row);
+        try {
+          const eventType = normalizeEventType(row.event_type);
+          const timestamp = parseTimestamp(row);
 
-            if (eventType === 'TRADE') {
-              const price = parseFloat(row.trade_price);
-              const size  = parseFloat(row.trade_size);
-              const agg   = normalizeAggressor(row.aggressor);
-              if (!isNaN(price) && price > 0 && !isNaN(size) && size > 0 && agg) {
-                const t = orderBookProcessor.parseTrade(row);
-                if (t) {
-                  tradesBufferRef.current.push(t);
-                  samplePricesRef.current.push(t.price);
-                }
-                eventsBufferRef.current.push({
-                  timestamp,
-                  eventType: 'TRADE',
-                  tradePrice: price,
-                  tradeSize: size,
-                  aggressor: agg
-                });
-
-                if (!initialPriceSetRef.current) {
-                  setCurrentPrice(toTick(price));
-                  orderBookProcessor.setAnchorByPrice(price);
-                  orderBookProcessor.clearAnchor();
-                  initialPriceSetRef.current = true;
-                }
+          if (eventType === 'TRADE') {
+            const price = parseFloat(row.trade_price);
+            const size  = parseFloat(row.trade_size);
+            const agg   = normalizeAggressor(row.aggressor);
+            if (!isNaN(price) && price > 0 && !isNaN(size) && size > 0 && agg) {
+              const t = orderBookProcessor.parseTrade(row);
+              if (t) {
+                tradesBufferRef.current.push(t);
+                samplePricesRef.current.push(t.price);
               }
-            } else if (eventType === 'BBO') {
-              const bp = parseFloat(row.bid_price);
-              const ap = parseFloat(row.ask_price);
+              pendingEvents.push({
+                timestamp,
+                eventType: 'TRADE',
+                tradePrice: price,
+                tradeSize: size,
+                aggressor: agg
+              });
 
-              const bs = parseFloat(row.bid_size);
-              const as = parseFloat(row.ask_size);
-              const hasB = !isNaN(bp) && bp > 0;
-              const hasA = !isNaN(ap) && ap > 0;
-
-              if (hasB || hasA) {
-                events.push({
-                  timestamp,
-                  eventType: 'BBO',
-                  bidPrice: hasB ? bp : undefined,
-                  bidSize: !isNaN(bs) ? bs : undefined,
-                  askPrice: hasA ? ap : undefined,
-                  askSize: !isNaN(as) ? as : undefined
-                });
-              }
-            } else if (eventType === 'ORDERBOOK') {
-              const bookBidPrices = parseArrayField(row.book_bid_prices);
-              const bookBidSizes  = parseArrayField(row.book_bid_sizes);
-              const bookAskPrices = parseArrayField(row.book_ask_prices);
-              const bookAskSizes  = parseArrayField(row.book_ask_sizes);
-
-              if (bookBidPrices.length || bookAskPrices.length) {
-                events.push({
-                  timestamp,
-                  eventType: 'ORDERBOOK',
-                  bookBidPrices,
-                  bookBidSizes,
-                  bookAskPrices,
-                  bookAskSizes
-                });
+              if (!initialPriceSetRef.current) {
+                setCurrentPrice(toTick(price));
+                orderBookProcessor.setAnchorByPrice(price);
+                orderBookProcessor.clearAnchor();
+                initialPriceSetRef.current = true;
               }
             }
-          } catch {
-            // ignore ligne invalide
+          } else if (eventType === 'BBO') {
+            const bp = parseFloat(row.bid_price);
+            const ap = parseFloat(row.ask_price);
+
+            const bs = parseFloat(row.bid_size);
+            const as = parseFloat(row.ask_size);
+            const hasB = !isNaN(bp) && bp > 0;
+            const hasA = !isNaN(ap) && ap > 0;
+
+            if (hasB || hasA) {
+              pendingEvents.push({
+                timestamp,
+                eventType: 'BBO',
+                bidPrice: hasB ? bp : undefined,
+                bidSize: !isNaN(bs) ? bs : undefined,
+                askPrice: hasA ? ap : undefined,
+                askSize: !isNaN(as) ? as : undefined
+              });
+            }
+          } else if (eventType === 'ORDERBOOK') {
+            const bookBidPrices = parseArrayField(row.book_bid_prices);
+            const bookBidSizes  = parseArrayField(row.book_bid_sizes);
+            const bookAskPrices = parseArrayField(row.book_ask_prices);
+            const bookAskSizes  = parseArrayField(row.book_ask_sizes);
+
+            if (bookBidPrices.length || bookAskPrices.length) {
+              pendingEvents.push({
+                timestamp,
+                eventType: 'ORDERBOOK',
+                bookBidPrices,
+                bookBidSizes,
+                bookAskPrices,
+                bookAskSizes
+              });
+            }
           }
+
+          rowsSinceLastPush++;
+          if (rowsSinceLastPush >= PUSH_EVERY_ROWS) {
+            // pousse vers le buffer partagé, puis laisse le timer faire le setState
+            eventsBufferRef.current.push(...pendingEvents);
+            pendingEvents = [];
+            rowsSinceLastPush = 0;
+          }
+        } catch {
+          // ignore ligne invalide
+        }
+      },
+
+      complete: () => {
+        // push le reste puis un dernier flush
+        if (pendingEvents.length) {
+          eventsBufferRef.current.push(...pendingEvents);
+          pendingEvents = [];
+        }
+        setIsLoading(false);
+        setIsParsing(false);
+        flushParsingBuffers();
+
+        if (flushTimerRef.current) {
+          clearInterval(flushTimerRef.current);
+          flushTimerRef.current = null;
         }
 
-        if (events.length) eventsBufferRef.current.push(...events);
-        flushParsingBuffers();
+        // auto-play (comportement original). Si tu préfères clic manuel → passe à false.
+        setIsPlaying(true);
       },
-      complete: () => {
-        setIsLoading(false);
-        flushParsingBuffers();
-        setIsParsing(false);
-        setIsPlaying(true); // auto-play comme avant; si tu veux démarrer manuellement, mets false ici.
-      },
+
       error: (err) => {
+        // eslint-disable-next-line no-console
         console.error('Papa.parse error', err);
         setIsLoading(false);
         setIsParsing(false);
+        if (flushTimerRef.current) {
+          clearInterval(flushTimerRef.current);
+          flushTimerRef.current = null;
+        }
       }
     });
   }, [flushParsingBuffers, orderBookProcessor, reset]);
