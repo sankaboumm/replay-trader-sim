@@ -313,41 +313,88 @@ export function useTradingEngine() {
     }
   }, [aggregationBuffer, setTimeAndSales]);
 
+  // ************** PnL CORRIGÉ **************
   const executeLimitFill = useCallback((order: Order, px: number) => {
-    const qty = Math.min(order.quantity - (order.filled ?? 0), 1);
+    const contractMultiplier = 20; // NQ
+    const fillQty = Math.min(order.quantity - (order.filled ?? 0), 1);
+
+    // Ajout TAS (fill)
     const fillTrade: Trade = {
       id: `fill-${order.id}-${Date.now()}`,
       timestamp: Date.now(),
       price: px,
-      size: qty,
+      size: fillQty,
       aggressor: order.side === 'BUY' ? 'BUY' : 'SELL'
     };
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
-    const pnlFill = (order.side === 'BUY'
-      ? (currentPrice - px) * qty * 20
-      : (px - currentPrice) * qty * 20
-    );
-    setRealizedPnLTotal(prev => prev + pnlFill);
+    // Calcul realized: uniquement si on RÉDUIT la position existante
+    let realizedDelta = 0;
 
     setPosition(prevPos => {
-      const newQty = prevPos.quantity + (order.side === 'BUY' ? qty : -qty);
-      let newAvg = prevPos.averagePrice;
-      if (newQty === 0) newAvg = 0;
-      else if ((prevPos.quantity >= 0 && order.side === 'BUY') || (prevPos.quantity <= 0 && order.side === 'SELL')) {
-        const prevAbs = Math.abs(prevPos.quantity);
-        const totalQty = prevAbs + (order.side === 'BUY' ? qty : -qty);
-        newAvg = (prevPos.averagePrice * prevAbs + px * (order.side === 'BUY' ? qty : -qty)) / (totalQty || 1);
-      } else {
-        newAvg = px;
+      const sideDir = order.side === 'BUY' ? +1 : -1;
+      const prevQty = prevPos.quantity;          // peut être négatif (short)
+      const prevAvg = prevPos.averagePrice || 0; // prix moyen de la position actuelle
+      const newQty = prevQty + sideDir * fillQty;
+
+      // Même sens ou ouverture (aucun realized)
+      if (prevQty === 0 || Math.sign(prevQty) === sideDir) {
+        const absPrev = Math.abs(prevQty);
+        const absNew = absPrev + fillQty;
+        const newAvg = absNew > 0 ? (prevAvg * absPrev + px * fillQty) / absNew : 0;
+        return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
       }
-      return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
+
+      // Sens opposé : on ferme partiellement/totalement
+      const closeQty = Math.min(Math.abs(prevQty), fillQty);
+
+      if (prevQty > 0) {
+        // On était long, on vend => realized = (px - prevAvg) * closeQty
+        realizedDelta += (px - prevAvg) * closeQty * contractMultiplier;
+      } else if (prevQty < 0) {
+        // On était short, on achète => realized = (prevAvg - px) * closeQty
+        realizedDelta += (prevAvg - px) * closeQty * contractMultiplier;
+      }
+
+      const remainingQty = fillQty - closeQty; // reliquat pour flip éventuel
+
+      // Cas 1 : on ne flip pas (on reste avec une position du même signe que prevQty)
+      if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
+        // moyenne inchangée quand on réduit sans flip
+        return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
+      }
+
+      // Cas 2 : on ferme totalement
+      if (newQty === 0) {
+        return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
+      }
+
+      // Cas 3 : on flip (on ouvre dans l'autre sens avec le reliquat)
+      // la nouvelle moyenne = prix du fill
+      return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
-    setOrders(prev => prev.filter(o => o.id !== order.id));
-  }, [currentPrice]);
+    if (realizedDelta !== 0) {
+      setRealizedPnLTotal(prev => prev + realizedDelta);
+    }
 
-  // ---------- helpers best bid/ask ----------
+    // On retire l'ordre de la file (ordre exécuté)
+    setOrders(prev => prev.filter(o => o.id !== order.id));
+  }, []);
+
+  // ---------- Orders ----------
+  const orderIdCounter = useRef(0);
+  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
+    setOrders(prev => [...prev, {
+      id: `LMT-${++orderIdCounter.current}`,
+      side, price, quantity, filled: 0
+    }]);
+  }, []);
+  const cancelOrdersAtPrice = useCallback((price: number) => {
+    setOrders(prev => prev.filter(o => o.price !== price));
+  }, []);
+
+  // Helpers best bid/ask
   const bestFromBbo = useCallback((snap: {
     book_bid_prices?: number[];
     book_bid_sizes?: number[];
@@ -358,7 +405,6 @@ export function useTradingEngine() {
     let ba: number | undefined;
     if (snap) {
       const { book_bid_prices = [], book_bid_sizes = [], book_ask_prices = [], book_ask_sizes = [] } = snap;
-      // max prix avec taille > 0 côté bid
       for (let i = 0; i < Math.min(book_bid_prices.length, book_bid_sizes.length); i++) {
         const sz = book_bid_sizes[i];
         const px = book_bid_prices[i];
@@ -366,7 +412,6 @@ export function useTradingEngine() {
           bb = bb === undefined ? px : (px > bb ? px : bb);
         }
       }
-      // min prix avec taille > 0 côté ask
       for (let i = 0; i < Math.min(book_ask_prices.length, book_ask_sizes.length); i++) {
         const sz = book_ask_sizes[i];
         const px = book_ask_prices[i];
@@ -389,32 +434,16 @@ export function useTradingEngine() {
   }, []);
 
   const getBestBidAsk = useCallback(() => {
-    // 1) priorité au snapshot BBO/BOOK courant
     const { bb: bb1, ba: ba1 } = bestFromBbo(currentOrderBookData);
     if (bb1 !== undefined || ba1 !== undefined) return { bestBid: bb1, bestAsk: ba1 };
-    // 2) fallback sur l’agrégé
     const { bb: bb2, ba: ba2 } = bestFromAggregated(orderBook);
     if (bb2 !== undefined || ba2 !== undefined) return { bestBid: bb2, bestAsk: ba2 };
-    // 3) fallback ultime
     return { bestBid: undefined, bestAsk: undefined };
   }, [currentOrderBookData, orderBook, bestFromBbo, bestFromAggregated]);
-
-  // ---------- Orders ----------
-  const orderIdCounter = useRef(0);
-  const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
-    setOrders(prev => [...prev, {
-      id: `LMT-${++orderIdCounter.current}`,
-      side, price, quantity, filled: 0
-    }]);
-  }, []);
-  const cancelOrdersAtPrice = useCallback((price: number) => {
-    setOrders(prev => prev.filter(o => o.price !== price));
-  }, []);
 
   // MARKET = best bid/ask (BBO prioritaire) + exécution immédiate
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number = 1) => {
     const { bestBid, bestAsk } = getBestBidAsk();
-    // BUY market -> best bid ; SELL market -> best ask (conformément à ta demande)
     const execPx = side === 'BUY' ? (bestBid ?? currentPrice) : (bestAsk ?? currentPrice);
     if (execPx == null) return;
 
