@@ -267,7 +267,7 @@ export function useTradingEngine() {
               bookAskSizes:  askSizes
             });
 
-            // Maintenir aussi le snapshot courant BBO/BOOK pour accès immédiat
+            // Snapshot courant pour best bid/ask
             setCurrentOrderBookData({
               book_bid_prices: bidPrices.map(toBidTick),
               book_bid_sizes:  bidSizes,
@@ -392,7 +392,7 @@ export function useTradingEngine() {
     // 1) priorité au snapshot BBO/BOOK courant
     const { bb: bb1, ba: ba1 } = bestFromBbo(currentOrderBookData);
     if (bb1 !== undefined || ba1 !== undefined) return { bestBid: bb1, bestAsk: ba1 };
-    // 2) fallback sur l’agrégé (ancienne méthode)
+    // 2) fallback sur l’agrégé
     const { bb: bb2, ba: ba2 } = bestFromAggregated(orderBook);
     if (bb2 !== undefined || ba2 !== undefined) return { bestBid: bb2, bestAsk: ba2 };
     // 3) fallback ultime
@@ -426,9 +426,6 @@ export function useTradingEngine() {
       filled: 0
     };
     executeLimitFill(ord, execPx);
-
-    // DEBUG facultatif (peut aider à diagnostiquer si un spread improbable réapparaît)
-    // console.debug('MKT', { side, execPx, bestBid, bestAsk, currentPrice });
   }, [getBestBidAsk, currentPrice, executeLimitFill]);
 
   // ---------- periodic UI flush while loading or playing ----------
@@ -636,10 +633,10 @@ export function useTradingEngine() {
       const snapshot: ParsedOrderBook = {
         bidPrices: (currentOrderBookData.book_bid_prices || []),
         bidSizes:  (currentOrderBookData.book_bid_sizes  || []),
-        askPrices: (currentOrderOrderBookData?.book_ask_prices || currentOrderBookData.book_ask_prices || []), // safeguard ref
-        askSizes:  (currentOrderOrderBookData?.book_ask_sizes  || currentOrderBookData.book_ask_sizes  || []),
+        askPrices: (currentOrderBookData.book_ask_prices || []),
+        askSizes:  (currentOrderBookData.book_ask_sizes  || []),
         timestamp: new Date()
-      } as ParsedOrderBook;
+      };
       const ladder = orderBookProcessor.createTickLadder(snapshot, trades);
       setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
     }
