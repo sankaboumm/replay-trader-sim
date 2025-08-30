@@ -103,9 +103,15 @@ export function useTradingEngine() {
   const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
   const orderBookProcessor = useMemo(() => new OrderBookProcessor(TICK_SIZE), []);
 
-  // Petite comodité pour certains UIs
   const canPlay = useMemo(() => {
     const hasData = marketData.length > 0 || !!currentOrderBookData;
+    console.log('🔥 canPlay debug:', { 
+      marketDataLength: marketData.length, 
+      hasCurrentOrderBookData: !!currentOrderBookData, 
+      isLoading, 
+      hasData, 
+      canPlay: hasData && !isLoading 
+    });
     return hasData && !isLoading;
   }, [marketData.length, currentOrderBookData, isLoading]);
 
