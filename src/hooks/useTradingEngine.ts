@@ -424,6 +424,7 @@ export function useTradingEngine() {
   // ---------- EVENT PROCESSOR ----------
   function processEvent(event: MarketEvent) {
     if (!event) return;
+    console.log('🔥 Processing event:', event.eventType, event);
 
     switch (event.eventType) {
       case 'TRADE': {
@@ -594,6 +595,8 @@ export function useTradingEngine() {
   useEffect(() => {
     if (!isPlaying) return;
 
+    console.log('🔥 Starting playback, marketData.length:', marketData.length);
+
     if (marketData.length === 0) {
       // on relance tant que le flux n'a pas encore flushé dans marketData
       playbackTimerRef.current = setTimeout(() => {
@@ -605,15 +608,18 @@ export function useTradingEngine() {
     const tick = () => {
       setCurrentEventIndex(prevIdx => {
         const idx = prevIdx;
+        console.log('🔥 Tick - current index:', idx, 'total events:', marketData.length);
 
         if (!isPlayingRef.current) return idx; // pause
         if (idx >= marketData.length) {
+          console.log('🔥 Playback finished');
           setIsPlaying(false);
           flushAggregationBuffer();
           return idx;
         }
 
         const ev = marketData[idx];
+        console.log('🔥 Processing event at index', idx, ':', ev);
         processEvent(ev);
 
         const next = idx + 1;
