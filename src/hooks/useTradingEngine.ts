@@ -72,7 +72,7 @@ export function useTradingEngine() {
     book_ask_sizes?: number[];
   } | null>(null);
 
-  // Top of book (best bid/ask) explicit pour BBO-only
+  // Top of book (best bid/ask)
   const [topOfBook, setTopOfBook] = useState<{ bid?: number; ask?: number }>({});
 
   const [currentTickLadder, setCurrentTickLadder] = useState<TickLadder | null>(null);
@@ -88,6 +88,9 @@ export function useTradingEngine() {
   });
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
   const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
+
+  // ⚠️ Déclarer volumeByPrice AVANT tout hook qui l'utilise en dépendance
+  const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
 
   // streaming parse
   const fileReaderRef = useRef<FileReader | null>(null);
@@ -113,6 +116,7 @@ export function useTradingEngine() {
     setPnl({ unrealized: 0, realized: 0, total: 0 });
     setRealizedPnLTotal(0);
     setTopOfBook({});
+    setVolumeByPrice(new Map());
     initialPriceSetRef.current = false;
     orderBookProcessor.resetVolume();
   }, [orderBookProcessor]);
@@ -192,12 +196,14 @@ export function useTradingEngine() {
     if (samplePricesRef.current.length && !tickSizeLockedRef.current) {
       const inferred = inferTickSize(samplePricesRef.current);
       if (inferred && inferred !== TICK_SIZE) {
+        // eslint-disable-next-line no-console
         console.log('🔎 Inferred tick size (stream):', inferred);
         orderBookProcessor.setTickSize(inferred as any);
         tickSizeLockedRef.current = true;
       }
     }
-  }, [orderBookProcessor, flushParsingBuffers]);
+  // ✅ pas d’auto-référence ici
+  }, [orderBookProcessor, inferTickSize]);
 
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
@@ -242,7 +248,7 @@ export function useTradingEngine() {
       });
       setAggregationBuffer([]);
     }
-  }, [aggregationBuffer, setTimeAndSales]);
+  }, [aggregationBuffer]);
 
   const executeLimitFill = useCallback((order: Order, px: number) => {
     const qty = Math.min(order.quantity - (order.filled ?? 0), 1);
@@ -270,7 +276,7 @@ export function useTradingEngine() {
         const totalQty = prevAbs + (order.side === 'BUY' ? qty : -qty);
         newAvg = (prevPos.averagePrice * prevAbs + px * (order.side === 'BUY' ? qty : -qty)) / (totalQty || 1);
       } else {
-        newAvg = prevPos.averagePrice; // réduction de position : on réalise du PnL, la moyenne reste sur le restant
+        newAvg = prevPos.averagePrice; // réduction de position
       }
       return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: currentPrice || prevPos.marketPrice };
     });
@@ -294,14 +300,14 @@ export function useTradingEngine() {
         const gridPrice = roundToGrid(px);
         setVolumeByPrice(prev => {
           const next = new Map(prev);
-          next.set(gridPrice, (next.get(gridPrice) ?? 0) + event.tradeSize);
+          next.set(gridPrice, (next.get(gridPrice) ?? 0) + event.tradeSize!);
           return next;
         });
 
         setOrderBook(prev =>
           prev.map(level =>
             Math.abs(level.price - gridPrice) < 0.125
-              ? { ...level, volume: (level.volume || 0) + event.tradeSize! }
+              ? { ...level, volume: (level.volume || 0) + (event.tradeSize || 0) }
               : level
           )
         );
@@ -331,7 +337,7 @@ export function useTradingEngine() {
           book_ask_sizes:  event.askSize  ? [event.askSize]            : (prevData?.book_ask_sizes  ?? []),
         }));
 
-        // Top-of-book à chaque BBO
+        // Top-of-book
         setTopOfBook(prev => ({
           bid: event.bidPrice != null ? toBidTick(event.bidPrice) : prev.bid,
           ask: event.askPrice != null ? toAskTick(event.askPrice) : prev.ask,
@@ -378,16 +384,17 @@ export function useTradingEngine() {
           book_ask_sizes:  event.bookAskSizes,
         });
 
-        // Top-of-book aussi depuis le book complet
+        // Top-of-book depuis book complet
         setTopOfBook(prev => ({
-          bid: (event.bookBidPrices && event.bookBidPrices.length > 0) ? event.bookBidPrices[0] : prev.bid,
-          ask: (event.bookAskPrices && event.bookAskPrices.length > 0) ? event.bookAskPrices[0] : prev.ask,
+          bid: (event.bookBidPrices && event.bookBidPrices.length > 0) ? toBidTick(event.bookBidPrices[0]) : prev.bid,
+          ask: (event.bookAskPrices && event.bookAskPrices.length > 0) ? toAskTick(event.bookAskPrices[0]) : prev.ask,
         }));
 
         break;
       }
     }
-  }, [executeLimitFill, orderBook, volumeByPrice]);
+  // ✅ pas de volumeByPrice ici (il n'est pas lu), évite TDZ
+  }, [executeLimitFill, orderBook]);
 
   // ---------- dérivés best bid/ask & spread ----------
   const bestBid = topOfBook.bid;
@@ -417,29 +424,41 @@ export function useTradingEngine() {
   // ---------- playback loop ----------
   const playbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   useEffect(() => {
-    if (!isPlaying || currentEventIndex >= marketData.length) return;
+    if (!isPlaying) return;
 
-    const currentEvent = marketData[currentEventIndex];
-    processEvent(currentEvent);
+    // Fin
+    if (currentEventIndex >= marketData.length) {
+      flushAggregationBuffer();
+      setIsPlaying(false);
+      return;
+    }
 
-    const nextIndex = currentEventIndex + 1;
-    setCurrentEventIndex(nextIndex);
+    // Traite l’évènement courant
+    const curr = marketData[currentEventIndex];
+    processEvent(curr);
 
-    if (nextIndex < marketData.length) {
-      const nextEvent = marketData[nextIndex];
-      const timeDiff = Math.max(0, nextEvent.timestamp - currentEvent.timestamp);
+    // Calcule le délai jusqu’au suivant
+    let delay = 10;
+    if (currentEventIndex + 1 < marketData.length) {
+      const next = marketData[currentEventIndex + 1];
+      const timeDiff = Math.max(0, next.timestamp - curr.timestamp);
       const baseDelay = timeDiff / playbackSpeed;
       const minDelay = playbackSpeed >= 10 ? 1 : (playbackSpeed >= 5 ? 5 : 10);
       const maxDelay = 1000;
-      const delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
-
-      playbackTimerRef.current = setTimeout(() => {}, delay);
-    } else {
-      flushAggregationBuffer();
-      setIsPlaying(false);
+      delay = Math.max(minDelay, Math.min(baseDelay, maxDelay));
     }
 
-    return () => { if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current); };
+    if (playbackTimerRef.current) clearTimeout(playbackTimerRef.current);
+    playbackTimerRef.current = setTimeout(() => {
+      setCurrentEventIndex(i => i + 1);
+    }, delay);
+
+    return () => {
+      if (playbackTimerRef.current) {
+        clearTimeout(playbackTimerRef.current);
+        playbackTimerRef.current = null;
+      }
+    };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent, flushAggregationBuffer]);
 
   // ---------- View anchor ----------
@@ -461,7 +480,6 @@ export function useTradingEngine() {
   }, [orderBookProcessor, currentOrderBookData, trades, volumeByPrice]);
 
   // ---------- Rebuild ladder ----------
-  const [volumeByPrice, setVolumeByPrice] = useState<Map<number, number>>(new Map());
   useEffect(() => {
     if (currentOrderBookData) {
       const snapshot: ParsedOrderBook = {
@@ -567,8 +585,8 @@ export function useTradingEngine() {
                 });
               }
             }
-          } catch (e) {
-            // noop pour lignes invalides
+          } catch {
+            // ignore ligne invalide
           }
         }
 
@@ -582,12 +600,13 @@ export function useTradingEngine() {
         setIsPlaying(true);
       },
       error: (err) => {
+        // eslint-disable-next-line no-console
         console.error('Papa.parse error', err);
         setIsLoading(false);
         setIsParsing(false);
       }
     });
-  }, [flushParsingBuffers, inferTickSize, orderBookProcessor, reset]);
+  }, [flushParsingBuffers, orderBookProcessor, reset]);
 
   // ---------- playback controls ----------
   const togglePlayback = useCallback(() => setIsPlaying(p => !p), []);
@@ -631,7 +650,6 @@ export function useTradingEngine() {
     loadMarketData,
 
     // utils
-    orderBookProcessor,
-    setViewAnchorPrice
+    orderBookProcessor
   };
 }
