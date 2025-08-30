@@ -161,7 +161,7 @@ export function useTradingEngine() {
   // ---------- orderbook processor ----------
   const orderBookProcessor = useMemo(() => new OrderBookProcessor(TICK_SIZE), []);
 
-  // ---------- FIX: déclarer flushParsingBuffers AVANT loadMarketData ----------
+  // ---------- flush buffers (déclaré tôt) ----------
   const flushParsingBuffers = useCallback(() => {
     if (eventsBufferRef.current.length > 0) {
       const chunk = eventsBufferRef.current.splice(0, eventsBufferRef.current.length);
@@ -175,8 +175,6 @@ export function useTradingEngine() {
 
   // ---------- loader (streaming) ----------
   const loadMarketData = useCallback((file: File) => {
-    console.log('🔥 loadMarketData (streaming) called with file:', file.name);
-
     setIsLoading(true);
     eventsBufferRef.current = [];
     tradesBufferRef.current = [];
@@ -293,10 +291,7 @@ export function useTradingEngine() {
         flushParsingBuffers();
         setIsLoading(false);
       },
-      error: (err) => {
-        console.error('❌ Papa.parse error', err);
-        setIsLoading(false);
-      }
+      error: () => setIsLoading(false)
     });
   }, [orderBookProcessor, flushParsingBuffers]);
 
@@ -346,6 +341,21 @@ export function useTradingEngine() {
     setOrders(prev => prev.filter(o => o.id !== order.id));
   }, [currentPrice]);
 
+  // ---------- helper: best bid/ask corrects ----------
+  const computeBestBidAsk = useCallback((book: OrderBookLevel[]) => {
+    let bestBid: number | undefined = undefined; // max price with bidSize>0
+    let bestAsk: number | undefined = undefined; // min price with askSize>0
+    for (const l of book) {
+      if (l.bidSize > 0) {
+        bestBid = bestBid === undefined ? l.price : (l.price > bestBid ? l.price : bestBid);
+      }
+      if (l.askSize > 0) {
+        bestAsk = bestAsk === undefined ? l.price : (l.price < bestAsk ? l.price : bestAsk);
+      }
+    }
+    return { bestBid, bestAsk };
+  }, []);
+
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
@@ -358,18 +368,11 @@ export function useTradingEngine() {
     setOrders(prev => prev.filter(o => o.price !== price));
   }, []);
 
-  // MARKET = best bid/ask + exécution immédiate (⚠️ exec avant de l’ajouter à la liste)
+  // MARKET = best bid/ask + exécution immédiate
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number = 1) => {
-    // Exécution market = meilleur prix offert (BUY -> best bid, SELL -> best ask)
-    let bb: number | undefined;
-    let ba: number | undefined;
-    for (const lvl of orderBook) {
-      if (bb === undefined && lvl.bidSize > 0) bb = lvl.price;
-      if (ba === undefined && lvl.askSize > 0) ba = lvl.price;
-      if (bb !== undefined && ba !== undefined) break;
-    }
-    const execPx = side === 'BUY' ? (bb ?? currentPrice) : (ba ?? currentPrice);
-    if (!execPx) return;
+    const { bestBid, bestAsk } = computeBestBidAsk(orderBook);
+    const execPx = side === 'BUY' ? (bestBid ?? currentPrice) : (bestAsk ?? currentPrice);
+    if (execPx == null) return;
 
     const ord: Order = {
       id: `MKT-${++orderIdCounter.current}`,
@@ -378,9 +381,8 @@ export function useTradingEngine() {
       quantity,
       filled: 0
     };
-    // Un ordre market ne reste pas dans la file : on exécute immédiatement
     executeLimitFill(ord, execPx);
-  }, [orderBook, currentPrice, executeLimitFill]);
+  }, [orderBook, currentPrice, executeLimitFill, computeBestBidAsk]);
 
   // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
@@ -529,9 +531,8 @@ export function useTradingEngine() {
     }
   }, [executeLimitFill, orderBook, volumeByPrice]);
 
-  // ---------- dérivés best bid/ask & spread ----------
-  const bestBid = useMemo(() => orderBook.find(l => l.bidSize > 0)?.price, [orderBook]);
-  const bestAsk = useMemo(() => orderBook.find(l => l.askSize > 0)?.price, [orderBook]);
+  // ---------- dérivés best bid/ask & spread (corrigés) ----------
+  const { bestBid, bestAsk } = useMemo(() => computeBestBidAsk(orderBook), [orderBook, computeBestBidAsk]);
   const spread = useMemo(() => (bestBid != null && bestAsk != null) ? (bestAsk - bestBid) : undefined, [bestBid, bestAsk]);
   const spreadTicks = useMemo(() => (spread != null) ? Math.round(spread / TICK_SIZE) : undefined, [spread]);
 
@@ -553,9 +554,7 @@ export function useTradingEngine() {
       const maxDelay = 1000;
       const delay = Math.min(Math.max(baseDelay, minDelay), maxDelay);
 
-      playbackTimerRef.current = setTimeout(() => {
-        // noop: on avance à la frame suivante via setCurrentEventIndex ci-dessus
-      }, delay);
+      playbackTimerRef.current = setTimeout(() => {}, delay);
     } else {
       flushAggregationBuffer();
       setIsPlaying(false);
