@@ -394,8 +394,13 @@ export function useTradingEngine() {
         }
       },
       complete: () => {
+        console.log('🔥 CSV parsing complete, buffer length:', eventsBufferRef.current.length);
         if (eventsBufferRef.current.length) {
-          setMarketData(prev => [...prev, ...eventsBufferRef.current]);
+          setMarketData(prev => {
+            const newData = [...prev, ...eventsBufferRef.current];
+            console.log('🔥 Final marketData length:', newData.length);
+            return newData;
+          });
           eventsBufferRef.current = [];
         }
         setIsLoading(false);
@@ -479,13 +484,21 @@ export function useTradingEngine() {
 
   // ---------- playback loop ----------
   useEffect(() => {
-    if (!isPlaying || currentEventIndex >= marketData.length) return;
+    console.log('🎮 Playback effect:', { isPlaying, currentEventIndex, marketDataLength: marketData.length });
+    
+    if (!isPlaying || currentEventIndex >= marketData.length) {
+      console.log('🎮 Playback stopped:', { isPlaying, currentEventIndex, marketDataLength: marketData.length });
+      return;
+    }
 
     const currentEvent = marketData[currentEventIndex];
+    console.log('🎮 Processing event:', currentEventIndex, currentEvent);
     processEvent(currentEvent);
 
     const delay = Math.max(1, Math.round(1000 / playbackSpeed));
+    console.log('🎮 Setting timeout with delay:', delay);
     playbackTimerRef.current = setTimeout(() => {
+      console.log('🎮 Incrementing index from', currentEventIndex, 'to', currentEventIndex + 1);
       setCurrentEventIndex(i => i + 1);
     }, delay);
 
@@ -506,8 +519,9 @@ export function useTradingEngine() {
 
   // ---------- contrôles playback ----------
   const togglePlayback = useCallback(() => {
+    console.log('🎮 Toggle playback, was:', isPlaying, 'now will be:', !isPlaying);
     setIsPlaying(p => !p);
-  }, []);
+  }, [isPlaying]);
 
   const setPlaybackSpeedWrapper = useCallback((speed: number) => {
     setPlaybackSpeed(speed);
