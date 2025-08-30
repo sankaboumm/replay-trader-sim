@@ -1,4 +1,3 @@
-// src/hooks/useTradingEngine.ts
 import { useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import Papa from 'papaparse';
 import {
@@ -53,13 +52,17 @@ interface TradeRow {
   aggressor: Aggressor;
   aggregatedCount?: number;
 }
+interface PnLObject {
+  realized: number;
+  unrealized: number;
+  total: number;
+}
 
 // --------- Helpers parsing ----------
 function toEpochMs(ts: unknown): number {
   if (typeof ts === 'number') return ts;
   if (!ts) return NaN;
   const s = String(ts).trim();
-  // support "2025-08-22T11:50:30.051032+00:00"
   const d = new Date(s);
   const ms = d.getTime();
   return Number.isFinite(ms) ? ms : NaN;
@@ -126,13 +129,18 @@ export function useTradingEngine() {
     return Math.round(spread / currentTickLadder.tickSize);
   }, [spread, currentTickLadder.tickSize]);
 
-  // ordres & position (simple simulation taker/market pour l’exemple)
+  // ordres & position (simulation simple)
   const [orders, setOrders] = useState<Order[]>([]);
   const [position, setPosition] = useState<PositionState>({ quantity: 0, averagePrice: 0 });
-  const pnl = useMemo(() => {
-    if (!Number.isFinite(currentPrice)) return 0;
-    return (currentPrice - position.averagePrice) * position.quantity;
-  }, [currentPrice, position]);
+  const [realizedPnl, setRealizedPnl] = useState(0);
+
+  const pnl: PnLObject = useMemo(() => {
+    const unreal = Number.isFinite(currentPrice)
+      ? (currentPrice - position.averagePrice) * position.quantity
+      : 0;
+    const realized = realizedPnl;
+    return { realized, unrealized: unreal, total: realized + unreal };
+  }, [currentPrice, position, realizedPnl]);
 
   // snapshot order book processor
   const obRef = useRef(new OrderBookProcessor(0.25));
@@ -153,19 +161,61 @@ export function useTradingEngine() {
   }, []);
 
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', size: number = 1) => {
+    // enregistre l'ordre (simplement pour l'UI)
     setOrders((prev) => [
       ...prev,
       { id: `ord_${Date.now()}_${prev.length}`, side, size, type: 'MARKET', status: 'FILLED' },
     ]);
+
+    // calcule l'impact sur la position + PnL réalisé
+    let realizedDelta = 0;
+
     setPosition((p) => {
+      const q = p.quantity;            // quantité actuelle (signée)
+      const ap = p.averagePrice;       // prix moyen actuel
       const signedSize = side === 'BUY' ? size : -size;
-      const newQty = p.quantity + signedSize;
-      const fillPrice = Number.isFinite(currentPrice) ? currentPrice : p.averagePrice;
-      const newAvg =
-        newQty === 0 ? 0 :
-        (p.averagePrice * p.quantity + signedSize * fillPrice) / newQty;
-      return { quantity: newQty, averagePrice: newAvg || 0 };
+
+      // fill price : currentPrice si dispo, sinon mid BBO, sinon average existant
+      const d = obRef.current.getDerived();
+      const mid = d.bestBid != null && d.bestAsk != null ? (d.bestBid + d.bestAsk) / 2 : undefined;
+      const fp = Number.isFinite(currentPrice) ? currentPrice : (mid ?? ap);
+
+      let newQty = q;
+      let newAvg = ap;
+
+      if (q === 0 || Math.sign(q) === Math.sign(signedSize)) {
+        // ouverture / augmentation de position
+        newQty = q + signedSize;
+        if (newQty !== 0) {
+          newAvg = ((ap * q) + (fp * signedSize)) / newQty;
+        } else {
+          newAvg = 0;
+        }
+      } else {
+        // sens opposé => on ferme en partie ou totalement
+        const closeQty = Math.min(Math.abs(q), Math.abs(signedSize)); // quantité fermée
+        // Profit (long) = (fp - ap) * closeQty ; (short) = (ap - fp) * closeQty
+        // => formule unifiée :
+        realizedDelta += (fp - ap) * closeQty * Math.sign(q);
+
+        const remainingAfterClose = Math.abs(signedSize) - closeQty;
+        if (remainingAfterClose > 0) {
+          // reversal : on passe de l'autre côté avec le reste
+          newQty = Math.sign(signedSize) * remainingAfterClose;
+          newAvg = fp; // nouvelle position ouverte au prix d'exécution
+        } else {
+          // simple réduction/fermeture partielle/complète
+          newQty = q - Math.sign(q) * closeQty;
+          newAvg = newQty === 0 ? 0 : ap; // moyenne inchangée si on reste du même côté
+        }
+      }
+
+      return { quantity: newQty, averagePrice: newAvg };
     });
+
+    if (realizedDelta !== 0) {
+      setRealizedPnl((prev) => prev + realizedDelta);
+    }
   }, [currentPrice]);
 
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, size: number = 1) => {
@@ -212,7 +262,6 @@ export function useTradingEngine() {
           ev.bookBidPrices ?? [], ev.bookBidSizes ?? [], ev.bookBidOrders ?? [],
           ev.bookAskPrices ?? [], ev.bookAskSizes ?? [], ev.bookAskOrders ?? []
         );
-        // si pas de currentPrice, ancre sur best-mid
         const d = obRef.current.getDerived();
         if (!Number.isFinite(currentPrice) && d.bestBid != null && d.bestAsk != null) {
           setCurrentPrice((d.bestBid + d.bestAsk) / 2);
@@ -258,7 +307,6 @@ export function useTradingEngine() {
     applyEvent(ev);
     idxRef.current = idx + 1;
 
-    // calcule délai vers le prochain évènement (horloge "marché")
     if (idxRef.current >= arr.length) {
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -284,7 +332,6 @@ export function useTradingEngine() {
     // start / resume
     isPlayingRef.current = true;
     setIsPlaying(true);
-    // si on est au bout, repartir du début
     if (idxRef.current >= marketData.length) {
       idxRef.current = 0;
     }
@@ -303,6 +350,9 @@ export function useTradingEngine() {
       setBestBid(undefined);
       setBestAsk(undefined);
       setCurrentPrice(NaN);
+      setOrders([]);
+      setPosition({ quantity: 0, averagePrice: 0 });
+      setRealizedPnl(0);
       obRef.current.reset();
 
       Papa.parse(file, {
@@ -389,7 +439,7 @@ export function useTradingEngine() {
     // état brut
     marketData,
     position,
-    pnl,
+    pnl, // <-- objet { realized, unrealized, total }
     timeAndSales,
     orders,
     currentPrice,
