@@ -266,6 +266,8 @@ export function useTradingEngine() {
 
   // ---------- PARSING ----------
   function flushParsingBuffers() {
+    console.log('🔥 Flushing buffers - trades:', tradesBufferRef.current.length, 'events:', eventsBufferRef.current.length);
+    
     if (tradesBufferRef.current.length > 0) {
       setTrades(prev => {
         const merged = [...prev, ...tradesBufferRef.current];
@@ -275,6 +277,7 @@ export function useTradingEngine() {
     }
 
     if (eventsBufferRef.current.length > 0) {
+      console.log('🔥 Adding events to marketData:', eventsBufferRef.current.length);
       setMarketData(prev => [...prev, ...eventsBufferRef.current]);
       eventsBufferRef.current = [];
     }
@@ -410,11 +413,9 @@ export function useTradingEngine() {
       complete: () => {
         setIsLoading(false);
         flushParsingBuffers();
-        // eslint-disable-next-line no-console
-        console.log('✅ Streaming parse complete');
+        console.log('✅ Streaming parse complete, events flushed:', eventsBufferRef.current.length);
       },
       error: (err) => {
-        // eslint-disable-next-line no-console
         console.error('❌ Papa.parse error', err);
         setIsLoading(false);
       }
