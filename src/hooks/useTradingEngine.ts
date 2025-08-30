@@ -28,7 +28,7 @@ interface MarketEvent {
 
 interface Trade {
   id: string;
-  timestamp: number | Date;
+  timestamp: number;
   price: number;
   size: number;
   aggressor: 'BUY' | 'SELL';
@@ -39,7 +39,7 @@ interface Order {
   side: 'BUY' | 'SELL';
   price: number;
   quantity: number;
-  filled?: number;
+  filled: number;
 }
 
 interface OrderBookLevel {
@@ -216,9 +216,9 @@ export function useTradingEngine() {
       bidSizes: currentOrderBookData.book_bid_sizes || [],
       askPrices: currentOrderBookData.book_ask_prices || [],
       askSizes: currentOrderBookData.book_ask_sizes || [],
-      // orders & trades facultatifs dans cette implémentation
+      timestamp: new Date()
     };
-    const ladder = orderBookProcessor.buildTickLadder(parsed);
+    const ladder = orderBookProcessor.createTickLadder(parsed);
     setCurrentTickLadder(ladder);
   }, [currentOrderBookData, orderBookProcessor]);
 
@@ -239,7 +239,7 @@ export function useTradingEngine() {
   }, [aggregationBuffer, setTimeAndSales]);
 
   const executeLimitFill = useCallback((order: Order, px: number) => {
-    const qty = Math.min(order.quantity - (order.filled ?? 0), 1);
+    const qty = Math.min(order.quantity - order.filled, 1);
     const fillTrade: Trade = {
       id: `fill-${order.id}-${Date.now()}`,
       timestamp: Date.now(),
@@ -331,6 +331,17 @@ export function useTradingEngine() {
     // Un ordre "market" ne reste pas dans le carnet : on l'exécute tout de suite
     executeLimitFill(ord, execPx);
   }, [bestBid, bestAsk, currentPrice, executeLimitFill]);
+
+  // ---------- flush buffers pendant chargement/lecture ----------
+  const flushParsingBuffers = useCallback(() => {
+    if (eventsBufferRef.current.length > 0) {
+      setMarketData(prev => [...prev, ...eventsBufferRef.current]);
+      eventsBufferRef.current = [];
+    }
+    if (tradesBufferRef.current.length > 0) {
+      tradesBufferRef.current = [];
+    }
+  }, []);
 
   // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
@@ -485,17 +496,6 @@ export function useTradingEngine() {
     };
   }, [isPlaying, currentEventIndex, marketData, playbackSpeed, processEvent]);
 
-  // ---------- flush buffers pendant chargement/lecture ----------
-  const flushParsingBuffers = useCallback(() => {
-    if (eventsBufferRef.current.length > 0) {
-      setMarketData(prev => [...prev, ...eventsBufferRef.current]);
-      eventsBufferRef.current = [];
-    }
-    if (tradesBufferRef.current.length > 0) {
-      tradesBufferRef.current = [];
-    }
-  }, []);
-
   // ---------- PnL ----------
   useEffect(() => {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
@@ -541,6 +541,10 @@ export function useTradingEngine() {
 
     // file
     loadMarketData,
+
+    // orderbook
+    orderBook,
+    currentOrderBookData,
 
     // nouveaux dérivés
     orderBookProcessor,

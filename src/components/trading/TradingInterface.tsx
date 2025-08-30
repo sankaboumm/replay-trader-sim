@@ -17,8 +17,6 @@ export function TradingInterface() {
     isPlaying,
     playbackSpeed,
     currentPrice,
-    orderBook,
-    currentOrderBookData,
     orders,
     loadMarketData,
     togglePlayback,
