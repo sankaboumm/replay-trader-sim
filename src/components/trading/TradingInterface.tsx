@@ -33,6 +33,7 @@ export function TradingInterface() {
     spread,
     spreadTicks,
     setViewAnchorPrice,
+    canPlay,
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -65,7 +66,7 @@ export function TradingInterface() {
             speed={playbackSpeed}
             onTogglePlayback={togglePlayback}
             onSpeedChange={setPlaybackSpeed}
-            disabled={!marketData.length}
+            disabled={!canPlay}
           />
         </div>
       </div>
