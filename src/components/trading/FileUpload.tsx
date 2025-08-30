@@ -14,14 +14,18 @@ export const FileUpload = memo(function FileUpload({
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const handleClick = () => {
-    if (!disabled) fileInputRef.current?.click();
+    fileInputRef.current?.click();
   };
 
-  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    console.log('🔥 FileUpload: File selected from input');
+    console.log('🔥 Event target:', event.target);
+    console.log('🔥 Files:', event.target.files);
+    const file = event.target.files?.[0];
     if (file) {
+      console.log('🔥 FileUpload: Calling onFileSelect with file:', file.name);
+      console.log('🔥 onFileSelect function:', onFileSelect);
       onFileSelect(file);
-      if (fileInputRef.current) fileInputRef.current.value = '';
     } else {
       console.log('🔥 FileUpload: No file selected');
     }
@@ -36,7 +40,7 @@ export const FileUpload = memo(function FileUpload({
         className="flex items-center gap-2"
       >
         <Upload className="h-4 w-4" />
-        Charger CSV/Parquet
+        Charger Parquet
       </Button>
       <input
         ref={fileInputRef}

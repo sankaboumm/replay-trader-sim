@@ -20,8 +20,6 @@ export const PlaybackControls = memo(function PlaybackControls({
   onSpeedChange,
   disabled = false
 }: PlaybackControlsProps) {
-  const playDisabled = !!disabled && !isPlaying;
-
   return (
     <div className="flex items-center gap-2">
       {/* Play/Pause Button */}
@@ -29,7 +27,7 @@ export const PlaybackControls = memo(function PlaybackControls({
         variant="outline"
         size="sm"
         onClick={onTogglePlayback}
-        disabled={playDisabled}
+        disabled={disabled}
         className="w-10 h-10 p-0"
       >
         {isPlaying ? (

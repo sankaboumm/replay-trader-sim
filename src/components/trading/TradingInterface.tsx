@@ -33,7 +33,6 @@ export function TradingInterface() {
     spread,
     spreadTicks,
     setViewAnchorPrice,
-    canPlay,
   } = useTradingEngine();
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -66,7 +65,7 @@ export function TradingInterface() {
             speed={playbackSpeed}
             onTogglePlayback={togglePlayback}
             onSpeedChange={setPlaybackSpeed}
-            disabled={!canPlay}
+            disabled={!marketData.length}
           />
         </div>
       </div>
@@ -83,45 +82,30 @@ export function TradingInterface() {
             bestAsk={bestAsk}
             spread={spread}
             spreadTicks={spreadTicks}
+            className="flex-shrink-0"
           />
 
-          {/* Quick actions */}
-          <div className="p-2 flex gap-2">
-            <Button
-              variant="outline"
-              onClick={() => placeMarketOrder('BUY')}
-              disabled={!isPlaying && marketData.length === 0}
+          {/* Drop Zone */}
+          {marketData.length === 0 && (
+            <div
+              className="flex-1 m-4 border-2 border-dashed border-border rounded-lg flex flex-col items-center justify-center text-muted-foreground"
+              onDrop={handleDrop}
+              onDragOver={handleDragOver}
             >
-              Market Buy
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => placeMarketOrder('SELL')}
-              disabled={!isPlaying && marketData.length === 0}
-            >
-              Market Sell
-            </Button>
-          </div>
-
-          {/* BBO info (rappel visuel) */}
-          {bestBid != null && bestAsk != null && (
-            <div className="px-2 pb-2 text-sm text-muted-foreground">
-              <div className="flex justify-between">
-                <span>Bid</span>
-                <span className="tabular-nums">{bestBid.toFixed(2)}</span>
+              <div className="text-center p-8">
+                <h3 className="text-lg font-semibold mb-2">Déposez votre fichier</h3>
+                <p className="text-sm mb-4">Glissez un CSV/Parquet pour démarrer</p>
+                <Button variant="outline" onClick={() => fileInputRef.current?.click()}>
+                  Choisir un fichier
+                </Button>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".parquet,.csv"
+                  onChange={handleFileUpload}
+                  className="hidden"
+                />
               </div>
-              <div className="flex justify-between">
-                <span>Ask</span>
-                <span className="tabular-nums">{bestAsk.toFixed(2)}</span>
-              </div>
-              {spread != null && (
-                <div className="flex justify-between">
-                  <span>Spread</span>
-                  <span className="tabular-nums">
-                    {spread.toFixed(2)}{typeof spreadTicks === 'number' ? ` (${spreadTicks}t)` : ''}
-                  </span>
-                </div>
-              )}
             </div>
           )}
         </div>
@@ -146,17 +130,6 @@ export function TradingInterface() {
           <TimeAndSales trades={timeAndSales} currentPrice={currentPrice} />
         </div>
       </div>
-
-      {/* Hidden input for drag&drop fallback */}
-      <input
-        ref={fileInputRef}
-        type="file"
-        accept=".parquet,.csv"
-        onChange={handleFileUpload}
-        className="hidden"
-        onDrop={handleDrop}
-        onDragOver={handleDragOver}
-      />
     </div>
   );
 }
