@@ -1,14 +1,7 @@
 // src/lib/orderbook.ts
-// Moteur d’order book + génération d’un ladder ancré (anti-jitter)
+// Petit processeur d’order book + génération d’un ladder ancré.
 
-export type Side = "BUY" | "SELL";
-
-export interface Trade {
-  timestamp: Date;
-  price: number;
-  size: number;
-  aggressor: Side;
-}
+export type Side = 'BUY' | 'SELL';
 
 export interface ParsedOrderBook {
   bidPrices: number[];
@@ -17,180 +10,158 @@ export interface ParsedOrderBook {
   askPrices: number[];
   askSizes: number[];
   askOrders?: number[];
-  timestamp: Date;
 }
 
-export interface TickLevel {
-  tick: number;             // index en ticks (0.25 pour le NQ)
-  price: number;            // prix calculé depuis tick
+export interface TickLadderLevel {
+  price: number;
   bidSize: number;
   askSize: number;
-  bidOrders?: number;
-  askOrders?: number;
-  // champs optionnels utilisés par l'UI
-  sizeWindow?: number;
-  volumeCumulative?: number;
+  volumeCumulative: number;
+  tick: number;
 }
 
 export interface TickLadder {
-  midTick: number;          // tick d’ancrage (centre visuel)
-  midPrice: number;
-  lastTick?: number;        // dernier tick traded
-  lastPrice?: number;
-  levels: TickLevel[];      // du plus haut prix (index 0) au plus bas (dernier)
+  levels: TickLadderLevel[];
+  centerPrice: number;
+  tickSize: number;
+  minPrice: number;
+  maxPrice: number;
+}
+
+function roundTo(n: number, step: number) {
+  return Math.round(n / step) * step;
 }
 
 export class OrderBookProcessor {
-  private tickSize = 0.25;
-  private anchorTick: number | null = null;
+  private tickSize: number;
+  private bids: Map<number, number>; // price -> size
+  private asks: Map<number, number>; // price -> size
+  private bestBid?: number;
+  private bestAsk?: number;
 
   constructor(tickSize = 0.25) {
     this.tickSize = tickSize;
+    this.bids = new Map();
+    this.asks = new Map();
   }
 
-  public setTickSize(size: number) { this.tickSize = size; }
-  public inferTickSize(prices: number[]): number {
-    // heuristique simple : détecte le plus petit pas non nul
-    const sorted = [...new Set(prices.filter(Number.isFinite))].sort((a,b)=>a-b);
-    let minStep = Infinity;
-    for (let i=1;i<sorted.length;i++) {
-      const d = +(sorted[i]-sorted[i-1]).toFixed(8);
-      if (d > 0 && d < minStep) minStep = d;
+  reset() {
+    this.bids.clear();
+    this.asks.clear();
+    this.bestBid = undefined;
+    this.bestAsk = undefined;
+  }
+
+  setTickSize(ts: number) {
+    if (ts > 0) this.tickSize = ts;
+  }
+
+  ingestBBO(bid?: number, bidSize?: number, ask?: number, askSize?: number) {
+    if (bid != null) {
+      const p = roundTo(bid, this.tickSize);
+      this.bids.set(p, Math.max(0, bidSize ?? 0));
+      if (this.bestBid == null || p > this.bestBid) this.bestBid = p;
     }
-    return Number.isFinite(minStep) && minStep>0 ? minStep : this.tickSize;
+    if (ask != null) {
+      const p = roundTo(ask, this.tickSize);
+      this.asks.set(p, Math.max(0, askSize ?? 0));
+      if (this.bestAsk == null || p < this.bestAsk) this.bestAsk = p;
+    }
+    if (this.bestBid != null && this.bestAsk != null && this.bestBid >= this.bestAsk) {
+      // recalc bests by actual sides
+      const bidKeys = [...this.bids.keys()];
+      const askKeys = [...this.asks.keys()];
+      this.bestBid = bidKeys.length ? Math.max(...bidKeys) : undefined;
+      this.bestAsk = askKeys.length ? Math.min(...askKeys) : undefined;
+    }
   }
 
-  public setAnchorByPrice(price: number) {
-    this.anchorTick = this.toTick(price);
+  ingestOrderBookFull(
+    bidPrices: number[], bidSizes: number[], bidOrders: number[] | undefined,
+    askPrices: number[], askSizes: number[], askOrders: number[] | undefined
+  ) {
+    this.bids.clear();
+    this.asks.clear();
+    for (let i = 0; i < Math.min(bidPrices.length, bidSizes.length); i++) {
+      const p = roundTo(bidPrices[i], this.tickSize);
+      const s = Math.max(0, Number(bidSizes[i]) || 0);
+      if (s > 0) this.bids.set(p, (this.bids.get(p) ?? 0) + s);
+    }
+    for (let i = 0; i < Math.min(askPrices.length, askSizes.length); i++) {
+      const p = roundTo(askPrices[i], this.tickSize);
+      const s = Math.max(0, Number(askSizes[i]) || 0);
+      if (s > 0) this.asks.set(p, (this.asks.get(p) ?? 0) + s);
+    }
+    const bidKeys = [...this.bids.keys()];
+    const askKeys = [...this.asks.keys()];
+    this.bestBid = bidKeys.length ? Math.max(...bidKeys) : undefined;
+    this.bestAsk = askKeys.length ? Math.min(...askKeys) : undefined;
   }
-  public clearAnchor() { this.anchorTick = null; }
 
-  public priceToTick(price: number) { return this.toTick(price); }
+  getDerived() {
+    const spread =
+      this.bestBid != null && this.bestAsk != null ? this.bestAsk - this.bestBid : undefined;
+    const spreadTicks =
+      spread != null ? Math.round(spread / this.tickSize) : undefined;
+    return {
+      bestBid: this.bestBid,
+      bestAsk: this.bestAsk,
+      spread,
+      spreadTicks,
+      tickSize: this.tickSize,
+    };
+  }
 
-  private toTick(price: number): number {
-    // ancrage : arrondi classique ; le côté (bid/ask) est géré au moment de l’agrégation (floor/ceil)
+  getSnapshot(): ParsedOrderBook {
+    return {
+      bidPrices: [...this.bids.keys()].sort((a, b) => b - a),
+      bidSizes: [...this.bids.entries()].sort((a, b) => b[0] - a[0]).map((e) => e[1]),
+      askPrices: [...this.asks.keys()].sort((a, b) => a - b),
+      askSizes: [...this.asks.entries()].sort((a, b) => a[0] - b[0]).map((e) => e[1]),
+    };
+  }
+
+  private priceToTick(price: number): number {
     return Math.round(price / this.tickSize);
   }
-  private fromTick(tick: number): number {
-    return +(tick * this.tickSize).toFixed(8);
+  private tickToPrice(tick: number): number {
+    return tick * this.tickSize;
   }
 
-  /** Parse d’un snapshot depuis une ligne CSV déjà chargée */
-  public parseOrderBookSnapshot(row: any): ParsedOrderBook | null {
-    const arr = (v: any): number[] => {
-      if (v == null) return [];
-      if (Array.isArray(v)) return v.map(Number).filter(n=>!isNaN(n));
-      const s = String(v).trim();
-      if (!s) return [];
-      try {
-        if (s.startsWith('[')) return (JSON.parse(s) as any[]).map(Number).filter(n=>!isNaN(n));
-        const cleaned = s.replace(/^\[|\]$/g, '');
-        if (!cleaned) return [];
-        return cleaned.split(/[\s,]+/).map(Number).filter(n=>!isNaN(n));
-      } catch {
-        return [];
-      }
-    };
+  buildTickLadder(anchorPrice?: number, halfWindow = 80): TickLadder {
+    const center =
+      anchorPrice != null && Number.isFinite(anchorPrice)
+        ? anchorPrice
+        : this.bestBid != null && this.bestAsk != null
+          ? (this.bestBid + this.bestAsk) / 2
+          : this.bestBid ?? this.bestAsk ?? NaN;
 
-    const tsStr = row.ts_exch_utc || row.ts_exch_madrid || row.ts_utc || row.ts_madrid;
-    const ts = tsStr ? new Date(tsStr) : new Date();
-    const snap: ParsedOrderBook = {
-      bidPrices: arr(row.book_bid_prices),
-      bidSizes:  arr(row.book_bid_sizes),
-      bidOrders: arr(row.book_bid_orders),
-      askPrices: arr(row.book_ask_prices),
-      askSizes:  arr(row.book_ask_sizes),
-      askOrders: arr(row.book_ask_orders),
-      timestamp: ts
-    };
-    return snap;
-  }
+    const centerTick = Number.isFinite(center) ? this.priceToTick(center) : 0;
+    const minTick = centerTick - halfWindow;
+    const maxTick = centerTick + halfWindow;
 
-  public parseTrade(row: any): Trade | null {
-    const tsStr = row.ts_exch_utc || row.ts_exch_madrid || row.ts_utc || row.ts_madrid;
-    const ts = tsStr ? new Date(tsStr) : new Date();
-    const p = parseFloat(row.trade_price);
-    const s = parseFloat(row.trade_size);
-    const a = (row.aggressor?.toString().toUpperCase().startsWith('B') ? 'BUY' :
-               row.aggressor?.toString().toUpperCase().startsWith('S') ? 'SELL' : undefined) as Side | undefined;
-    if (!Number.isFinite(p) || !Number.isFinite(s) || !a) return null;
-    return { timestamp: new Date(ts), price: p, size: s, aggressor: a };
-  }
-
-  /** Génére un ladder anti-jitter : centre ancré, niveaux par tick */
-  public createTickLadder(
-    snapshot: ParsedOrderBook,
-    trades: Trade[] = [],
-    _prevTs?: Date
-  ): TickLadder {
-    // 1) regroupe par tick (évite doublons/arrondis)
-    const bidByTick = new Map<number, { size: number; orders?: number }>();
-    const askByTick = new Map<number, { size: number; orders?: number }>();
-
-    for (let i = 0; i < snapshot.bidPrices.length; i++) {
-      const t = Math.floor((snapshot.bidPrices[i] + 1e-9) / this.tickSize); // floor pour BID
-      const s = snapshot.bidSizes[i] ?? 0;
-      bidByTick.set(t, { size: s, orders: snapshot.bidOrders?.[i] });
-    }
-    for (let i = 0; i < snapshot.askPrices.length; i++) {
-      const t = Math.ceil((snapshot.askPrices[i] - 1e-9) / this.tickSize); // ceil pour ASK
-      const s = snapshot.askSizes[i] ?? 0;
-      askByTick.set(t, { size: s, orders: snapshot.askOrders?.[i] });
-    }
-
-    // 2) centre ancré
-    let centerTick = this.anchorTick;
-    if (centerTick == null) {
-      const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
-      if (lastTrade) centerTick = this.toTick(lastTrade.price);
-      else {
-        // fallback : moyenne des meilleures quotes si dispo
-        const bestBidTick = bidByTick.size ? Math.max(...Array.from(bidByTick.keys())) : 0;
-        const bestAskTick = askByTick.size ? Math.min(...Array.from(askByTick.keys())) : 0;
-        centerTick = Math.round((bestBidTick + bestAskTick) / 2);
-      }
-    }
-    if (centerTick == null) centerTick = 0;
-
-    // fenêtre d’affichage
-    // const HALF = 40;
-    const HALF = 80;
-    const minTick = centerTick - HALF;
-    const maxTick = centerTick + HALF;
-
-    // --- Clamp dans le spread : pas de bids au-dessus du best bid, ni d’asks en-dessous du best ask
-    const bidTicks = Array.from(bidByTick.keys());
-    const askTicks = Array.from(askByTick.keys());
-    const bestBidTick = bidTicks.length ? Math.max(...bidTicks) : Number.NEGATIVE_INFINITY;
-    const bestAskTick = askTicks.length ? Math.min(...askTicks) : Number.POSITIVE_INFINITY;
-
-    const levels: TickLevel[] = [];
-    for (let t = maxTick; t >= minTick; t--) {
-      const bid = bidByTick.get(t);
-      const ask = askByTick.get(t);
+    const levels: TickLadderLevel[] = [];
+    let cum = 0;
+    for (let t = minTick; t <= maxTick; t++) {
+      const price = this.tickToPrice(t);
+      const bidSize = this.bids.get(price) ?? 0;
+      const askSize = this.asks.get(price) ?? 0;
+      cum += bidSize + askSize;
       levels.push({
+        price,
+        bidSize,
+        askSize,
+        volumeCumulative: cum,
         tick: t,
-        price: this.fromTick(t),
-        bidSize: (isFinite(bestBidTick) && t > bestBidTick) ? 0 : (bid?.size ?? 0),
-        askSize: (isFinite(bestAskTick) && t < bestAskTick) ? 0 : (ask?.size ?? 0),
-        bidOrders: (isFinite(bestBidTick) && t > bestBidTick) ? 0 : (bid?.orders ?? 0),
-        askOrders: (isFinite(bestAskTick) && t < bestAskTick) ? 0 : (ask?.orders ?? 0),
-        sizeWindow: 0,
-        volumeCumulative: 0,
       });
     }
 
-    const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
-    const lastTick = lastTrade ? this.toTick(lastTrade.price) : undefined;
-
     return {
-      midTick: centerTick,
-      midPrice: this.fromTick(centerTick),
-      lastTick,
-      lastPrice: lastTrade?.price,
       levels,
+      centerPrice: center,
+      tickSize: this.tickSize,
+      minPrice: this.tickToPrice(minTick),
+      maxPrice: this.tickToPrice(maxTick),
     };
   }
-
-  public resetVolume() { /* no-op */ }
 }
