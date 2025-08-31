@@ -7,7 +7,7 @@ interface TradeLite {
   price: number;
   size: number;
   aggressor?: 'BUY' | 'SELL';
-  timestamp?: number | Date;
+  timestamp?: number;
 }
 
 interface Order {
@@ -15,7 +15,7 @@ interface Order {
   side: 'BUY' | 'SELL';
   price: number;
   quantity: number;
-  filled: number;
+  filled?: number;
 }
 
 interface DOMProps {

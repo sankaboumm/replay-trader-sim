@@ -27,7 +27,7 @@ interface MarketEvent {
 
 interface Trade {
   id: string;
-  timestamp: number | Date;
+  timestamp: number;
   price: number;
   size: number;
   aggressor: 'BUY' | 'SELL';
@@ -176,9 +176,23 @@ export function useTradingEngine() {
   // ---------- loader (streaming) ----------
   const loadMarketData = useCallback((file: File) => {
     setIsLoading(true);
+    setIsPlaying(false);
+    setMarketData([]);
+    setCurrentEventIndex(0);
+    setTimeAndSales([]);
+    setTrades([]);
+    setCurrentPrice(0);
+    setCurrentOrderBookData(null);
+    setCurrentTickLadder(null);
+    setOrders([]);
+    setPosition({ symbol: 'NQ', quantity: 0, averagePrice: 0, marketPrice: 0 });
+    setPnl({ unrealized: 0, realized: 0, total: 0 });
+    // NOTE: on ne remet PAS realizedPnLTotal à 0 ici - il persiste pendant la session
+    setVolumeByPrice(new Map());
     eventsBufferRef.current = [];
     tradesBufferRef.current = [];
     samplePricesRef.current = [];
+    tickSizeLockedRef.current = false;
     let initialPriceSet = false;
 
     Papa.parse(file, {
