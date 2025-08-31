@@ -389,7 +389,12 @@ export function useTradingEngine() {
     });
 
     if (realizedDelta !== 0) {
-      setRealizedPnLTotal(prev => prev + realizedDelta);
+      console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ (total: ${realizedPnLTotal + realizedDelta}$)`);
+      setRealizedPnLTotal(prev => {
+        const newTotal = prev + realizedDelta;
+        console.log(`💰 PnL réalisé total mis à jour: ${prev} + ${realizedDelta} = ${newTotal}`);
+        return newTotal;
+      });
     }
 
     // On retire l'ordre de la file (ordre exécuté)
@@ -688,11 +693,13 @@ export function useTradingEngine() {
   // ---------- PnL ----------
   useEffect(() => {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
-    setPnl({
+    const newPnl = {
       unrealized: unreal,
       realized: realizedPnLTotal,
       total: unreal + realizedPnLTotal
-    });
+    };
+    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, realized=${realizedPnLTotal.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
+    setPnl(newPnl);
   }, [currentPrice, position, realizedPnLTotal]);
 
   // ---------- contrôles playback ----------
