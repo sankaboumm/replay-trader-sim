@@ -342,7 +342,7 @@ export function useTradingEngine() {
     };
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
-    // Calcul realized: uniquement si on RÉDUIT la position existante
+    // Calculer le realized PnL AVANT de modifier la position
     let realizedDelta = 0;
 
     setPosition(prevPos => {
@@ -364,10 +364,10 @@ export function useTradingEngine() {
 
       if (prevQty > 0) {
         // On était long, on vend => realized = (px - prevAvg) * closeQty
-        realizedDelta += (px - prevAvg) * closeQty * contractMultiplier;
+        realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
       } else if (prevQty < 0) {
         // On était short, on achète => realized = (prevAvg - px) * closeQty
-        realizedDelta += (prevAvg - px) * closeQty * contractMultiplier;
+        realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
       }
 
       const remainingQty = fillQty - closeQty; // reliquat pour flip éventuel
@@ -388,11 +388,12 @@ export function useTradingEngine() {
       return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
+    // Mettre à jour le PnL réalisé total après la modification de position
     if (realizedDelta !== 0) {
-      console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ (total: ${realizedPnLTotal + realizedDelta}$)`);
+      console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ (ajout au total)`);
       setRealizedPnLTotal(prev => {
         const newTotal = prev + realizedDelta;
-        console.log(`💰 PnL réalisé total mis à jour: ${prev} + ${realizedDelta} = ${newTotal}`);
+        console.log(`💰 PnL réalisé total mis à jour: ${prev.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
         return newTotal;
       });
     }
