@@ -145,22 +145,30 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice (une seule fois par CSV)
+  // Centrage automatique initial sur le midPrice 
   useEffect(() => {
-    if (ladder && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
+    console.log('🔧 DOMInfinite: Checking auto-center conditions', { 
+      ladder: !!ladder, 
+      midPrice: tickLadder?.midPrice, 
+      hasInitialCentered: hasInitialCenteredRef.current,
+      ladderLevelsLength: ladder?.levels?.length
+    });
+    
+    if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
       console.log('🔧 DOMInfinite: Initial auto-centering on midPrice', { midPrice: tickLadder.midPrice });
       hasInitialCenteredRef.current = true;
-      // Petite délai pour s'assurer que le DOM est rendu
-      setTimeout(() => centerOnMidPrice(), 100);
+      // Délai plus long pour s'assurer que le DOM est complètement rendu
+      setTimeout(() => centerOnMidPrice(), 300);
     }
   }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
 
-  // Reset du flag de centrage quand on change de fichier (pas de ladder)
+  // Reset du flag de centrage quand on change de fichier
   useEffect(() => {
-    if (!tickLadder) {
+    if (!tickLadder || !tickLadder.midPrice) {
+      console.log('🔧 DOMInfinite: Resetting initial centered flag - no tickLadder or midPrice');
       hasInitialCenteredRef.current = false;
     }
-  }, [tickLadder]);
+  }, [tickLadder?.midPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">

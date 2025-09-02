@@ -46,6 +46,16 @@ export function useInfiniteTickWindow(
 
   // Initialisation ou reinitialisation de la fenêtre à la réception du ladder
   useEffect(() => {
+    console.log('🔧 useInfiniteTickWindow: Processing tickLadder', {
+      hasTickLadder: !!tickLadder,
+      midTick: tickLadder?.midTick,
+      midPrice: tickLadder?.midPrice,
+      levelsLength: tickLadder?.levels?.length,
+      currentLowTick: lowTick,
+      currentHighTick: highTick,
+      lastMidTickRef: lastMidTickRef.current
+    });
+    
     if (!tickLadder) return;
     const { midTick, lastTick } = tickLadder;
 
@@ -54,6 +64,12 @@ export function useInfiniteTickWindow(
       const half = Math.floor(initialWindow / 2);
       // [FIX] On privilégie midTick (ancre) pour le centrage initial
       const centerTick = midTick;
+      console.log('🔧 useInfiniteTickWindow: Initializing window', {
+        centerTick,
+        half,
+        newLowTick: centerTick - half,
+        newHighTick: centerTick + half
+      });
       setLowTick(centerTick - half);
       setHighTick(centerTick + half);
       lastMidTickRef.current = midTick;
