@@ -229,7 +229,6 @@ export function useTradingEngine() {
             if (!initialPriceSet) {
               setCurrentPrice(toTick(price));
               orderBookProcessor.setAnchorByPrice(price);
-              orderBookProcessor.clearAnchor();
               initialPriceSet = true;
               samplePricesRef.current.push(price);
             }
@@ -254,7 +253,6 @@ export function useTradingEngine() {
               const mid = toTick((toBidTick(bp) + toAskTick(ap)) / 2);
               setCurrentPrice(mid);
               orderBookProcessor.setAnchorByPrice(mid);
-              orderBookProcessor.clearAnchor();
               initialPriceSet = true;
               const p0 = (bp + ap) / 2;
               samplePricesRef.current.push(p0);
@@ -297,7 +295,6 @@ export function useTradingEngine() {
                 const p0 = (toBidTick(bestBid0) + toAskTick(bestAsk0)) / 2;
                 setCurrentPrice(toTick(p0));
                 orderBookProcessor.setAnchorByPrice(p0);
-                orderBookProcessor.clearAnchor();
                 initialPriceSet = true;
                 samplePricesRef.current.push(p0);
               }
