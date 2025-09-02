@@ -99,8 +99,10 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     };
 
     scrollEl.addEventListener('scroll', onScroll, { passive: true });
+    console.log('🔧 DOMInfinite: Scroll listener attached', { scrollEl });
     return () => {
       scrollEl.removeEventListener('scroll', onScroll);
+      console.log('🔧 DOMInfinite: Scroll listener removed');
     };
   }, [ladder, extendUp, extendDown, batchSize]);
 
