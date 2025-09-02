@@ -80,10 +80,7 @@ export const DOM = memo(function DOM({
   }, [orders]);
 
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
-    if (disabled) {
-      console.log('🔧 DOM: Cell click blocked by disabled flag');
-      return;
-    }
+    if (disabled) return;
     
     const above = price > currentPrice;
     const below = price < currentPrice;
@@ -143,7 +140,7 @@ export const DOM = memo(function DOM({
       </div>
 
       {/* Body */}
-      <div className="flex-1 overflow-y-auto trading-scroll will-change-scroll" style={{ pointerEvents: 'auto' }}>
+      <div className="flex-1 overflow-y-auto trading-scroll will-change-scroll">
         {levels.length === 0 ? (
           <div className="flex items-center justify-center h-32 text-muted-foreground text-sm">
             Aucun niveau à afficher

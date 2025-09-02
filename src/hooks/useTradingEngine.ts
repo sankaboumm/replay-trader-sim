@@ -664,17 +664,18 @@ export function useTradingEngine() {
     const currentEvent = marketData[currentEventIndex];
     processEvent(currentEvent);
 
-    if (currentEventIndex + 1 < marketData.length) {
-      const nextEvent = marketData[currentEventIndex + 1];
+    const nextIndex = currentEventIndex + 1;
+    setCurrentEventIndex(nextIndex);
+
+    if (nextIndex < marketData.length) {
+      const nextEvent = marketData[nextIndex];
       const timeDiff = Math.max(0, nextEvent.timestamp - currentEvent.timestamp);
       const baseDelay = timeDiff / playbackSpeed;
       const minDelay = playbackSpeed >= 10 ? 1 : (playbackSpeed >= 5 ? 5 : 10);
       const maxDelay = 1000;
       const delay = Math.min(Math.max(baseDelay, minDelay), maxDelay);
 
-      playbackTimerRef.current = setTimeout(() => {
-        setCurrentEventIndex(currentEventIndex + 1);
-      }, delay);
+      playbackTimerRef.current = setTimeout(() => {}, delay);
     } else {
       flushAggregationBuffer();
       setIsPlaying(false);

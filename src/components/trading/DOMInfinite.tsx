@@ -39,7 +39,6 @@ interface DOMProps {
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const lastTickLadderRef = useRef<TickLadderType | null>(null);
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
@@ -99,10 +98,8 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     };
 
     scrollEl.addEventListener('scroll', onScroll, { passive: true });
-    console.log('🔧 DOMInfinite: Scroll listener attached', { scrollEl });
     return () => {
       scrollEl.removeEventListener('scroll', onScroll);
-      console.log('🔧 DOMInfinite: Scroll listener removed');
     };
   }, [ladder, extendUp, extendDown, batchSize]);
 
@@ -144,21 +141,13 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage initial lors du chargement d'un nouveau CSV
+  // Centrage automatique initial sur le midPrice
   useEffect(() => {
-    // Détecte un nouveau tickLadder avec des données
-    if (tickLadder && tickLadder.levels && tickLadder.levels.length > 0 && ladder && ladder.levels.length > 0) {
-      // Si c'est un nouveau tickLadder (différent du précédent)
-      if (lastTickLadderRef.current !== tickLadder) {
-        lastTickLadderRef.current = tickLadder;
-        setTimeout(() => centerOnMidPrice(), 100);
-      }
-    } else if (!tickLadder || !tickLadder.levels || tickLadder.levels.length === 0) {
-      // Reset la référence quand pas de données
-      lastTickLadderRef.current = null;
+    if (ladder && tickLadder?.midPrice) {
+      // Petite délai pour s'assurer que le DOM est rendu
+      setTimeout(() => centerOnMidPrice(), 100);
     }
-  }, [tickLadder, ladder, centerOnMidPrice]);
-
+  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">

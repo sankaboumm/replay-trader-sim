@@ -118,7 +118,7 @@ export function TradingInterface() {
             onLimitOrder={placeLimitOrder}
             onMarketOrder={placeMarketOrder}
             onCancelOrders={cancelOrdersAtPrice}
-            disabled={false}  // Le scroll doit toujours être disponible
+            disabled={!isPlaying && marketData.length === 0}
             position={position}
           />
         </div>
