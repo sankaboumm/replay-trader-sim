@@ -345,13 +345,37 @@ export function useTradingEngine() {
     };
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
-    // Calculer le realized PnL AVANT de modifier la position
+    // CALCULER LE PnL REALISE AVANT DE MODIFIER LA POSITION
     let realizedDelta = 0;
     
-    // Récupérer les valeurs actuelles synchrones
+    // Prendre la position actuelle
+    const currentPos = position;
+    alert(`📊 Position actuelle: qty=${currentPos.quantity}, avg=${currentPos.averagePrice}`);
+    
+    const sideDir = order.side === 'BUY' ? +1 : -1;
+    const prevQty = currentPos.quantity;          
+    const prevAvg = currentPos.averagePrice || 0; 
+    const newQty = prevQty + sideDir * fillQty;
+
+    // Vérifier si on ferme une position (sens opposé)
+    if (prevQty !== 0 && Math.sign(prevQty) !== sideDir) {
+      // Sens opposé : on ferme partiellement/totalement
+      const closeQty = Math.min(Math.abs(prevQty), fillQty);
+      alert(`📊 FERMETURE: closeQty=${closeQty}, prevQty=${prevQty}, prevAvg=${prevAvg}, px=${px}`);
+
+      if (prevQty > 0) {
+        realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
+        alert(`💰 CALCUL LONG: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
+      } else if (prevQty < 0) {
+        realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
+        alert(`💰 CALCUL SHORT: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
+      }
+    }
+
+    alert(`🔍 DEBUG realizedDelta = ${realizedDelta}`);
+
+    // MAINTENANT modifier la position
     setPosition(prevPos => {
-      alert(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
-      console.log(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
       const sideDir = order.side === 'BUY' ? +1 : -1;
       const prevQty = prevPos.quantity;          
       const prevAvg = prevPos.averagePrice || 0; 
@@ -359,7 +383,6 @@ export function useTradingEngine() {
 
       // Même sens ou ouverture (aucun realized)
       if (prevQty === 0 || Math.sign(prevQty) === sideDir) {
-        console.log(`📊 Ouverture/ajout position - pas de PnL réalisé`);
         const absPrev = Math.abs(prevQty);
         const absNew = absPrev + fillQty;
         const newAvg = absNew > 0 ? (prevAvg * absPrev + px * fillQty) / absNew : 0;
@@ -368,57 +391,37 @@ export function useTradingEngine() {
 
       // Sens opposé : on ferme partiellement/totalement
       const closeQty = Math.min(Math.abs(prevQty), fillQty);
-      console.log(`📊 Fermeture partielle/totale: closeQty=${closeQty}, prevQty=${prevQty}, prevAvg=${prevAvg}`);
-
-      if (prevQty > 0) {
-        realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
-        alert(`💰 CALCUL LONG: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
-        console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
-      } else if (prevQty < 0) {
-        realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
-        alert(`💰 CALCUL SHORT: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
-        console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
-      }
-
       const remainingQty = fillQty - closeQty;
 
       // Cas 1 : on ne flip pas
       if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
-        console.log(`📊 Réduction sans flip: newQty=${newQty}`);
         return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
       }
 
       // Cas 2 : on ferme totalement
       if (newQty === 0) {
         alert(`🔴 POSITION FERMEE: qty=0`);
-        console.log(`📊 Fermeture totale: position à zéro`);
         return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
       }
 
       // Cas 3 : on flip
-      console.log(`📊 Flip de position: newQty=${newQty}, nouvelle moyenne=${px}`);
       return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
-    // Ajouter le PnL réalisé au total de session de façon simple
-    alert(`🔍 DEBUG realizedDelta = ${realizedDelta}`);
+    // Ajouter le PnL réalisé au total de session
     if (realizedDelta !== 0) {
       alert(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - AJOUT au total`);
-      console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - ajout au total session`);
       const previousTotal = sessionRealizedPnLRef.current;
       sessionRealizedPnLRef.current += realizedDelta;
       alert(`💰 Session AVANT: ${previousTotal.toFixed(2)}, APRES: ${sessionRealizedPnLRef.current.toFixed(2)}`);
-      console.log(`💰 PnL session: ${previousTotal.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${sessionRealizedPnLRef.current.toFixed(2)}`);
-      
-      // Forcer un re-render pour que le useEffect PnL soit appelé
       setForceUpdate(prev => prev + 1);
     } else {
-      alert(`❌ PAS de PnL réalisé à ajouter (realizedDelta = ${realizedDelta})`);
+      alert(`❌ PAS de PnL réalisé (realizedDelta = ${realizedDelta})`);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
     setOrders(prev => prev.filter(o => o.id !== order.id));
-  }, []);
+  }, [position]);
 
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
