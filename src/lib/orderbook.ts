@@ -141,6 +141,10 @@ export class OrderBookProcessor {
     // 2) centre ancré
     let centerTick = this.anchorTick;
     console.log(`📍 createTickLadder: anchorTick=${this.anchorTick}, centerTick=${centerTick}`);
+    
+    if (centerTick != null) {
+      alert(`📍 LADDER: Ancre trouvée! anchorTick=${this.anchorTick}, prix ancre=${this.fromTick(this.anchorTick)}`);
+    }
     if (centerTick == null) {
       const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
       if (lastTrade) centerTick = this.toTick(lastTrade.price);

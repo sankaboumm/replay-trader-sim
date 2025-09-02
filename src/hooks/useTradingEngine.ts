@@ -230,6 +230,7 @@ export function useTradingEngine() {
               setCurrentPrice(toTick(price));
               orderBookProcessor.setAnchorByPrice(price);
               console.log(`📍 CENTRAGE DOM: Prix initial=${price}, tick=${orderBookProcessor.priceToTick(price)}`);
+              alert(`📍 CENTRAGE DOM: Prix initial=${price}, tick=${orderBookProcessor.priceToTick(price)}`);
               initialPriceSet = true;
               samplePricesRef.current.push(price);
               // Force la reconstruction du ladder avec l'ancre
@@ -257,6 +258,7 @@ export function useTradingEngine() {
               setCurrentPrice(mid);
               orderBookProcessor.setAnchorByPrice(mid);
               console.log(`📍 CENTRAGE DOM: Prix BBO initial=${mid}, bid=${bp}, ask=${ap}`);
+              alert(`📍 CENTRAGE DOM: Prix BBO initial=${mid}, bid=${bp}, ask=${ap}`);
               initialPriceSet = true;
               const p0 = (bp + ap) / 2;
               samplePricesRef.current.push(p0);
@@ -301,7 +303,7 @@ export function useTradingEngine() {
                 const p0 = (toBidTick(bestBid0) + toAskTick(bestAsk0)) / 2;
                 setCurrentPrice(toTick(p0));
                 orderBookProcessor.setAnchorByPrice(p0);
-                console.log(`📍 CENTRAGE DOM: Prix ORDERBOOK initial=${p0}, bestBid=${bestBid0}, bestAsk=${bestAsk0}`);
+                alert(`📍 CENTRAGE DOM: Prix ORDERBOOK initial=${p0}, bestBid=${bestBid0}, bestAsk=${bestAsk0}`);
                 initialPriceSet = true;
                 samplePricesRef.current.push(p0);
                 // Force la reconstruction du ladder avec l'ancre
