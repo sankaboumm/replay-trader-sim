@@ -171,14 +171,17 @@ export const DOM = memo(function DOM({
                   "hover:bg-ladder-row-hover transition-colors duration-100"
                 )}
               >
-                {/* Bids */}
+                 {/* Bids */}
                 <div
                   className={cn(
                     "flex items-center justify-center cursor-pointer border-r border-border/50 min-h-[2rem]",
                     level.bidSize > 0 && "bg-ladder-bid text-trading-buy",
                     "hover:bg-trading-buy/10 transition-colors duration-100"
                   )}
-                  onClick={() => totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid')}
+                  onClick={() => {
+                    console.log(`🖱️ DOM CLICK BID: price=${level.price}, totalBuy=${totalBuy}`);
+                    totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid');
+                  }}
                 >
                   <>
                     <span>{level.bidSize > 0 ? formatSize(level.bidSize) : ''}</span>
@@ -207,7 +210,10 @@ export const DOM = memo(function DOM({
                     level.askSize > 0 && "bg-ladder-ask text-trading-sell",
                     "hover:bg-trading-sell/10 transition-colors duration-100"
                   )}
-                  onClick={() => totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask')}
+                  onClick={() => {
+                    console.log(`🖱️ DOM CLICK ASK: price=${level.price}, totalSell=${totalSell}`);
+                    totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask');
+                  }}
                 >
                   <>
                     <span>{level.askSize > 0 ? formatSize(level.askSize) : ''}</span>
