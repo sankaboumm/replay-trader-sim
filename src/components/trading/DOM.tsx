@@ -158,6 +158,11 @@ export const DOM = memo(function DOM({
             const isAveragePrice = position && position.quantity !== 0 && Math.abs(level.price - position.averagePrice) < 0.125;
             const isHighlighted = highlightedPrices.has(level.price);
             
+            // Debug: trouver le niveau central
+            if (Math.abs(level.price - 23259.25) < 0.5) {
+              console.log(`🎯 NIVEAU CENTRAL: price=${level.price}, currentPrice=${currentPrice}, isMid=${isMid}`);
+            }
+            
             const buyOrders = getOrdersAtPrice(level.price, 'BUY');
             const sellOrders = getOrdersAtPrice(level.price, 'SELL');
             const totalBuy = buyOrders.reduce((s, o) => s + (o.quantity - o.filled), 0);
@@ -200,6 +205,7 @@ export const DOM = memo(function DOM({
                   onClick={(e) => handlePriceClick(level.price, e)}
                 >
                   {formatPrice(level.price)}
+                  {Math.abs(level.price - 23259.25) < 0.5 && <span style={{fontSize: '10px', color: 'red'}}>🎯</span>}
                 </div>
 
                 {/* Asks */}
