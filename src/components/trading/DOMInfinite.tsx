@@ -37,7 +37,7 @@ interface DOMProps {
  * - Ne modifie pas le composant DOM original: on lui passe juste un ladder étendu.
  */
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
-  const { tickLadder, currentPrice } = props;
+  const { tickLadder, currentPrice, disabled } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
@@ -81,18 +81,21 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const ROW_HEIGHT = 32; // h-8 ≈ 2rem ≈ 32px (suffisant)
 
     const onScroll = () => {
+      console.log('🔧 DOMInfinite: Scroll event triggered', { scrollTop: scrollEl.scrollTop });
       const top = scrollEl.scrollTop;
       const maxScrollTop = scrollEl.scrollHeight - scrollEl.clientHeight;
       const distToBottom = maxScrollTop - top;
 
       // Haut → on étend vers les prix plus élevés (ajout en haut)
       if (top < THRESHOLD) {
+        console.log('🔧 DOMInfinite: Extending up');
         // On programmera un ajustement égal à batch * rowHeight pour conserver la vue
         pendingScrollAdjustRef.current = (pendingScrollAdjustRef.current ?? 0) + batchSize * ROW_HEIGHT;
         extendUp();
       }
       // Bas → on étend vers les prix plus bas (ajout en bas)
       else if (distToBottom < THRESHOLD) {
+        console.log('🔧 DOMInfinite: Extending down');
         extendDown();
       }
     };
@@ -141,13 +144,15 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice
+  // Centrage automatique initial sur le midPrice (uniquement si pas de lecture en cours)
   useEffect(() => {
-    if (ladder && tickLadder?.midPrice) {
+    // Ne pas centrer automatiquement pendant la lecture (disabled=false)
+    if (ladder && tickLadder?.midPrice && disabled !== false) {
+      console.log('🔧 DOMInfinite: Auto-centering on midPrice', { midPrice: tickLadder.midPrice, disabled });
       // Petite délai pour s'assurer que le DOM est rendu
       setTimeout(() => centerOnMidPrice(), 100);
     }
-  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
+  }, [ladder, tickLadder?.midPrice, centerOnMidPrice, disabled]);
 
   return (
     <div ref={wrapperRef} className="contents">
