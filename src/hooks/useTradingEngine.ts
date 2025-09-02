@@ -329,6 +329,7 @@ export function useTradingEngine() {
 
   // ************** PnL CORRIGÉ **************
   const executeLimitFill = useCallback((order: Order, px: number) => {
+    console.log(`🔄 executeLimitFill: ordre ${order.id}, side=${order.side}, px=${px}`);
     const contractMultiplier = 20; // NQ
     const fillQty = Math.min(order.quantity - (order.filled ?? 0), 1);
 
@@ -346,6 +347,7 @@ export function useTradingEngine() {
     let realizedDelta = 0;
 
     setPosition(prevPos => {
+      console.log(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
       const sideDir = order.side === 'BUY' ? +1 : -1;
       const prevQty = prevPos.quantity;          // peut être négatif (short)
       const prevAvg = prevPos.averagePrice || 0; // prix moyen de la position actuelle
@@ -353,6 +355,7 @@ export function useTradingEngine() {
 
       // Même sens ou ouverture (aucun realized)
       if (prevQty === 0 || Math.sign(prevQty) === sideDir) {
+        console.log(`📊 Ouverture/ajout position - pas de PnL réalisé`);
         const absPrev = Math.abs(prevQty);
         const absNew = absPrev + fillQty;
         const newAvg = absNew > 0 ? (prevAvg * absPrev + px * fillQty) / absNew : 0;
@@ -361,13 +364,16 @@ export function useTradingEngine() {
 
       // Sens opposé : on ferme partiellement/totalement
       const closeQty = Math.min(Math.abs(prevQty), fillQty);
+      console.log(`📊 Fermeture partielle/totale: closeQty=${closeQty}, prevQty=${prevQty}, prevAvg=${prevAvg}`);
 
       if (prevQty > 0) {
         // On était long, on vend => realized = (px - prevAvg) * closeQty
         realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
+        console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
       } else if (prevQty < 0) {
         // On était short, on achète => realized = (prevAvg - px) * closeQty
         realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
+        console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
       }
 
       const remainingQty = fillQty - closeQty; // reliquat pour flip éventuel
@@ -375,20 +381,24 @@ export function useTradingEngine() {
       // Cas 1 : on ne flip pas (on reste avec une position du même signe que prevQty)
       if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
         // moyenne inchangée quand on réduit sans flip
+        console.log(`📊 Réduction sans flip: newQty=${newQty}`);
         return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
       }
 
       // Cas 2 : on ferme totalement
       if (newQty === 0) {
+        console.log(`📊 Fermeture totale: position à zéro`);
         return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
       }
 
       // Cas 3 : on flip (on ouvre dans l'autre sens avec le reliquat)
       // la nouvelle moyenne = prix du fill
+      console.log(`📊 Flip de position: newQty=${newQty}, nouvelle moyenne=${px}`);
       return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
     // Mettre à jour le PnL réalisé total après la modification de position
+    console.log(`📊 realizedDelta calculé: ${realizedDelta}`);
     if (realizedDelta !== 0) {
       console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ (ajout au total)`);
       setRealizedPnLTotal(prev => {
@@ -396,6 +406,8 @@ export function useTradingEngine() {
         console.log(`💰 PnL réalisé total mis à jour: ${prev.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
         return newTotal;
       });
+    } else {
+      console.log(`📊 Pas de PnL réalisé à ajouter`);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
@@ -699,6 +711,7 @@ export function useTradingEngine() {
       realized: realizedPnLTotal,
       total: unreal + realizedPnLTotal
     };
+    console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}, realizedPnLTotal=${realizedPnLTotal.toFixed(2)}`);
     console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, realized=${realizedPnLTotal.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
     setPnl(newPnl);
   }, [currentPrice, position, realizedPnLTotal]);
