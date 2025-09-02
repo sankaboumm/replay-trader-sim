@@ -49,6 +49,7 @@ export const DOM = memo(function DOM({
   onCancelOrders,
   position,
 }: DOMProps) {
+  console.log(`🖱️ DOM Component: disabled=${disabled}, tickLadder=${tickLadder ? 'present' : 'null'}, currentPrice=${currentPrice}`);
   // État pour les cellules de prix surlignées en jaune avec Ctrl+clic
   const [highlightedPrices, setHighlightedPrices] = useState<Set<number>>(new Set());
   // Build a quick lookup for the last trade size at a given price
