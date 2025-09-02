@@ -49,7 +49,6 @@ export const DOM = memo(function DOM({
   onCancelOrders,
   position,
 }: DOMProps) {
-  console.log(`🖱️ DOM Component: disabled=${disabled}, tickLadder=${tickLadder ? 'present' : 'null'}, currentPrice=${currentPrice}`);
   // État pour les cellules de prix surlignées en jaune avec Ctrl+clic
   const [highlightedPrices, setHighlightedPrices] = useState<Set<number>>(new Set());
   // Build a quick lookup for the last trade size at a given price
@@ -81,7 +80,6 @@ export const DOM = memo(function DOM({
   }, [orders]);
 
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
-    console.log(`🖱️ DOM handleCellClick: price=${price}, column=${column}, disabled=${disabled}, currentPrice=${currentPrice}`);
     if (disabled) return;
     
     const above = price > currentPrice;
@@ -89,17 +87,13 @@ export const DOM = memo(function DOM({
 
     if (column === 'bid') {
       if (above) {
-        console.log(`🖱️ DOM: Ordre MARKET BUY à ${price} (au-dessus du prix courant ${currentPrice})`);
         return onMarketOrder('BUY', 1);
       }
-      console.log(`🖱️ DOM: Ordre LIMIT BUY à ${price} (en-dessous du prix courant ${currentPrice})`);
       return onLimitOrder('BUY', price, 1);
     } else if (column === 'ask') {
       if (below) {
-        console.log(`🖱️ DOM: Ordre MARKET SELL à ${price} (en-dessous du prix courant ${currentPrice})`);
         return onMarketOrder('SELL', 1);
       }
-      console.log(`🖱️ DOM: Ordre LIMIT SELL à ${price} (au-dessus du prix courant ${currentPrice})`);
       return onLimitOrder('SELL', price, 1);
     }
   }, [disabled, currentPrice, onLimitOrder, onMarketOrder]);
@@ -132,11 +126,6 @@ export const DOM = memo(function DOM({
 
   return (
     <div className="h-full flex flex-col bg-card">
-      {/* Debug info */}
-      <div className="text-xs bg-red-900 text-white p-1">
-        🔧 Niveaux: {levels.length} | Mid: {tickLadder?.midPrice} | Current: {currentPrice}
-      </div>
-      
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="p-3">
@@ -160,7 +149,6 @@ export const DOM = memo(function DOM({
           levels.map((level) => {
             const volume = volumeByPrice.get(level.price) ?? 0;
             const isMid = Math.abs(level.price - currentPrice) < 1e-9;
-            const isMidPrice = tickLadder?.midPrice && Math.abs(level.price - tickLadder.midPrice) < 1e-9;
             const isAveragePrice = position && position.quantity !== 0 && Math.abs(level.price - position.averagePrice) < 0.125;
             const isHighlighted = highlightedPrices.has(level.price);
             
@@ -199,14 +187,12 @@ export const DOM = memo(function DOM({
                   className={cn(
                     "flex items-center justify-center font-mono border-r border-border/50 cursor-pointer",
                     isMid && "text-yellow-400 font-semibold",
-                    isMidPrice && "bg-green-600 text-white font-bold",
                     isAveragePrice && "bg-position-average",
                     isHighlighted && "bg-trading-highlight",
                     "hover:bg-muted/50 transition-colors duration-100"
                   )}
                   onClick={(e) => handlePriceClick(level.price, e)}
                 >
-                  {isMidPrice && "🎯 "}
                   {formatPrice(level.price)}
                 </div>
 
