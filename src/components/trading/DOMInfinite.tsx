@@ -39,7 +39,7 @@ interface DOMProps {
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const hasInitialCenteredRef = useRef(false);
+  const lastTickLadderRef = useRef<TickLadderType | null>(null);
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
@@ -142,18 +142,20 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Reset du flag de centrage quand un nouveau fichier CSV est chargé
+  // Centrage initial lors du chargement d'un nouveau CSV
   useEffect(() => {
-    if (tickLadder && tickLadder.levels && tickLadder.levels.length > 0) {
-      if (!hasInitialCenteredRef.current) {
-        hasInitialCenteredRef.current = true;
+    // Détecte un nouveau tickLadder avec des données
+    if (tickLadder && tickLadder.levels && tickLadder.levels.length > 0 && ladder && ladder.levels.length > 0) {
+      // Si c'est un nouveau tickLadder (différent du précédent)
+      if (lastTickLadderRef.current !== tickLadder) {
+        lastTickLadderRef.current = tickLadder;
         setTimeout(() => centerOnMidPrice(), 100);
       }
-    } else {
-      // Reset quand pas de données
-      hasInitialCenteredRef.current = false;
+    } else if (!tickLadder || !tickLadder.levels || tickLadder.levels.length === 0) {
+      // Reset la référence quand pas de données
+      lastTickLadderRef.current = null;
     }
-  }, [tickLadder, centerOnMidPrice]);
+  }, [tickLadder, ladder, centerOnMidPrice]);
 
 
   return (
