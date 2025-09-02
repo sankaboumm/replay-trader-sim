@@ -401,6 +401,7 @@ export function useTradingEngine() {
     });
 
     // Ajouter le PnL réalisé au total de session de façon simple
+    alert(`🔍 DEBUG realizedDelta = ${realizedDelta}`);
     if (realizedDelta !== 0) {
       alert(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - AJOUT au total`);
       console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - ajout au total session`);
@@ -412,7 +413,7 @@ export function useTradingEngine() {
       // Forcer un re-render pour que le useEffect PnL soit appelé
       setForceUpdate(prev => prev + 1);
     } else {
-      alert(`❌ PAS de PnL réalisé à ajouter`);
+      alert(`❌ PAS de PnL réalisé à ajouter (realizedDelta = ${realizedDelta})`);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
