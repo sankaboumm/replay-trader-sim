@@ -417,10 +417,17 @@ export function useTradingEngine() {
   // ---------- Orders ----------
   const orderIdCounter = useRef(0);
   const placeLimitOrder = useCallback((side: 'BUY' | 'SELL', price: number, quantity: number) => {
-    setOrders(prev => [...prev, {
+    console.log(`📝 Placement ordre limite: side=${side}, prix=${price}, qty=${quantity}`);
+    const newOrder = {
       id: `LMT-${++orderIdCounter.current}`,
       side, price, quantity, filled: 0
-    }]);
+    };
+    console.log(`📝 Nouvel ordre créé: ${JSON.stringify(newOrder)}`);
+    setOrders(prev => {
+      const updated = [...prev, newOrder];
+      console.log(`📝 Ordres après ajout: ${updated.length} ordres`);
+      return updated;
+    });
   }, []);
   const cancelOrdersAtPrice = useCallback((price: number) => {
     setOrders(prev => prev.filter(o => o.price !== price));
@@ -475,8 +482,10 @@ export function useTradingEngine() {
 
   // MARKET = best bid/ask (BBO prioritaire) + exécution immédiate
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number = 1) => {
+    console.log(`📝 Placement ordre marché: side=${side}, qty=${quantity}`);
     const { bestBid, bestAsk } = getBestBidAsk();
     const execPx = side === 'BUY' ? (bestBid ?? currentPrice) : (bestAsk ?? currentPrice);
+    console.log(`📝 Prix d'exécution marché: ${execPx} (bestBid=${bestBid}, bestAsk=${bestAsk})`);
     if (execPx == null) return;
 
     const ord: Order = {
@@ -486,6 +495,7 @@ export function useTradingEngine() {
       quantity,
       filled: 0
     };
+    console.log(`📝 Exécution immédiate ordre marché: ${JSON.stringify(ord)}`);
     executeLimitFill(ord, execPx);
   }, [getBestBidAsk, currentPrice, executeLimitFill]);
 
