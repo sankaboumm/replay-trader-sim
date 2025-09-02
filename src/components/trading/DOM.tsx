@@ -179,9 +179,11 @@ export const DOM = memo(function DOM({
                     "hover:bg-trading-buy/10 transition-colors duration-100"
                   )}
                   onClick={() => {
-                    console.log(`🖱️ DOM CLICK BID: price=${level.price}, totalBuy=${totalBuy}`);
+                    console.log(`🔥 CLIC DIRECT BID: price=${level.price}, totalBuy=${totalBuy}`);
+                    console.log(`🔥 handlerDefined: ${typeof handleCellClick}, ${typeof handleOrderClick}`);
                     totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid');
                   }}
+                  onMouseDown={() => console.log(`🔥 MOUSEDOWN BID: ${level.price}`)}
                 >
                   <>
                     <span>{level.bidSize > 0 ? formatSize(level.bidSize) : ''}</span>
