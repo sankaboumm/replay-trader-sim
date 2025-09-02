@@ -160,6 +160,7 @@ export const DOM = memo(function DOM({
           levels.map((level) => {
             const volume = volumeByPrice.get(level.price) ?? 0;
             const isMid = Math.abs(level.price - currentPrice) < 1e-9;
+            const isMidPrice = tickLadder?.midPrice && Math.abs(level.price - tickLadder.midPrice) < 1e-9;
             const isAveragePrice = position && position.quantity !== 0 && Math.abs(level.price - position.averagePrice) < 0.125;
             const isHighlighted = highlightedPrices.has(level.price);
             
@@ -193,17 +194,19 @@ export const DOM = memo(function DOM({
                   </>
                 </div>
 
-                {/* Price */}
+                 {/* Price */}
                 <div
                   className={cn(
                     "flex items-center justify-center font-mono border-r border-border/50 cursor-pointer",
                     isMid && "text-yellow-400 font-semibold",
+                    isMidPrice && "bg-green-600 text-white font-bold",
                     isAveragePrice && "bg-position-average",
                     isHighlighted && "bg-trading-highlight",
                     "hover:bg-muted/50 transition-colors duration-100"
                   )}
                   onClick={(e) => handlePriceClick(level.price, e)}
                 >
+                  {isMidPrice && "🎯 "}
                   {formatPrice(level.price)}
                 </div>
 
