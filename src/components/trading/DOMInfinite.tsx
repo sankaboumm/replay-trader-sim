@@ -45,9 +45,9 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     batchSize: 100,
   });
 
-  // Centrage sur le prix courant avec la barre espace
-  const centerOnCurrentPrice = useCallback(() => {
-    if (!currentPrice || !ladder?.levels) return;
+  // Centrage sur le midPrice avec la barre espace
+  const centerOnMidPrice = useCallback(() => {
+    if (!tickLadder?.midPrice || !ladder?.levels) return;
     
     const wrapper = wrapperRef.current;
     if (!wrapper) return;
@@ -55,17 +55,17 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) return;
 
-    // Trouve l'index du niveau le plus proche du prix courant
-    const currentPriceIndex = ladder.levels.findIndex(level => 
-      Math.abs(level.price - currentPrice) < 0.125
+    // Trouve l'index du niveau le plus proche du midPrice
+    const midPriceIndex = ladder.levels.findIndex(level => 
+      Math.abs(level.price - tickLadder.midPrice) < 0.125
     );
     
-    if (currentPriceIndex >= 0) {
+    if (midPriceIndex >= 0) {
       const ROW_HEIGHT = 32;
-      const targetScroll = currentPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
+      const targetScroll = midPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
       scrollEl.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
     }
-  }, [currentPrice, ladder]);
+  }, [tickLadder?.midPrice, ladder]);
 
   // Ajustement du scrollTop après extension en haut pour éviter les "sauts"
   const pendingScrollAdjustRef = useRef<number | null>(null);
@@ -133,13 +133,21 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.code === 'Space') {
         e.preventDefault();
-        centerOnCurrentPrice();
+        centerOnMidPrice();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [centerOnCurrentPrice]);
+  }, [centerOnMidPrice]);
+
+  // Centrage automatique initial sur le midPrice
+  useEffect(() => {
+    if (ladder && tickLadder?.midPrice) {
+      // Petite délai pour s'assurer que le DOM est rendu
+      setTimeout(() => centerOnMidPrice(), 100);
+    }
+  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">
