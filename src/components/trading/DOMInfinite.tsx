@@ -142,7 +142,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice (une seule fois)
+  // Centrage automatique initial sur le midPrice (une seule fois par dataset)
   useEffect(() => {
     if (ladder && tickLadder?.midPrice && !hasInitialCentered) {
       // Petite délai pour s'assurer que le DOM est rendu
@@ -153,8 +153,16 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     }
   }, [ladder, tickLadder?.midPrice, centerOnMidPrice, hasInitialCentered]);
 
+  // Reset du flag de centrage initial quand on change de dataset
+  useEffect(() => {
+    setHasInitialCentered(false);
+  }, [tickLadder?.levels?.length]);
+
   return (
     <div ref={wrapperRef} className="contents">
+      {/* Debug temporaire */}
+      {!ladder && <div className="text-red-500 p-2">DEBUG: ladder is null</div>}
+      {ladder && ladder.levels?.length === 0 && <div className="text-red-500 p-2">DEBUG: ladder has 0 levels</div>}
       <DOM {...props} tickLadder={ladder} />
     </div>
   );
