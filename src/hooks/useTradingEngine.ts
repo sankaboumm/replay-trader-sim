@@ -96,6 +96,7 @@ export function useTradingEngine() {
   });
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
   const sessionRealizedPnLRef = useRef(0);  // PnL réalisé cumulé pour toute la session - PERSISTE entre renders
+  const [forceUpdate, setForceUpdate] = useState(0);  // Counter pour forcer re-render
 
   // streaming parse
   const [isLoading, setIsLoading] = useState(false);
@@ -400,6 +401,9 @@ export function useTradingEngine() {
       const previousTotal = sessionRealizedPnLRef.current;
       sessionRealizedPnLRef.current += realizedDelta;
       console.log(`💰 PnL session: ${previousTotal.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${sessionRealizedPnLRef.current.toFixed(2)}`);
+      
+      // Forcer un re-render pour que le useEffect PnL soit appelé
+      setForceUpdate(prev => prev + 1);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
@@ -725,7 +729,7 @@ export function useTradingEngine() {
     console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}`);
     console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, session_realized=${sessionRealizedPnLRef.current.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
     setPnl(newPnl);
-  }, [currentPrice, position]);
+  }, [currentPrice, position, forceUpdate]);
 
   // ---------- contrôles playback ----------
   const togglePlayback = useCallback(() => {
