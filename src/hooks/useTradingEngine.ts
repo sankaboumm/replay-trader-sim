@@ -343,14 +343,15 @@ export function useTradingEngine() {
     };
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
-    // Calculer le realized PnL et mettre à jour la position
+    // Calculer le realized PnL AVANT de modifier la position
     let calculatedRealizedDelta = 0;
-
+    
+    // Récupérer les valeurs actuelles synchrones
     setPosition(prevPos => {
       console.log(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
       const sideDir = order.side === 'BUY' ? +1 : -1;
-      const prevQty = prevPos.quantity;          // peut être négatif (short)
-      const prevAvg = prevPos.averagePrice || 0; // prix moyen de la position actuelle
+      const prevQty = prevPos.quantity;          
+      const prevAvg = prevPos.averagePrice || 0; 
       const newQty = prevQty + sideDir * fillQty;
 
       // Même sens ou ouverture (aucun realized)
@@ -367,20 +368,17 @@ export function useTradingEngine() {
       console.log(`📊 Fermeture partielle/totale: closeQty=${closeQty}, prevQty=${prevQty}, prevAvg=${prevAvg}`);
 
       if (prevQty > 0) {
-        // On était long, on vend => realized = (px - prevAvg) * closeQty
         calculatedRealizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
         console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${calculatedRealizedDelta}`);
       } else if (prevQty < 0) {
-        // On était short, on achète => realized = (prevAvg - px) * closeQty
         calculatedRealizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
         console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${calculatedRealizedDelta}`);
       }
 
-      const remainingQty = fillQty - closeQty; // reliquat pour flip éventuel
+      const remainingQty = fillQty - closeQty;
 
-      // Cas 1 : on ne flip pas (on reste avec une position du même signe que prevQty)
+      // Cas 1 : on ne flip pas
       if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
-        // moyenne inchangée quand on réduit sans flip
         console.log(`📊 Réduction sans flip: newQty=${newQty}`);
         return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
       }
@@ -391,19 +389,18 @@ export function useTradingEngine() {
         return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
       }
 
-      // Cas 3 : on flip (on ouvre dans l'autre sens avec le reliquat)
-      // la nouvelle moyenne = prix du fill
+      // Cas 3 : on flip
       console.log(`📊 Flip de position: newQty=${newQty}, nouvelle moyenne=${px}`);
       return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
-    // Mettre à jour le PnL réalisé total après la modification de position
-    console.log(`📊 realizedDelta calculé: ${calculatedRealizedDelta}`);
+    // Mettre à jour le PnL réalisé total - maintenant avec la valeur calculée
+    console.log(`📊 realizedDelta final: ${calculatedRealizedDelta}`);
     if (calculatedRealizedDelta !== 0) {
       console.log(`💰 PnL réalisé: ${calculatedRealizedDelta.toFixed(2)}$ (ajout au total)`);
       setRealizedPnLTotal(prev => {
         const newTotal = prev + calculatedRealizedDelta;
-        console.log(`💰 PnL réalisé total mis à jour: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
+        console.log(`💰 PnL réalisé total MIS À JOUR: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
         return newTotal;
       });
     } else {
