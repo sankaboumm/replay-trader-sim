@@ -231,6 +231,8 @@ export function useTradingEngine() {
               orderBookProcessor.setAnchorByPrice(price);
               initialPriceSet = true;
               samplePricesRef.current.push(price);
+              // Force la reconstruction du ladder avec l'ancre
+              setForceUpdate(prev => prev + 1);
             }
           }
         } else if (eventType === 'BBO') {
@@ -256,6 +258,8 @@ export function useTradingEngine() {
               initialPriceSet = true;
               const p0 = (bp + ap) / 2;
               samplePricesRef.current.push(p0);
+              // Force la reconstruction du ladder avec l'ancre
+              setForceUpdate(prev => prev + 1);
             }
           }
         } else if (eventType === 'ORDERBOOK') {
@@ -297,6 +301,8 @@ export function useTradingEngine() {
                 orderBookProcessor.setAnchorByPrice(p0);
                 initialPriceSet = true;
                 samplePricesRef.current.push(p0);
+                // Force la reconstruction du ladder avec l'ancre
+                setForceUpdate(prev => prev + 1);
               }
             }
           }
@@ -709,7 +715,7 @@ export function useTradingEngine() {
       const ladder = orderBookProcessor.createTickLadder(snapshot, trades);
       setCurrentTickLadder(decorateLadderWithVolume(ladder, volumeByPrice));
     }
-  }, [currentOrderBookData, orderBookProcessor, trades, volumeByPrice]);
+  }, [currentOrderBookData, orderBookProcessor, trades, volumeByPrice, forceUpdate]);
 
   // ---------- PnL FINAL PROPRE ----------
   useEffect(() => {
