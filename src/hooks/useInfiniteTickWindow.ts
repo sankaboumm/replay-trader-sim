@@ -52,8 +52,8 @@ export function useInfiniteTickWindow(
     // Première initialisation ou si aucune fenêtre encore définie
     if (lowTick == null || highTick == null || lastMidTickRef.current == null) {
       const half = Math.floor(initialWindow / 2);
-      // [FIX] Si on a un lastTick (dernier trade), on centre sur lui plutôt que sur midTick
-      const centerTick = lastTick !== undefined ? lastTick : midTick;
+      // [FIX] On privilégie midTick (ancre) pour le centrage initial
+      const centerTick = midTick;
       setLowTick(centerTick - half);
       setHighTick(centerTick + half);
       lastMidTickRef.current = midTick;

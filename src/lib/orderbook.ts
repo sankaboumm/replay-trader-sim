@@ -140,11 +140,6 @@ export class OrderBookProcessor {
 
     // 2) centre ancré
     let centerTick = this.anchorTick;
-    console.log(`📍 createTickLadder: anchorTick=${this.anchorTick}, centerTick=${centerTick}`);
-    
-    if (centerTick != null) {
-      alert(`📍 LADDER: Ancre trouvée! anchorTick=${this.anchorTick}, prix ancre=${this.fromTick(this.anchorTick)}`);
-    }
     if (centerTick == null) {
       const lastTrade = trades.length ? trades[trades.length - 1] : undefined;
       if (lastTrade) centerTick = this.toTick(lastTrade.price);
@@ -154,7 +149,6 @@ export class OrderBookProcessor {
         const bestAskTick = askByTick.size ? Math.min(...Array.from(askByTick.keys())) : 0;
         centerTick = Math.round((bestBidTick + bestAskTick) / 2);
       }
-      console.log(`📍 createTickLadder: pas d'ancre, centerTick calculé=${centerTick}`);
     }
     if (centerTick == null) centerTick = 0;
 
@@ -163,8 +157,6 @@ export class OrderBookProcessor {
     const HALF = 80;
     const minTick = centerTick - HALF;
     const maxTick = centerTick + HALF;
-
-    console.log(`📍 createTickLadder: fenêtre minTick=${minTick}, maxTick=${maxTick}`);
 
     // --- Clamp dans le spread : pas de bids au-dessus du best bid, ni d’asks en-dessous du best ask
     const bidTicks = Array.from(bidByTick.keys());
