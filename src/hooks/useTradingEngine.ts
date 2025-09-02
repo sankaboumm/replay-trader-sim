@@ -95,8 +95,7 @@ export function useTradingEngine() {
     marketPrice: 0
   });
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
-  const [sessionPnLTotal, setSessionPnLTotal] = useState(0);  // PnL total de toute la session
-  const [currentTradeRealized, setCurrentTradeRealized] = useState(0);  // PnL réalisé du trade en cours
+  const [sessionRealizedPnL, setSessionRealizedPnL] = useState(0);  // PnL réalisé cumulé pour toute la session
 
   // streaming parse
   const [isLoading, setIsLoading] = useState(false);
@@ -188,8 +187,7 @@ export function useTradingEngine() {
     setOrders([]);
     setPosition({ symbol: 'NQ', quantity: 0, averagePrice: 0, marketPrice: 0 });
     setPnl({ unrealized: 0, realized: 0, total: 0 });
-    setCurrentTradeRealized(0);  // Reset le PnL du trade en cours
-    // NOTE: on ne remet PAS sessionPnLTotal à 0 ici - il persiste pendant la session
+    // NOTE: on ne remet PAS sessionRealizedPnL à 0 ici - il persiste pendant la session
     setVolumeByPrice(new Map());
     eventsBufferRef.current = [];
     tradesBufferRef.current = [];
@@ -329,7 +327,7 @@ export function useTradingEngine() {
     }
   }, [aggregationBuffer, setTimeAndSales]);
 
-  // ************** PnL CORRIGÉ **************
+  // ************** PnL SIMPLE ET PROPRE **************
   const executeLimitFill = useCallback((order: Order, px: number) => {
     console.log(`🔄 executeLimitFill: ordre ${order.id}, side=${order.side}, px=${px}`);
     const contractMultiplier = 20; // NQ
@@ -346,7 +344,7 @@ export function useTradingEngine() {
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
     // Calculer le realized PnL AVANT de modifier la position
-    let calculatedRealizedDelta = 0;
+    let realizedDelta = 0;
     
     // Récupérer les valeurs actuelles synchrones
     setPosition(prevPos => {
@@ -370,11 +368,11 @@ export function useTradingEngine() {
       console.log(`📊 Fermeture partielle/totale: closeQty=${closeQty}, prevQty=${prevQty}, prevAvg=${prevAvg}`);
 
       if (prevQty > 0) {
-        calculatedRealizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
-        console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${calculatedRealizedDelta}`);
+        realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
+        console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
       } else if (prevQty < 0) {
-        calculatedRealizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
-        console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${calculatedRealizedDelta}`);
+        realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
+        console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
       }
 
       const remainingQty = fillQty - closeQty;
@@ -396,26 +394,14 @@ export function useTradingEngine() {
       return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
-    // Mettre à jour le PnL réalisé
-    console.log(`📊 realizedDelta final: ${calculatedRealizedDelta}`);
-    if (calculatedRealizedDelta !== 0) {
-      console.log(`💰 PnL réalisé: ${calculatedRealizedDelta.toFixed(2)}$ (ajout au total)`);
-      
-      // Ajouter au PnL du trade actuel
-      setCurrentTradeRealized(prev => {
-        const newCurrent = prev + calculatedRealizedDelta;
-        console.log(`💰 PnL trade actuel: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newCurrent.toFixed(2)}`);
-        return newCurrent;
-      });
-      
-      // Ajouter au total de session
-      setSessionPnLTotal(prev => {
-        const newTotal = prev + calculatedRealizedDelta;
-        console.log(`💰 PnL session total: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
+    // Ajouter le PnL réalisé au total de session de façon simple
+    if (realizedDelta !== 0) {
+      console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - ajout au total session`);
+      setSessionRealizedPnL(prev => {
+        const newTotal = prev + realizedDelta;
+        console.log(`💰 PnL session: ${prev.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
         return newTotal;
       });
-    } else {
-      console.log(`📊 Pas de PnL réalisé à ajouter`);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
@@ -725,28 +711,20 @@ export function useTradingEngine() {
     }
   }, [currentOrderBookData, orderBookProcessor, trades, volumeByPrice]);
 
-  // ---------- PnL ----------
+  // ---------- PnL SIMPLE ET PROPRE ----------
   useEffect(() => {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
     
-    // Quand la position est fermée (qty=0), transférer le PnL réalisé vers le total de session
-    if (position.quantity === 0 && currentTradeRealized !== 0) {
-      console.log(`🔄 Position fermée - transfert du PnL trade ${currentTradeRealized.toFixed(2)} vers session total`);
-      setSessionPnLTotal(prev => prev + currentTradeRealized);
-      setCurrentTradeRealized(0);
-      return; // Sortir pour éviter de calculer le PnL avec les anciennes valeurs
-    }
-    
     const newPnl = {
       unrealized: unreal,
-      realized: sessionPnLTotal + currentTradeRealized,  // Total session + trade en cours
-      total: sessionPnLTotal + unreal + currentTradeRealized  // Total complet
+      realized: sessionRealizedPnL,  // PnL réalisé cumulé de toute la session
+      total: sessionRealizedPnL + unreal  // Total = session réalisé + unrealized actuel
     };
     
     console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}`);
-    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, realized_current=${currentTradeRealized.toFixed(2)}, session_total=${sessionPnLTotal.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
+    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, session_realized=${sessionRealizedPnL.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
     setPnl(newPnl);
-  }, [currentPrice, position, currentTradeRealized, sessionPnLTotal]);
+  }, [currentPrice, position, sessionRealizedPnL]);
 
   // ---------- contrôles playback ----------
   const togglePlayback = useCallback(() => {
