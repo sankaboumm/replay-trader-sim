@@ -147,24 +147,50 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
-    if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
+    if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice) {
       console.log('🔧 DOMInfinite: Initial auto-centering on midPrice', { 
         midPrice: tickLadder.midPrice,
-        levelsCount: ladder.levels.length 
+        levelsCount: ladder.levels.length,
+        hasInitialCentered: hasInitialCenteredRef.current
       });
-      hasInitialCenteredRef.current = true;
-      // Délai plus long pour s'assurer que le DOM est complètement rendu
-      setTimeout(() => centerOnMidPrice(), 300);
+      
+      // Toujours centrer si pas encore fait, ou si nouveau fichier détecté
+      if (!hasInitialCenteredRef.current) {
+        hasInitialCenteredRef.current = true;
+        // Délai pour s'assurer que le DOM est complètement rendu
+        setTimeout(() => {
+          console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
+          centerOnMidPrice();
+        }, 100);
+      }
     }
   }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
 
-  // Reset du flag de centrage quand on change de fichier
+  // Reset du flag de centrage quand le midPrice change significativement (nouveau fichier)
+  const lastMidPriceRef = useRef<number | null>(null);
   useEffect(() => {
-    if (!tickLadder || !tickLadder.midPrice) {
+    if (tickLadder?.midPrice) {
+      const currentMidPrice = tickLadder.midPrice;
+      const lastMidPrice = lastMidPriceRef.current;
+      
+      // Si c'est un nouveau fichier (midPrice change significativement)
+      if (lastMidPrice !== null && Math.abs(currentMidPrice - lastMidPrice) > 100) {
+        console.log('🔧 DOMInfinite: Detected new file, resetting centered flag', {
+          lastMidPrice,
+          currentMidPrice,
+          diff: Math.abs(currentMidPrice - lastMidPrice)
+        });
+        hasInitialCenteredRef.current = false;
+      }
+      
+      lastMidPriceRef.current = currentMidPrice;
+    } else {
+      // Reset quand pas de données
       if (hasInitialCenteredRef.current) {
-        console.log('🔧 DOMInfinite: Resetting initial centered flag - new file loading');
+        console.log('🔧 DOMInfinite: Resetting initial centered flag - no data');
       }
       hasInitialCenteredRef.current = false;
+      lastMidPriceRef.current = null;
     }
   }, [tickLadder?.midPrice]);
 
