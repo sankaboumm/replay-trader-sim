@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useCallback } from "react";
+import { memo, useEffect, useRef, useCallback, useState } from "react";
 import { DOM } from "./DOM";
 import type { TickLadder as TickLadderType } from "@/lib/orderbook";
 import { useInfiniteTickWindow } from "@/hooks/useInfiniteTickWindow";
@@ -39,6 +39,7 @@ interface DOMProps {
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const [hasInitialCentered, setHasInitialCentered] = useState(false);
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
@@ -141,13 +142,16 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice
+  // Centrage automatique initial sur le midPrice (une seule fois)
   useEffect(() => {
-    if (ladder && tickLadder?.midPrice) {
+    if (ladder && tickLadder?.midPrice && !hasInitialCentered) {
       // Petite délai pour s'assurer que le DOM est rendu
-      setTimeout(() => centerOnMidPrice(), 100);
+      setTimeout(() => {
+        centerOnMidPrice();
+        setHasInitialCentered(true);
+      }, 100);
     }
-  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
+  }, [ladder, tickLadder?.midPrice, centerOnMidPrice, hasInitialCentered]);
 
   return (
     <div ref={wrapperRef} className="contents">
