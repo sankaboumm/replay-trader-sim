@@ -123,6 +123,16 @@ export const DOM = memo(function DOM({
 
   const levels = tickLadder?.levels ?? [];
 
+  // Debug: log DOM rendering state
+  console.log('🔍 DOM Component: Rendering with', {
+    hasTickLadder: !!tickLadder,
+    levelsCount: levels.length,
+    midPrice: tickLadder?.midPrice,
+    midTick: tickLadder?.midTick,
+    currentPrice,
+    firstLevelPrice: levels[0]?.price,
+    lastLevelPrice: levels[levels.length - 1]?.price
+  });
 
   return (
     <div className="h-full flex flex-col bg-card">

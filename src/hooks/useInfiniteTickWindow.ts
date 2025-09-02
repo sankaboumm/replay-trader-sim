@@ -118,7 +118,23 @@ export function useInfiniteTickWindow(
 
   // Construit le ladder étendu retourné
   const extendedLadder: TickLadderType | null = useMemo(() => {
-    if (!tickLadder || lowTick == null || highTick == null) return tickLadder ?? null;
+    console.log('🔍 useInfiniteTickWindow: Building extended ladder', {
+      hasTickLadder: !!tickLadder,
+      lowTick,
+      highTick,
+      tickLadderLevelsCount: tickLadder?.levels?.length,
+      midTick: tickLadder?.midTick,
+      midPrice: tickLadder?.midPrice
+    });
+    
+    if (!tickLadder || lowTick == null || highTick == null) {
+      console.log('🔍 useInfiniteTickWindow: Returning null/original ladder', {
+        hasTickLadder: !!tickLadder,
+        lowTick,
+        highTick
+      });
+      return tickLadder ?? null;
+    }
 
     const outLevels: TickLevel[] = [];
     
