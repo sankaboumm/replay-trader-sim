@@ -729,16 +729,18 @@ export function useTradingEngine() {
   useEffect(() => {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
     
-    // Quand la position est fermée (qty=0), reset le PnL réalisé du trade en cours
+    // Quand la position est fermée (qty=0), transférer le PnL réalisé vers le total de session
     if (position.quantity === 0 && currentTradeRealized !== 0) {
-      console.log(`🔄 Position fermée - reset du PnL trade actuel de ${currentTradeRealized.toFixed(2)} à 0`);
+      console.log(`🔄 Position fermée - transfert du PnL trade ${currentTradeRealized.toFixed(2)} vers session total`);
+      setSessionPnLTotal(prev => prev + currentTradeRealized);
       setCurrentTradeRealized(0);
+      return; // Sortir pour éviter de calculer le PnL avec les anciennes valeurs
     }
     
     const newPnl = {
       unrealized: unreal,
-      realized: currentTradeRealized,  // PnL réalisé du trade en cours uniquement
-      total: sessionPnLTotal + unreal + currentTradeRealized  // Total session + unrealized + realized actuel
+      realized: sessionPnLTotal + currentTradeRealized,  // Total session + trade en cours
+      total: sessionPnLTotal + unreal + currentTradeRealized  // Total complet
     };
     
     console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}`);
