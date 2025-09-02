@@ -80,16 +80,25 @@ export const DOM = memo(function DOM({
   }, [orders]);
 
   const handleCellClick = useCallback((price: number, column: 'bid' | 'ask') => {
+    console.log(`🖱️ DOM handleCellClick: price=${price}, column=${column}, disabled=${disabled}, currentPrice=${currentPrice}`);
     if (disabled) return;
     
     const above = price > currentPrice;
     const below = price < currentPrice;
 
     if (column === 'bid') {
-      if (above) return onMarketOrder('BUY', 1);
+      if (above) {
+        console.log(`🖱️ DOM: Ordre MARKET BUY à ${price} (au-dessus du prix courant ${currentPrice})`);
+        return onMarketOrder('BUY', 1);
+      }
+      console.log(`🖱️ DOM: Ordre LIMIT BUY à ${price} (en-dessous du prix courant ${currentPrice})`);
       return onLimitOrder('BUY', price, 1);
     } else if (column === 'ask') {
-      if (below) return onMarketOrder('SELL', 1);
+      if (below) {
+        console.log(`🖱️ DOM: Ordre MARKET SELL à ${price} (en-dessous du prix courant ${currentPrice})`);
+        return onMarketOrder('SELL', 1);
+      }
+      console.log(`🖱️ DOM: Ordre LIMIT SELL à ${price} (au-dessus du prix courant ${currentPrice})`);
       return onLimitOrder('SELL', price, 1);
     }
   }, [disabled, currentPrice, onLimitOrder, onMarketOrder]);
