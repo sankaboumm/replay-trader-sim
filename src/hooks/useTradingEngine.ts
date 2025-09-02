@@ -375,38 +375,44 @@ export function useTradingEngine() {
     alert(`🔍 DEBUG realizedDelta = ${realizedDelta}`);
 
     // MAINTENANT modifier la position
-    setPosition(prevPos => {
-      const sideDir = order.side === 'BUY' ? +1 : -1;
-      const prevQty = prevPos.quantity;          
-      const prevAvg = prevPos.averagePrice || 0; 
-      const newQty = prevQty + sideDir * fillQty;
+    try {
+      alert(`🟡 AVANT setPosition`);
+      setPosition(prevPos => {
+        const sideDir = order.side === 'BUY' ? +1 : -1;
+        const prevQty = prevPos.quantity;          
+        const prevAvg = prevPos.averagePrice || 0; 
+        const newQty = prevQty + sideDir * fillQty;
 
-      // Même sens ou ouverture (aucun realized)
-      if (prevQty === 0 || Math.sign(prevQty) === sideDir) {
-        const absPrev = Math.abs(prevQty);
-        const absNew = absPrev + fillQty;
-        const newAvg = absNew > 0 ? (prevAvg * absPrev + px * fillQty) / absNew : 0;
-        return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
-      }
+        // Même sens ou ouverture (aucun realized)
+        if (prevQty === 0 || Math.sign(prevQty) === sideDir) {
+          const absPrev = Math.abs(prevQty);
+          const absNew = absPrev + fillQty;
+          const newAvg = absNew > 0 ? (prevAvg * absPrev + px * fillQty) / absNew : 0;
+          return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
+        }
 
-      // Sens opposé : on ferme partiellement/totalement
-      const closeQty = Math.min(Math.abs(prevQty), fillQty);
-      const remainingQty = fillQty - closeQty;
+        // Sens opposé : on ferme partiellement/totalement
+        const closeQty = Math.min(Math.abs(prevQty), fillQty);
+        const remainingQty = fillQty - closeQty;
 
-      // Cas 1 : on ne flip pas
-      if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
-        return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
-      }
+        // Cas 1 : on ne flip pas
+        if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
+          return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
+        }
 
-      // Cas 2 : on ferme totalement
-      if (newQty === 0) {
-        alert(`🔴 POSITION FERMEE: qty=0`);
-        return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
-      }
+        // Cas 2 : on ferme totalement
+        if (newQty === 0) {
+          alert(`🔴 POSITION FERMEE: qty=0`);
+          return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
+        }
 
-      // Cas 3 : on flip
-      return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
-    });
+        // Cas 3 : on flip
+        return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
+      });
+      alert(`🟢 APRES setPosition`);
+    } catch (error) {
+      alert(`❌ ERREUR dans setPosition: ${error}`);
+    }
 
     // Ajouter le PnL réalisé au total de session
     if (realizedDelta !== 0) {
