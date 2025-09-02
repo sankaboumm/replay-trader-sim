@@ -343,8 +343,8 @@ export function useTradingEngine() {
     };
     setAggregationBuffer(prev => [...prev, fillTrade]);
 
-    // Calculer le realized PnL AVANT de modifier la position
-    let realizedDelta = 0;
+    // Calculer le realized PnL et mettre à jour la position
+    let calculatedRealizedDelta = 0;
 
     setPosition(prevPos => {
       console.log(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
@@ -368,12 +368,12 @@ export function useTradingEngine() {
 
       if (prevQty > 0) {
         // On était long, on vend => realized = (px - prevAvg) * closeQty
-        realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
-        console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
+        calculatedRealizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
+        console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${calculatedRealizedDelta}`);
       } else if (prevQty < 0) {
         // On était short, on achète => realized = (prevAvg - px) * closeQty
-        realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
-        console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
+        calculatedRealizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
+        console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${calculatedRealizedDelta}`);
       }
 
       const remainingQty = fillQty - closeQty; // reliquat pour flip éventuel
@@ -398,12 +398,12 @@ export function useTradingEngine() {
     });
 
     // Mettre à jour le PnL réalisé total après la modification de position
-    console.log(`📊 realizedDelta calculé: ${realizedDelta}`);
-    if (realizedDelta !== 0) {
-      console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ (ajout au total)`);
+    console.log(`📊 realizedDelta calculé: ${calculatedRealizedDelta}`);
+    if (calculatedRealizedDelta !== 0) {
+      console.log(`💰 PnL réalisé: ${calculatedRealizedDelta.toFixed(2)}$ (ajout au total)`);
       setRealizedPnLTotal(prev => {
-        const newTotal = prev + realizedDelta;
-        console.log(`💰 PnL réalisé total mis à jour: ${prev.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
+        const newTotal = prev + calculatedRealizedDelta;
+        console.log(`💰 PnL réalisé total mis à jour: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
         return newTotal;
       });
     } else {
