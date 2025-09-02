@@ -715,6 +715,9 @@ export function useTradingEngine() {
   useEffect(() => {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
     
+    // LOG FORCE pour traquer sessionRealizedPnL
+    console.log(`💎 SESSION PNL TRACKER: sessionRealizedPnL=${sessionRealizedPnL}, pos.qty=${position.quantity}`);
+    
     const newPnl = {
       unrealized: unreal,
       realized: sessionRealizedPnL,  // PnL réalisé cumulé de toute la session
