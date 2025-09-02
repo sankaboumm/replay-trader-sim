@@ -543,17 +543,21 @@ export function useTradingEngine() {
           );
 
           setOrders(prev => {
+            console.log(`🔍 Vérification ordres: ${prev.length} ordres en attente, prix trade=${px}`);
             const updated: Order[] = [];
             for (const o of prev) {
               const should =
                 (o.side === 'BUY'  && px <= o.price) ||
                 (o.side === 'SELL' && px >= o.price);
+              console.log(`🔍 Ordre ${o.id}: side=${o.side}, prix=${o.price}, should=${should}`);
               if (should) {
+                console.log(`⚡ Exécution ordre ${o.id}`);
                 executeLimitFill(o, o.price);
               } else {
                 updated.push(o);
               }
             }
+            console.log(`🔍 Ordres restants: ${updated.length}`);
             return updated;
           });
         }
