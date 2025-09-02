@@ -95,7 +95,8 @@ export function useTradingEngine() {
     marketPrice: 0
   });
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
-  const [realizedPnLTotal, setRealizedPnLTotal] = useState(0);
+  const [sessionPnLTotal, setSessionPnLTotal] = useState(0);  // PnL total de toute la session
+  const [currentTradeRealized, setCurrentTradeRealized] = useState(0);  // PnL réalisé du trade en cours
 
   // streaming parse
   const [isLoading, setIsLoading] = useState(false);
@@ -187,7 +188,8 @@ export function useTradingEngine() {
     setOrders([]);
     setPosition({ symbol: 'NQ', quantity: 0, averagePrice: 0, marketPrice: 0 });
     setPnl({ unrealized: 0, realized: 0, total: 0 });
-    // NOTE: on ne remet PAS realizedPnLTotal à 0 ici - il persiste pendant la session
+    setCurrentTradeRealized(0);  // Reset le PnL du trade en cours
+    // NOTE: on ne remet PAS sessionPnLTotal à 0 ici - il persiste pendant la session
     setVolumeByPrice(new Map());
     eventsBufferRef.current = [];
     tradesBufferRef.current = [];
@@ -394,13 +396,22 @@ export function useTradingEngine() {
       return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
-    // Mettre à jour le PnL réalisé total - maintenant avec la valeur calculée
+    // Mettre à jour le PnL réalisé
     console.log(`📊 realizedDelta final: ${calculatedRealizedDelta}`);
     if (calculatedRealizedDelta !== 0) {
       console.log(`💰 PnL réalisé: ${calculatedRealizedDelta.toFixed(2)}$ (ajout au total)`);
-      setRealizedPnLTotal(prev => {
+      
+      // Ajouter au PnL du trade actuel
+      setCurrentTradeRealized(prev => {
+        const newCurrent = prev + calculatedRealizedDelta;
+        console.log(`💰 PnL trade actuel: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newCurrent.toFixed(2)}`);
+        return newCurrent;
+      });
+      
+      // Ajouter au total de session
+      setSessionPnLTotal(prev => {
         const newTotal = prev + calculatedRealizedDelta;
-        console.log(`💰 PnL réalisé total MIS À JOUR: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
+        console.log(`💰 PnL session total: ${prev.toFixed(2)} + ${calculatedRealizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
         return newTotal;
       });
     } else {
@@ -717,15 +728,23 @@ export function useTradingEngine() {
   // ---------- PnL ----------
   useEffect(() => {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
+    
+    // Quand la position est fermée (qty=0), reset le PnL réalisé du trade en cours
+    if (position.quantity === 0 && currentTradeRealized !== 0) {
+      console.log(`🔄 Position fermée - reset du PnL trade actuel de ${currentTradeRealized.toFixed(2)} à 0`);
+      setCurrentTradeRealized(0);
+    }
+    
     const newPnl = {
       unrealized: unreal,
-      realized: realizedPnLTotal,
-      total: unreal + realizedPnLTotal
+      realized: currentTradeRealized,  // PnL réalisé du trade en cours uniquement
+      total: sessionPnLTotal + unreal + currentTradeRealized  // Total session + unrealized + realized actuel
     };
-    console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}, realizedPnLTotal=${realizedPnLTotal.toFixed(2)}`);
-    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, realized=${realizedPnLTotal.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
+    
+    console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}`);
+    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, realized_current=${currentTradeRealized.toFixed(2)}, session_total=${sessionPnLTotal.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
     setPnl(newPnl);
-  }, [currentPrice, position, realizedPnLTotal]);
+  }, [currentPrice, position, currentTradeRealized, sessionPnLTotal]);
 
   // ---------- contrôles playback ----------
   const togglePlayback = useCallback(() => {
