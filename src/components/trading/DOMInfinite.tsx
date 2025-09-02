@@ -41,9 +41,21 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const wrapperRef = useRef<HTMLDivElement>(null);
   const [hasInitialCentered, setHasInitialCentered] = useState(false);
 
+  console.log("🔧 DOMInfinite render:", {
+    tickLadder: tickLadder ? `present (${tickLadder.levels?.length} levels, mid=${tickLadder.midPrice})` : 'null',
+    currentPrice,
+    hasInitialCentered
+  });
+
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
     batchSize: 100,
+  });
+
+  console.log("🔧 DOMInfinite after useInfiniteTickWindow:", {
+    ladder: ladder ? `present (${ladder.levels?.length} levels, mid=${ladder.midPrice})` : 'null',
+    originalLevels: tickLadder?.levels?.length,
+    extendedLevels: ladder?.levels?.length
   });
 
   // Centrage sur le midPrice avec la barre espace
@@ -144,9 +156,18 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage automatique initial sur le midPrice (une seule fois par dataset)
   useEffect(() => {
+    console.log("🔧 DOMInfinite centering effect:", {
+      ladder: !!ladder,
+      midPrice: tickLadder?.midPrice,
+      hasInitialCentered,
+      shouldCenter: ladder && tickLadder?.midPrice && !hasInitialCentered
+    });
+    
     if (ladder && tickLadder?.midPrice && !hasInitialCentered) {
+      console.log("🔧 DOMInfinite: Will center in 100ms");
       // Petite délai pour s'assurer que le DOM est rendu
       setTimeout(() => {
+        console.log("🔧 DOMInfinite: Calling centerOnMidPrice now");
         centerOnMidPrice();
         setHasInitialCentered(true);
       }, 100);
@@ -155,6 +176,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Reset du flag de centrage initial quand on change de dataset
   useEffect(() => {
+    console.log("🔧 DOMInfinite: Resetting hasInitialCentered, levels count changed to:", tickLadder?.levels?.length);
     setHasInitialCentered(false);
   }, [tickLadder?.levels?.length]);
 
