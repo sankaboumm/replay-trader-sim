@@ -57,29 +57,40 @@ export function useInfiniteTickWindow(
     });
     
     if (!tickLadder) return;
-    const { midTick, lastTick } = tickLadder;
+    const { midTick } = tickLadder;
 
-    // Première initialisation ou si aucune fenêtre encore définie
-    if (lowTick == null || highTick == null || lastMidTickRef.current == null) {
+    // Réinitialisation nécessaire si:
+    // 1. Première initialisation (aucune fenêtre définie)
+    // 2. Le midTick a changé significativement (nouveau fichier CSV)
+    const needsReset = (
+      lowTick == null || 
+      highTick == null || 
+      lastMidTickRef.current == null ||
+      (lastMidTickRef.current !== null && Math.abs(midTick - lastMidTickRef.current) > 50)
+    );
+
+    if (needsReset) {
       const half = Math.floor(initialWindow / 2);
-      // [FIX] On privilégie midTick (ancre) pour le centrage initial
-      const centerTick = midTick;
-      console.log('🔧 useInfiniteTickWindow: Initializing window', {
-        centerTick,
+      const newLowTick = midTick - half;
+      const newHighTick = midTick + half;
+      
+      console.log('🔧 useInfiniteTickWindow: Resetting window around midTick', {
+        midTick,
         half,
-        newLowTick: centerTick - half,
-        newHighTick: centerTick + half
+        newLowTick,
+        newHighTick,
+        reason: lowTick == null ? 'first-init' : 'midTick-changed'
       });
-      setLowTick(centerTick - half);
-      setHighTick(centerTick + half);
+      
+      setLowTick(newLowTick);
+      setHighTick(newHighTick);
       lastMidTickRef.current = midTick;
       return;
     }
 
-    // Si le mid change, on garde la fenêtre telle quelle (infinite scroll ≠ recentrage),
-    // car l'utilisateur est en train de scroller manuellement. On met simplement à jour le ref.
+    // Mise à jour simple du ref si pas de changement significatif
     lastMidTickRef.current = midTick;
-  }, [tickLadder, initialWindow]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tickLadder, initialWindow]);
 
   // Dictionnaire tick → niveau pour hydrater rapidement + tous les niveaux possibles
   const levelByTick = useMemo(() => {

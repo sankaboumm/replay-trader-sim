@@ -147,15 +147,11 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
-    console.log('🔧 DOMInfinite: Checking auto-center conditions', { 
-      ladder: !!ladder, 
-      midPrice: tickLadder?.midPrice, 
-      hasInitialCentered: hasInitialCenteredRef.current,
-      ladderLevelsLength: ladder?.levels?.length
-    });
-    
     if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
-      console.log('🔧 DOMInfinite: Initial auto-centering on midPrice', { midPrice: tickLadder.midPrice });
+      console.log('🔧 DOMInfinite: Initial auto-centering on midPrice', { 
+        midPrice: tickLadder.midPrice,
+        levelsCount: ladder.levels.length 
+      });
       hasInitialCenteredRef.current = true;
       // Délai plus long pour s'assurer que le DOM est complètement rendu
       setTimeout(() => centerOnMidPrice(), 300);
@@ -165,7 +161,9 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   // Reset du flag de centrage quand on change de fichier
   useEffect(() => {
     if (!tickLadder || !tickLadder.midPrice) {
-      console.log('🔧 DOMInfinite: Resetting initial centered flag - no tickLadder or midPrice');
+      if (hasInitialCenteredRef.current) {
+        console.log('🔧 DOMInfinite: Resetting initial centered flag - new file loading');
+      }
       hasInitialCenteredRef.current = false;
     }
   }, [tickLadder?.midPrice]);
