@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useCallback, useState } from "react";
+import { memo, useEffect, useRef, useCallback } from "react";
 import { DOM } from "./DOM";
 import type { TickLadder as TickLadderType } from "@/lib/orderbook";
 import { useInfiniteTickWindow } from "@/hooks/useInfiniteTickWindow";
@@ -39,23 +39,10 @@ interface DOMProps {
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
-  const [hasInitialCentered, setHasInitialCentered] = useState(false);
-
-  console.log("🔧 DOMInfinite render:", {
-    tickLadder: tickLadder ? `present (${tickLadder.levels?.length} levels, mid=${tickLadder.midPrice})` : 'null',
-    currentPrice,
-    hasInitialCentered
-  });
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
     batchSize: 100,
-  });
-
-  console.log("🔧 DOMInfinite after useInfiniteTickWindow:", {
-    ladder: ladder ? `present (${ladder.levels?.length} levels, mid=${ladder.midPrice})` : 'null',
-    originalLevels: tickLadder?.levels?.length,
-    extendedLevels: ladder?.levels?.length
   });
 
   // Centrage sur le midPrice avec la barre espace
@@ -154,37 +141,16 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice (une seule fois par dataset)
+  // Centrage automatique initial sur le midPrice
   useEffect(() => {
-    console.log("🔧 DOMInfinite centering effect:", {
-      ladder: !!ladder,
-      midPrice: tickLadder?.midPrice,
-      hasInitialCentered,
-      shouldCenter: ladder && tickLadder?.midPrice && !hasInitialCentered
-    });
-    
-    if (ladder && tickLadder?.midPrice && !hasInitialCentered) {
-      console.log("🔧 DOMInfinite: Will center in 100ms");
+    if (ladder && tickLadder?.midPrice) {
       // Petite délai pour s'assurer que le DOM est rendu
-      setTimeout(() => {
-        console.log("🔧 DOMInfinite: Calling centerOnMidPrice now");
-        centerOnMidPrice();
-        setHasInitialCentered(true);
-      }, 100);
+      setTimeout(() => centerOnMidPrice(), 100);
     }
-  }, [ladder, tickLadder?.midPrice, centerOnMidPrice, hasInitialCentered]);
-
-  // Reset du flag de centrage initial quand on change de dataset
-  useEffect(() => {
-    console.log("🔧 DOMInfinite: Resetting hasInitialCentered, levels count changed to:", tickLadder?.levels?.length);
-    setHasInitialCentered(false);
-  }, [tickLadder?.levels?.length]);
+  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">
-      {/* Debug temporaire */}
-      {!ladder && <div className="text-red-500 p-2">DEBUG: ladder is null</div>}
-      {ladder && ladder.levels?.length === 0 && <div className="text-red-500 p-2">DEBUG: ladder has 0 levels</div>}
       <DOM {...props} tickLadder={ladder} />
     </div>
   );
