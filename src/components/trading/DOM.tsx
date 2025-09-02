@@ -132,6 +132,11 @@ export const DOM = memo(function DOM({
 
   return (
     <div className="h-full flex flex-col bg-card">
+      {/* Debug info */}
+      <div className="text-xs bg-red-900 text-white p-1">
+        🔧 Niveaux: {levels.length} | Mid: {tickLadder?.midPrice} | Current: {currentPrice}
+      </div>
+      
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="p-3">

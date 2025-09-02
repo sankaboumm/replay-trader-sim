@@ -54,6 +54,8 @@ export function useInfiniteTickWindow(
       const half = Math.floor(initialWindow / 2);
       // [FIX] On privilégie midTick (ancre) pour le centrage initial
       const centerTick = midTick;
+      console.log(`🔧 INIT WINDOW: midTick=${midTick}, lastTick=${lastTick}, centerTick=${centerTick}`);
+      console.log(`🔧 INIT WINDOW: window [${centerTick - half}, ${centerTick + half}]`);
       setLowTick(centerTick - half);
       setHighTick(centerTick + half);
       lastMidTickRef.current = midTick;
@@ -92,6 +94,9 @@ export function useInfiniteTickWindow(
     if (!tickLadder || lowTick == null || highTick == null) return tickLadder ?? null;
 
     const outLevels: TickLevel[] = [];
+    console.log(`🔧 LADDER ETENDU: construction de ${highTick} à ${lowTick}`);
+    console.log(`🔧 LADDER ETENDU: midTick=${tickLadder.midTick}, midPrice=${tickLadder.midPrice}`);
+    
     for (let t = highTick; t >= lowTick; t--) {
       const known = levelByTick.get(t);
       if (known) {
@@ -105,6 +110,8 @@ export function useInfiniteTickWindow(
         });
       }
     }
+
+    console.log(`🔧 LADDER ETENDU: premier niveau=${outLevels[0]?.price}, dernier niveau=${outLevels[outLevels.length-1]?.price}`);
 
     return {
       midTick: tickLadder.midTick,
