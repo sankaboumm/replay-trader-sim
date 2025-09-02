@@ -330,6 +330,7 @@ export function useTradingEngine() {
 
   // ************** PnL SIMPLE ET PROPRE **************
   const executeLimitFill = useCallback((order: Order, px: number) => {
+    alert(`🚨 ORDRE EXECUTE: ${order.side} à ${px}`);
     console.log(`🔄 executeLimitFill: ordre ${order.id}, side=${order.side}, px=${px}`);
     const contractMultiplier = 20; // NQ
     const fillQty = Math.min(order.quantity - (order.filled ?? 0), 1);
@@ -349,6 +350,7 @@ export function useTradingEngine() {
     
     // Récupérer les valeurs actuelles synchrones
     setPosition(prevPos => {
+      alert(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
       console.log(`📊 Position avant: qty=${prevPos.quantity}, avg=${prevPos.averagePrice}`);
       const sideDir = order.side === 'BUY' ? +1 : -1;
       const prevQty = prevPos.quantity;          
@@ -370,9 +372,11 @@ export function useTradingEngine() {
 
       if (prevQty > 0) {
         realizedDelta = (px - prevAvg) * closeQty * contractMultiplier;
+        alert(`💰 CALCUL LONG: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
         console.log(`📊 Long -> Vente: (${px} - ${prevAvg}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
       } else if (prevQty < 0) {
         realizedDelta = (prevAvg - px) * closeQty * contractMultiplier;
+        alert(`💰 CALCUL SHORT: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
         console.log(`📊 Short -> Achat: (${prevAvg} - ${px}) * ${closeQty} * ${contractMultiplier} = ${realizedDelta}`);
       }
 
@@ -386,6 +390,7 @@ export function useTradingEngine() {
 
       // Cas 2 : on ferme totalement
       if (newQty === 0) {
+        alert(`🔴 POSITION FERMEE: qty=0`);
         console.log(`📊 Fermeture totale: position à zéro`);
         return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
       }
@@ -397,13 +402,17 @@ export function useTradingEngine() {
 
     // Ajouter le PnL réalisé au total de session de façon simple
     if (realizedDelta !== 0) {
+      alert(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - AJOUT au total`);
       console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - ajout au total session`);
       const previousTotal = sessionRealizedPnLRef.current;
       sessionRealizedPnLRef.current += realizedDelta;
+      alert(`💰 Session AVANT: ${previousTotal.toFixed(2)}, APRES: ${sessionRealizedPnLRef.current.toFixed(2)}`);
       console.log(`💰 PnL session: ${previousTotal.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${sessionRealizedPnLRef.current.toFixed(2)}`);
       
       // Forcer un re-render pour que le useEffect PnL soit appelé
       setForceUpdate(prev => prev + 1);
+    } else {
+      alert(`❌ PAS de PnL réalisé à ajouter`);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
