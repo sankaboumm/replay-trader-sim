@@ -95,7 +95,7 @@ export function useTradingEngine() {
     marketPrice: 0
   });
   const [pnl, setPnl] = useState<{ unrealized: number; realized: number; total: number }>({ unrealized: 0, realized: 0, total: 0 });
-  const [sessionRealizedPnL, setSessionRealizedPnL] = useState(0);  // PnL réalisé cumulé pour toute la session
+  const sessionRealizedPnLRef = useRef(0);  // PnL réalisé cumulé pour toute la session - PERSISTE entre renders
 
   // streaming parse
   const [isLoading, setIsLoading] = useState(false);
@@ -397,11 +397,9 @@ export function useTradingEngine() {
     // Ajouter le PnL réalisé au total de session de façon simple
     if (realizedDelta !== 0) {
       console.log(`💰 PnL réalisé: ${realizedDelta.toFixed(2)}$ - ajout au total session`);
-      setSessionRealizedPnL(prev => {
-        const newTotal = prev + realizedDelta;
-        console.log(`💰 PnL session: ${prev.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${newTotal.toFixed(2)}`);
-        return newTotal;
-      });
+      const previousTotal = sessionRealizedPnLRef.current;
+      sessionRealizedPnLRef.current += realizedDelta;
+      console.log(`💰 PnL session: ${previousTotal.toFixed(2)} + ${realizedDelta.toFixed(2)} = ${sessionRealizedPnLRef.current.toFixed(2)}`);
     }
 
     // On retire l'ordre de la file (ordre exécuté)
@@ -716,18 +714,18 @@ export function useTradingEngine() {
     const unreal = (currentPrice - position.averagePrice) * position.quantity * 20;
     
     // LOG FORCE pour traquer sessionRealizedPnL
-    console.log(`💎 SESSION PNL TRACKER: sessionRealizedPnL=${sessionRealizedPnL}, pos.qty=${position.quantity}`);
+    console.log(`💎 SESSION PNL TRACKER: sessionRealizedPnL=${sessionRealizedPnLRef.current}, pos.qty=${position.quantity}`);
     
     const newPnl = {
       unrealized: unreal,
-      realized: sessionRealizedPnL,  // PnL réalisé cumulé de toute la session
-      total: sessionRealizedPnL + unreal  // Total = session réalisé + unrealized actuel
+      realized: sessionRealizedPnLRef.current,  // PnL réalisé cumulé de toute la session
+      total: sessionRealizedPnLRef.current + unreal  // Total = session réalisé + unrealized actuel
     };
     
     console.log(`📊 PnL Update: pos.qty=${position.quantity}, pos.avg=${position.averagePrice}, currentPrice=${currentPrice}`);
-    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, session_realized=${sessionRealizedPnL.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
+    console.log(`📊 PnL Update: unrealized=${unreal.toFixed(2)}, session_realized=${sessionRealizedPnLRef.current.toFixed(2)}, total=${newPnl.total.toFixed(2)}`);
     setPnl(newPnl);
-  }, [currentPrice, position, sessionRealizedPnL]);
+  }, [currentPrice, position]);
 
   // ---------- contrôles playback ----------
   const togglePlayback = useCallback(() => {
