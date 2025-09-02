@@ -131,7 +131,13 @@ export const DOM = memo(function DOM({
 
 
   return (
-    <div className="h-full flex flex-col bg-card">
+    <div 
+      className="h-full flex flex-col bg-card"
+      onClick={(e) => {
+        console.log(`🎯 GLOBAL CLICK:`, e.target, e.currentTarget);
+        console.log(`🎯 Event details:`, e.type, e.bubbles, e.cancelable);
+      }}
+    >
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="p-3">
