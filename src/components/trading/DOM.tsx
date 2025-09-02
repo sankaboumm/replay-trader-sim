@@ -131,13 +131,7 @@ export const DOM = memo(function DOM({
 
 
   return (
-    <div 
-      className="h-full flex flex-col bg-card"
-      onClick={(e) => {
-        console.log(`🎯 GLOBAL CLICK:`, e.target, e.currentTarget);
-        console.log(`🎯 Event details:`, e.type, e.bubbles, e.cancelable);
-      }}
-    >
+    <div className="h-full flex flex-col bg-card">
       {/* Header */}
       <div className="bg-ladder-header border-b border-border">
         <div className="p-3">
@@ -185,11 +179,8 @@ export const DOM = memo(function DOM({
                     "hover:bg-trading-buy/10 transition-colors duration-100"
                   )}
                   onClick={() => {
-                    console.log(`🔥 CLIC DIRECT BID: price=${level.price}, totalBuy=${totalBuy}`);
-                    console.log(`🔥 handlerDefined: ${typeof handleCellClick}, ${typeof handleOrderClick}`);
                     totalBuy > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'bid');
                   }}
-                  onMouseDown={() => console.log(`🔥 MOUSEDOWN BID: ${level.price}`)}
                 >
                   <>
                     <span>{level.bidSize > 0 ? formatSize(level.bidSize) : ''}</span>
@@ -219,7 +210,6 @@ export const DOM = memo(function DOM({
                     "hover:bg-trading-sell/10 transition-colors duration-100"
                   )}
                   onClick={() => {
-                    console.log(`🖱️ DOM CLICK ASK: price=${level.price}, totalSell=${totalSell}`);
                     totalSell > 0 ? handleOrderClick(level.price) : handleCellClick(level.price, 'ask');
                   }}
                 >
