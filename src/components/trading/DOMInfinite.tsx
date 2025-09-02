@@ -141,6 +141,13 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
+  // Centrage automatique initial sur le midPrice
+  useEffect(() => {
+    if (ladder && tickLadder?.midPrice) {
+      // Petite délai pour s'assurer que le DOM est rendu
+      setTimeout(() => centerOnMidPrice(), 100);
+    }
+  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">
