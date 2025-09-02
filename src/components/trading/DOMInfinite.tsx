@@ -39,6 +39,7 @@ interface DOMProps {
 export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const hasInitialCenteredRef = useRef(false);
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
@@ -140,6 +141,19 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
+
+  // Reset du flag de centrage quand un nouveau fichier CSV est chargé
+  useEffect(() => {
+    if (tickLadder && tickLadder.levels && tickLadder.levels.length > 0) {
+      if (!hasInitialCenteredRef.current) {
+        hasInitialCenteredRef.current = true;
+        setTimeout(() => centerOnMidPrice(), 100);
+      }
+    } else {
+      // Reset quand pas de données
+      hasInitialCenteredRef.current = false;
+    }
+  }, [tickLadder, centerOnMidPrice]);
 
 
   return (
