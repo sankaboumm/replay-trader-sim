@@ -2,6 +2,7 @@ import { memo, useEffect, useRef, useCallback } from "react";
 import { DOM } from "./DOM";
 import type { TickLadder as TickLadderType } from "@/lib/orderbook";
 import { useInfiniteTickWindow } from "@/hooks/useInfiniteTickWindow";
+import { useToast } from "@/hooks/use-toast";
 
 interface TradeLite {
   price: number;
@@ -40,6 +41,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice, disabled } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const hasInitialCenteredRef = useRef(false);
+  const { toast } = useToast();
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
@@ -48,57 +50,69 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage sur le midPrice avec la barre espace
   const centerOnMidPrice = useCallback(() => {
-    console.log('🎯 centerOnMidPrice: Starting centering process', {
-      hasMidPrice: !!tickLadder?.midPrice,
-      hasLadder: !!ladder?.levels,
-      levelsCount: ladder?.levels?.length
+    toast({
+      title: "🎯 Centrage en cours",
+      description: `MidPrice: ${tickLadder?.midPrice}, Levels: ${ladder?.levels?.length}`,
+      duration: 2000
     });
     
     if (!tickLadder?.midPrice || !ladder?.levels) {
-      console.log('🎯 centerOnMidPrice: Missing data, aborting');
+      toast({
+        title: "❌ Échec centrage",
+        description: "Données manquantes (midPrice ou levels)",
+        variant: "destructive",
+        duration: 3000
+      });
       return;
     }
     
     const wrapper = wrapperRef.current;
     if (!wrapper) {
-      console.log('🎯 centerOnMidPrice: No wrapper found');
+      toast({
+        title: "❌ Échec centrage", 
+        description: "Wrapper non trouvé",
+        variant: "destructive",
+        duration: 3000
+      });
       return;
     }
     
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) {
-      console.log('🎯 centerOnMidPrice: No scroll element found');
+      toast({
+        title: "❌ Échec centrage",
+        description: "Élément scroll non trouvé",
+        variant: "destructive", 
+        duration: 3000
+      });
       return;
     }
-
-    console.log('🎯 centerOnMidPrice: Found scroll element', {
-      scrollHeight: scrollEl.scrollHeight,
-      clientHeight: scrollEl.clientHeight,
-      midPrice: tickLadder.midPrice
-    });
 
     // Trouve l'index du niveau le plus proche du midPrice
     const midPriceIndex = ladder.levels.findIndex(level => 
       Math.abs(level.price - tickLadder.midPrice) < 0.125
     );
     
-    console.log('🎯 centerOnMidPrice: Found midPrice index', {
-      midPriceIndex,
-      targetPrice: tickLadder.midPrice,
-      foundPrice: midPriceIndex >= 0 ? ladder.levels[midPriceIndex].price : 'not found'
-    });
-    
     if (midPriceIndex >= 0) {
       const ROW_HEIGHT = 32;
       const targetScroll = midPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
-      console.log('🎯 centerOnMidPrice: Scrolling to position', {
-        targetScroll: Math.max(0, targetScroll),
-        rowHeight: ROW_HEIGHT,
-        clientHeight: scrollEl.clientHeight
+      
+      toast({
+        title: "✅ Centrage réussi",
+        description: `Position: ${Math.max(0, targetScroll)}, Index: ${midPriceIndex}`,
+        duration: 2000
       });
+      
       scrollEl.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+    } else {
+      toast({
+        title: "❌ Prix non trouvé",
+        description: `MidPrice ${tickLadder.midPrice} introuvable dans la liste`,
+        variant: "destructive",
+        duration: 3000
+      });
     }
-  }, [tickLadder?.midPrice, ladder]);
+  }, [tickLadder?.midPrice, ladder, toast]);
 
   // Ajustement du scrollTop après extension en haut pour éviter les "sauts"
   const pendingScrollAdjustRef = useRef<number | null>(null);
@@ -180,28 +194,30 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
     if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
-      console.log('🔧 DOMInfinite: Initial auto-centering triggered', { 
-        midPrice: tickLadder.midPrice,
-        levelsCount: ladder.levels.length,
-        hasInitialCentered: hasInitialCenteredRef.current
+      toast({
+        title: "🔧 Centrage automatique",
+        description: `Déclenchement pour prix ${tickLadder.midPrice}`,
+        duration: 2000
       });
       
       hasInitialCenteredRef.current = true;
       // Délai plus long pour s'assurer que le DOM est complètement rendu
       setTimeout(() => {
-        console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
+        toast({
+          title: "⏰ Exécution centrage",
+          description: "Après délai de 500ms",
+          duration: 1500
+        });
         centerOnMidPrice();
       }, 500);
     } else {
-      console.log('🔧 DOMInfinite: Auto-centering conditions not met', {
-        hasLadder: !!ladder,
-        hasLevels: !!(ladder?.levels?.length),
-        levelsCount: ladder?.levels?.length,
-        hasMidPrice: !!tickLadder?.midPrice,
-        hasInitialCentered: hasInitialCenteredRef.current
+      toast({
+        title: "⚠️ Conditions non remplies",
+        description: `Ladder: ${!!ladder}, Levels: ${ladder?.levels?.length}, MidPrice: ${!!tickLadder?.midPrice}, Centered: ${hasInitialCenteredRef.current}`,
+        duration: 3000
       });
     }
-  }, [ladder, centerOnMidPrice]);
+  }, [ladder, centerOnMidPrice, toast]);
 
   // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);
@@ -212,9 +228,10 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       
       // Si c'est un nouveau fichier (midPrice change significativement)
       if (lastMidPrice !== null && Math.abs(currentMidPrice - lastMidPrice) > 50) {
-        console.log('🔧 DOMInfinite: New file detected, resetting centered flag', {
-          lastMidPrice,
-          currentMidPrice
+        toast({
+          title: "📁 Nouveau fichier détecté",
+          description: `Prix: ${lastMidPrice} → ${currentMidPrice}`,
+          duration: 2000
         });
         hasInitialCenteredRef.current = false;
       }
@@ -225,7 +242,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       hasInitialCenteredRef.current = false;
       lastMidPriceRef.current = null;
     }
-  }, [tickLadder?.midPrice]);
+  }, [tickLadder?.midPrice, toast]);
 
   return (
     <div ref={wrapperRef} className="contents">
