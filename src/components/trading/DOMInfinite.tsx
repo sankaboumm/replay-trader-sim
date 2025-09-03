@@ -43,9 +43,23 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const hasInitialCenteredRef = useRef(false);
   const { toast } = useToast();
 
+  console.log('🔧 DOMInfinite: Props reçues', {
+    hasTickLadder: !!tickLadder,
+    midPrice: tickLadder?.midPrice,
+    levelsCount: tickLadder?.levels?.length || 0,
+    currentPrice,
+    disabled
+  });
+
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
     batchSize: 100,
+  });
+
+  console.log('🔧 DOMInfinite: Ladder retourné par useInfiniteTickWindow', {
+    hasLadder: !!ladder,
+    ladderLevelsCount: ladder?.levels?.length || 0,
+    ladderMidPrice: ladder?.midPrice
   });
 
   // Centrage sur le midPrice avec la barre espace
