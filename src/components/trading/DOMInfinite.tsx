@@ -240,7 +240,11 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   return (
     <div ref={wrapperRef} className="contents">
-      <DOM {...props} tickLadder={ladder} />
+      <DOM 
+        key={`${ladder?.levels?.length || 0}-${tickLadder?.midPrice || 0}`}
+        {...props} 
+        tickLadder={ladder} 
+      />
     </div>
   );
 });
