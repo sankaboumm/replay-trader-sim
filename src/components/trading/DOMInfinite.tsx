@@ -147,26 +147,22 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
-    if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice) {
+    if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
       console.log('🔧 DOMInfinite: Initial auto-centering on midPrice', { 
         midPrice: tickLadder.midPrice,
-        levelsCount: ladder.levels.length,
-        hasInitialCentered: hasInitialCenteredRef.current
+        levelsCount: ladder.levels.length
       });
       
-      // Toujours centrer si pas encore fait, ou si nouveau fichier détecté
-      if (!hasInitialCenteredRef.current) {
-        hasInitialCenteredRef.current = true;
-        // Délai pour s'assurer que le DOM est complètement rendu
-        setTimeout(() => {
-          console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
-          centerOnMidPrice();
-        }, 100);
-      }
+      hasInitialCenteredRef.current = true;
+      // Délai pour s'assurer que le DOM est complètement rendu
+      setTimeout(() => {
+        console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
+        centerOnMidPrice();
+      }, 200);
     }
-  }, [ladder, tickLadder?.midPrice, centerOnMidPrice]);
+  }, [ladder, centerOnMidPrice]);
 
-  // Reset du flag de centrage quand le midPrice change significativement (nouveau fichier)
+  // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);
   useEffect(() => {
     if (tickLadder?.midPrice) {
@@ -174,11 +170,10 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       const lastMidPrice = lastMidPriceRef.current;
       
       // Si c'est un nouveau fichier (midPrice change significativement)
-      if (lastMidPrice !== null && Math.abs(currentMidPrice - lastMidPrice) > 100) {
-        console.log('🔧 DOMInfinite: Detected new file, resetting centered flag', {
+      if (lastMidPrice !== null && Math.abs(currentMidPrice - lastMidPrice) > 50) {
+        console.log('🔧 DOMInfinite: New file detected, resetting centered flag', {
           lastMidPrice,
-          currentMidPrice,
-          diff: Math.abs(currentMidPrice - lastMidPrice)
+          currentMidPrice
         });
         hasInitialCenteredRef.current = false;
       }
@@ -186,9 +181,6 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       lastMidPriceRef.current = currentMidPrice;
     } else {
       // Reset quand pas de données
-      if (hasInitialCenteredRef.current) {
-        console.log('🔧 DOMInfinite: Resetting initial centered flag - no data');
-      }
       hasInitialCenteredRef.current = false;
       lastMidPriceRef.current = null;
     }
