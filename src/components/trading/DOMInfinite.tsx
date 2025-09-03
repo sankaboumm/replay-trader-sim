@@ -197,7 +197,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       toast({
         title: "🔧 Centrage automatique",
         description: `Déclenchement pour prix ${tickLadder.midPrice}`,
-        duration: 2000
+        duration: 5000
       });
       
       hasInitialCenteredRef.current = true;
@@ -206,15 +206,15 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
         toast({
           title: "⏰ Exécution centrage",
           description: "Après délai de 500ms",
-          duration: 1500
+          duration: 3000
         });
         centerOnMidPrice();
       }, 500);
     } else {
       toast({
         title: "⚠️ Conditions non remplies",
-        description: `Ladder: ${!!ladder}, Levels: ${ladder?.levels?.length}, MidPrice: ${!!tickLadder?.midPrice}, Centered: ${hasInitialCenteredRef.current}`,
-        duration: 3000
+        description: `Ladder: ${!!ladder}, Levels: ${ladder?.levels?.length || 0}, MidPrice: ${!!tickLadder?.midPrice}, Centered: ${hasInitialCenteredRef.current}`,
+        duration: 8000
       });
     }
   }, [ladder, centerOnMidPrice, toast]);
