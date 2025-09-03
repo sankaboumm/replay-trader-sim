@@ -43,23 +43,9 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const hasInitialCenteredRef = useRef(false);
   const { toast } = useToast();
 
-  console.log('🔧 DOMInfinite: Props reçues', {
-    hasTickLadder: !!tickLadder,
-    midPrice: tickLadder?.midPrice,
-    levelsCount: tickLadder?.levels?.length || 0,
-    currentPrice,
-    disabled
-  });
-
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
     batchSize: 100,
-  });
-
-  console.log('🔧 DOMInfinite: Ladder retourné par useInfiniteTickWindow', {
-    hasLadder: !!ladder,
-    ladderLevelsCount: ladder?.levels?.length || 0,
-    ladderMidPrice: ladder?.midPrice
   });
 
   // Centrage sur le midPrice avec la barre espace
@@ -214,46 +200,28 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const midPrice = tickLadder?.midPrice;
     const hasInitialCentered = hasInitialCenteredRef.current;
 
-    // Toast détaillé avec toutes les conditions
-    toast({
-      title: "📊 Vérification conditions centrage",
-      description: `✅ Ladder: ${hasLadder} | ✅ Levels: ${hasLevels} (${levelsCount}) | ✅ MidPrice: ${hasMidPrice} (${midPrice}) | ❌ Déjà centré: ${hasInitialCentered}`,
-      duration: 8000
+    console.log('🔧 DOMInfinite: Conditions centrage', {
+      hasLadder,
+      hasLevels,
+      levelsCount,
+      hasMidPrice,
+      midPrice,
+      hasInitialCentered
     });
 
     if (hasLadder && hasLevels && levelsCount > 0 && hasMidPrice && !hasInitialCentered) {
-      toast({
-        title: "✅ CONDITIONS REMPLIES",
-        description: `Déclenchement centrage automatique pour prix ${midPrice}`,
-        duration: 6000
-      });
+      console.log('🔧 DOMInfinite: CONDITIONS REMPLIES - Déclenchement centrage automatique');
       
       hasInitialCenteredRef.current = true;
       // Délai plus long pour s'assurer que le DOM est complètement rendu
       setTimeout(() => {
-        toast({
-          title: "⏰ Exécution centrage",
-          description: "Lancement après délai de 500ms",
-          duration: 3000
-        });
+        console.log('🔧 DOMInfinite: Exécution centrage après délai');
         centerOnMidPrice();
       }, 500);
     } else {
-      const missingConditions = [];
-      if (!hasLadder) missingConditions.push("Pas de ladder");
-      if (!hasLevels) missingConditions.push("Pas de levels");
-      if (levelsCount === 0) missingConditions.push("0 levels");
-      if (!hasMidPrice) missingConditions.push("Pas de midPrice");
-      if (hasInitialCentered) missingConditions.push("Déjà centré");
-
-      toast({
-        title: "❌ CONDITIONS NON REMPLIES",
-        description: `Problèmes: ${missingConditions.join(", ")}`,
-        duration: 8000,
-        variant: "destructive"
-      });
+      console.log('🔧 DOMInfinite: CONDITIONS NON REMPLIES pour centrage automatique');
     }
-  }, [ladder, centerOnMidPrice, toast]);
+  }, [ladder, centerOnMidPrice]);
 
   // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);
