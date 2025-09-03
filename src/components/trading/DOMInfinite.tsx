@@ -50,69 +50,75 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage sur le midPrice avec la barre espace
   const centerOnMidPrice = useCallback(() => {
-    toast({
-      title: "🎯 Centrage en cours",
-      description: `MidPrice: ${tickLadder?.midPrice}, Levels: ${ladder?.levels?.length}`,
-      duration: 2000
+    console.log('🎯 centerOnMidPrice: Début centrage', {
+      midPrice: tickLadder?.midPrice,
+      levelsCount: ladder?.levels?.length
     });
     
     if (!tickLadder?.midPrice || !ladder?.levels) {
-      toast({
-        title: "❌ Échec centrage",
-        description: "Données manquantes (midPrice ou levels)",
-        variant: "destructive",
-        duration: 3000
-      });
+      console.log('❌ centerOnMidPrice: Données manquantes');
       return;
     }
     
     const wrapper = wrapperRef.current;
     if (!wrapper) {
-      toast({
-        title: "❌ Échec centrage", 
-        description: "Wrapper non trouvé",
-        variant: "destructive",
-        duration: 3000
-      });
+      console.log('❌ centerOnMidPrice: Wrapper non trouvé');
       return;
     }
     
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) {
-      toast({
-        title: "❌ Échec centrage",
-        description: "Élément scroll non trouvé",
-        variant: "destructive", 
-        duration: 3000
-      });
+      console.log('❌ centerOnMidPrice: Élément scroll non trouvé');
       return;
     }
+
+    console.log('🔍 centerOnMidPrice: Éléments trouvés', {
+      scrollHeight: scrollEl.scrollHeight,
+      clientHeight: scrollEl.clientHeight,
+      currentScrollTop: scrollEl.scrollTop
+    });
 
     // Trouve l'index du niveau le plus proche du midPrice
     const midPriceIndex = ladder.levels.findIndex(level => 
       Math.abs(level.price - tickLadder.midPrice) < 0.125
     );
     
+    console.log('🔍 centerOnMidPrice: Recherche index midPrice', {
+      midPrice: tickLadder.midPrice,
+      midPriceIndex,
+      firstPrice: ladder.levels[0]?.price,
+      lastPrice: ladder.levels[ladder.levels.length - 1]?.price
+    });
+    
     if (midPriceIndex >= 0) {
       const ROW_HEIGHT = 32;
       const targetScroll = midPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
+      const finalScroll = Math.max(0, targetScroll);
       
-      toast({
-        title: "✅ Centrage réussi",
-        description: `Position: ${Math.max(0, targetScroll)}, Index: ${midPriceIndex}`,
-        duration: 2000
+      console.log('✅ centerOnMidPrice: Centrage calculé', {
+        midPriceIndex,
+        targetScroll,
+        finalScroll,
+        rowHeight: ROW_HEIGHT,
+        clientHeight: scrollEl.clientHeight
       });
       
-      scrollEl.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
+      scrollEl.scrollTo({ top: finalScroll, behavior: 'smooth' });
+      
+      // Force un re-render après le scroll
+      setTimeout(() => {
+        console.log('🔄 centerOnMidPrice: Scroll final vérifié', {
+          newScrollTop: scrollEl.scrollTop
+        });
+      }, 100);
     } else {
-      toast({
-        title: "❌ Prix non trouvé",
-        description: `MidPrice ${tickLadder.midPrice} introuvable dans la liste`,
-        variant: "destructive",
-        duration: 3000
+      console.log('❌ centerOnMidPrice: Prix non trouvé dans la liste', {
+        midPrice: tickLadder.midPrice,
+        firstPrice: ladder.levels[0]?.price,
+        lastPrice: ladder.levels[ladder.levels.length - 1]?.price
       });
     }
-  }, [tickLadder?.midPrice, ladder, toast]);
+  }, [tickLadder?.midPrice, ladder]);
 
   // Ajustement du scrollTop après extension en haut pour éviter les "sauts"
   const pendingScrollAdjustRef = useRef<number | null>(null);
