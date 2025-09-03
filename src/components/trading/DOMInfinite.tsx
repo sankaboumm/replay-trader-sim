@@ -260,7 +260,8 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       
       lastMidPriceRef.current = currentMidPrice;
     } else {
-      // Reset quand pas de données
+      // CRITIQUE: Reset quand pas de données (nouveau fichier en cours de chargement)
+      console.log('🔧 DOMInfinite: Reset flag centrage car pas de midPrice');
       hasInitialCenteredRef.current = false;
       lastMidPriceRef.current = null;
     }
