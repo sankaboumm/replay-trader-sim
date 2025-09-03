@@ -50,75 +50,54 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage sur le midPrice avec la barre espace
   const centerOnMidPrice = useCallback(() => {
-    console.log('🎯 centerOnMidPrice: Début centrage', {
-      midPrice: tickLadder?.midPrice,
-      levelsCount: ladder?.levels?.length
-    });
-    
     if (!tickLadder?.midPrice || !ladder?.levels) {
-      console.log('❌ centerOnMidPrice: Données manquantes');
       return;
     }
     
     const wrapper = wrapperRef.current;
     if (!wrapper) {
-      console.log('❌ centerOnMidPrice: Wrapper non trouvé');
       return;
     }
     
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
     if (!scrollEl) {
-      console.log('❌ centerOnMidPrice: Élément scroll non trouvé');
       return;
     }
-
-    console.log('🔍 centerOnMidPrice: Éléments trouvés', {
-      scrollHeight: scrollEl.scrollHeight,
-      clientHeight: scrollEl.clientHeight,
-      currentScrollTop: scrollEl.scrollTop
-    });
 
     // Trouve l'index du niveau le plus proche du midPrice
     const midPriceIndex = ladder.levels.findIndex(level => 
       Math.abs(level.price - tickLadder.midPrice) < 0.125
     );
     
-    console.log('🔍 centerOnMidPrice: Recherche index midPrice', {
-      midPrice: tickLadder.midPrice,
-      midPriceIndex,
-      firstPrice: ladder.levels[0]?.price,
-      lastPrice: ladder.levels[ladder.levels.length - 1]?.price
-    });
-    
     if (midPriceIndex >= 0) {
       const ROW_HEIGHT = 32;
       const targetScroll = midPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
       const finalScroll = Math.max(0, targetScroll);
       
-      console.log('✅ centerOnMidPrice: Centrage calculé', {
-        midPriceIndex,
-        targetScroll,
-        finalScroll,
-        rowHeight: ROW_HEIGHT,
-        clientHeight: scrollEl.clientHeight
-      });
+      // FORCER l'affichage immédiat sans animation
+      scrollEl.scrollTop = finalScroll;
       
-      scrollEl.scrollTo({ top: finalScroll, behavior: 'smooth' });
-      
-      // Force un re-render après le scroll
-      setTimeout(() => {
-        console.log('🔄 centerOnMidPrice: Scroll final vérifié', {
-          newScrollTop: scrollEl.scrollTop
-        });
-      }, 100);
-    } else {
-      console.log('❌ centerOnMidPrice: Prix non trouvé dans la liste', {
-        midPrice: tickLadder.midPrice,
-        firstPrice: ladder.levels[0]?.price,
-        lastPrice: ladder.levels[ladder.levels.length - 1]?.price
-      });
+      // Force un re-render en déclenchant un événement scroll
+      scrollEl.dispatchEvent(new Event('scroll', { bubbles: true }));
     }
   }, [tickLadder?.midPrice, ladder]);
+
+  // Force l'affichage initial du DOM
+  const forceInitialDisplay = useCallback(() => {
+    const wrapper = wrapperRef.current;
+    if (!wrapper) return;
+    
+    const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
+    if (!scrollEl) return;
+    
+    // Force un scroll minimal pour déclencher l'affichage
+    scrollEl.scrollTop = 1;
+    setTimeout(() => {
+      scrollEl.scrollTop = 0;
+      // Puis centre sur le midPrice
+      centerOnMidPrice();
+    }, 50);
+  }, [centerOnMidPrice]);
 
   // Ajustement du scrollTop après extension en haut pour éviter les "sauts"
   const pendingScrollAdjustRef = useRef<number | null>(null);
@@ -216,18 +195,22 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     });
 
     if (hasLadder && hasLevels && levelsCount > 0 && hasMidPrice && !hasInitialCentered) {
-      console.log('🔧 DOMInfinite: CONDITIONS REMPLIES - Déclenchement centrage automatique');
-      
       hasInitialCenteredRef.current = true;
-      // Délai plus long pour s'assurer que le DOM est complètement rendu
+      
+      toast({
+        title: "🔄 Affichage DOM",
+        description: `Chargement du DOM avec ${levelsCount} niveaux`,
+        duration: 2000
+      });
+      
+      // Forcer l'affichage initial du DOM
       setTimeout(() => {
-        console.log('🔧 DOMInfinite: Exécution centrage après délai');
-        centerOnMidPrice();
-      }, 500);
+        forceInitialDisplay();
+      }, 200);
     } else {
       console.log('🔧 DOMInfinite: CONDITIONS NON REMPLIES pour centrage automatique');
     }
-  }, [ladder, centerOnMidPrice]);
+  }, [ladder, centerOnMidPrice, forceInitialDisplay]);
 
   // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);
