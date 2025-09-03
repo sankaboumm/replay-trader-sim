@@ -193,7 +193,17 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
+    console.log('🔧 DOMInfinite: Auto-centering check', {
+      hasLadder: !!ladder,
+      hasLevels: !!(ladder?.levels),
+      levelsCount: ladder?.levels?.length || 0,
+      hasMidPrice: !!tickLadder?.midPrice,
+      midPrice: tickLadder?.midPrice,
+      hasInitialCentered: hasInitialCenteredRef.current
+    });
+
     if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
+      console.log('🔧 DOMInfinite: CONDITIONS REMPLIES - Déclenchement centrage automatique');
       toast({
         title: "🔧 Centrage automatique",
         description: `Déclenchement pour prix ${tickLadder.midPrice}`,
@@ -203,19 +213,11 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       hasInitialCenteredRef.current = true;
       // Délai plus long pour s'assurer que le DOM est complètement rendu
       setTimeout(() => {
-        toast({
-          title: "⏰ Exécution centrage",
-          description: "Après délai de 500ms",
-          duration: 3000
-        });
+        console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
         centerOnMidPrice();
       }, 500);
     } else {
-      toast({
-        title: "⚠️ Conditions non remplies",
-        description: `Ladder: ${!!ladder}, Levels: ${ladder?.levels?.length || 0}, MidPrice: ${!!tickLadder?.midPrice}, Centered: ${hasInitialCenteredRef.current}`,
-        duration: 8000
-      });
+      console.log('🔧 DOMInfinite: CONDITIONS NON REMPLIES pour centrage automatique');
     }
   }, [ladder, centerOnMidPrice, toast]);
 
