@@ -193,31 +193,51 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
-    console.log('🔧 DOMInfinite: Auto-centering check', {
-      hasLadder: !!ladder,
-      hasLevels: !!(ladder?.levels),
-      levelsCount: ladder?.levels?.length || 0,
-      hasMidPrice: !!tickLadder?.midPrice,
-      midPrice: tickLadder?.midPrice,
-      hasInitialCentered: hasInitialCenteredRef.current
+    const hasLadder = !!ladder;
+    const hasLevels = !!(ladder?.levels);
+    const levelsCount = ladder?.levels?.length || 0;
+    const hasMidPrice = !!tickLadder?.midPrice;
+    const midPrice = tickLadder?.midPrice;
+    const hasInitialCentered = hasInitialCenteredRef.current;
+
+    // Toast détaillé avec toutes les conditions
+    toast({
+      title: "📊 Vérification conditions centrage",
+      description: `✅ Ladder: ${hasLadder} | ✅ Levels: ${hasLevels} (${levelsCount}) | ✅ MidPrice: ${hasMidPrice} (${midPrice}) | ❌ Déjà centré: ${hasInitialCentered}`,
+      duration: 8000
     });
 
-    if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
-      console.log('🔧 DOMInfinite: CONDITIONS REMPLIES - Déclenchement centrage automatique');
+    if (hasLadder && hasLevels && levelsCount > 0 && hasMidPrice && !hasInitialCentered) {
       toast({
-        title: "🔧 Centrage automatique",
-        description: `Déclenchement pour prix ${tickLadder.midPrice}`,
-        duration: 5000
+        title: "✅ CONDITIONS REMPLIES",
+        description: `Déclenchement centrage automatique pour prix ${midPrice}`,
+        duration: 6000
       });
       
       hasInitialCenteredRef.current = true;
       // Délai plus long pour s'assurer que le DOM est complètement rendu
       setTimeout(() => {
-        console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
+        toast({
+          title: "⏰ Exécution centrage",
+          description: "Lancement après délai de 500ms",
+          duration: 3000
+        });
         centerOnMidPrice();
       }, 500);
     } else {
-      console.log('🔧 DOMInfinite: CONDITIONS NON REMPLIES pour centrage automatique');
+      const missingConditions = [];
+      if (!hasLadder) missingConditions.push("Pas de ladder");
+      if (!hasLevels) missingConditions.push("Pas de levels");
+      if (levelsCount === 0) missingConditions.push("0 levels");
+      if (!hasMidPrice) missingConditions.push("Pas de midPrice");
+      if (hasInitialCentered) missingConditions.push("Déjà centré");
+
+      toast({
+        title: "❌ CONDITIONS NON REMPLIES",
+        description: `Problèmes: ${missingConditions.join(", ")}`,
+        duration: 8000,
+        variant: "destructive"
+      });
     }
   }, [ladder, centerOnMidPrice, toast]);
 
