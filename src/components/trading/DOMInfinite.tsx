@@ -48,22 +48,54 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
 
   // Centrage sur le midPrice avec la barre espace
   const centerOnMidPrice = useCallback(() => {
-    if (!tickLadder?.midPrice || !ladder?.levels) return;
+    console.log('🎯 centerOnMidPrice: Starting centering process', {
+      hasMidPrice: !!tickLadder?.midPrice,
+      hasLadder: !!ladder?.levels,
+      levelsCount: ladder?.levels?.length
+    });
+    
+    if (!tickLadder?.midPrice || !ladder?.levels) {
+      console.log('🎯 centerOnMidPrice: Missing data, aborting');
+      return;
+    }
     
     const wrapper = wrapperRef.current;
-    if (!wrapper) return;
+    if (!wrapper) {
+      console.log('🎯 centerOnMidPrice: No wrapper found');
+      return;
+    }
     
     const scrollEl = wrapper.querySelector<HTMLElement>('.trading-scroll');
-    if (!scrollEl) return;
+    if (!scrollEl) {
+      console.log('🎯 centerOnMidPrice: No scroll element found');
+      return;
+    }
+
+    console.log('🎯 centerOnMidPrice: Found scroll element', {
+      scrollHeight: scrollEl.scrollHeight,
+      clientHeight: scrollEl.clientHeight,
+      midPrice: tickLadder.midPrice
+    });
 
     // Trouve l'index du niveau le plus proche du midPrice
     const midPriceIndex = ladder.levels.findIndex(level => 
       Math.abs(level.price - tickLadder.midPrice) < 0.125
     );
     
+    console.log('🎯 centerOnMidPrice: Found midPrice index', {
+      midPriceIndex,
+      targetPrice: tickLadder.midPrice,
+      foundPrice: midPriceIndex >= 0 ? ladder.levels[midPriceIndex].price : 'not found'
+    });
+    
     if (midPriceIndex >= 0) {
       const ROW_HEIGHT = 32;
       const targetScroll = midPriceIndex * ROW_HEIGHT - (scrollEl.clientHeight / 2);
+      console.log('🎯 centerOnMidPrice: Scrolling to position', {
+        targetScroll: Math.max(0, targetScroll),
+        rowHeight: ROW_HEIGHT,
+        clientHeight: scrollEl.clientHeight
+      });
       scrollEl.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
     }
   }, [tickLadder?.midPrice, ladder]);
@@ -148,17 +180,26 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   // Centrage automatique initial sur le midPrice 
   useEffect(() => {
     if (ladder && ladder.levels && ladder.levels.length > 0 && tickLadder?.midPrice && !hasInitialCenteredRef.current) {
-      console.log('🔧 DOMInfinite: Initial auto-centering on midPrice', { 
+      console.log('🔧 DOMInfinite: Initial auto-centering triggered', { 
         midPrice: tickLadder.midPrice,
-        levelsCount: ladder.levels.length
+        levelsCount: ladder.levels.length,
+        hasInitialCentered: hasInitialCenteredRef.current
       });
       
       hasInitialCenteredRef.current = true;
-      // Délai pour s'assurer que le DOM est complètement rendu
+      // Délai plus long pour s'assurer que le DOM est complètement rendu
       setTimeout(() => {
         console.log('🔧 DOMInfinite: Executing centerOnMidPrice after delay');
         centerOnMidPrice();
-      }, 200);
+      }, 500);
+    } else {
+      console.log('🔧 DOMInfinite: Auto-centering conditions not met', {
+        hasLadder: !!ladder,
+        hasLevels: !!(ladder?.levels?.length),
+        levelsCount: ladder?.levels?.length,
+        hasMidPrice: !!tickLadder?.midPrice,
+        hasInitialCentered: hasInitialCenteredRef.current
+      });
     }
   }, [ladder, centerOnMidPrice]);
 
