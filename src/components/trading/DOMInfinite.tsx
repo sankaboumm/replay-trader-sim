@@ -176,8 +176,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice UNIQUEMENT lors du chargement
-
+  // Centrage automatique initial sur le midPrice
   useEffect(() => {
     const hasLadder = !!ladder;
     const hasLevels = !!(ladder?.levels);
@@ -186,26 +185,21 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const midPrice = tickLadder?.midPrice;
     const hasInitialCentered = hasInitialCenteredRef.current;
 
-    // IMPORTANT: Ne pas repositionner automatiquement pendant la lecture (disabled = false)
-    if (!disabled) {
-      return;
-    }
-
     if (hasLadder && hasLevels && levelsCount > 0 && hasMidPrice && !hasInitialCentered) {
       hasInitialCenteredRef.current = true;
       
       toast({
-        title: "🔄 Affichage DOM",
-        description: `DOM chargé avec ${levelsCount} niveaux à ${midPrice}`,
+        title: "🔄 Centrage DOM",
+        description: `DOM centré sur ${midPrice} avec ${levelsCount} niveaux`,
         duration: 2000
       });
       
-      // Forcer l'affichage initial du DOM
+      // Centrage immédiat et forcé
       setTimeout(() => {
-        forceInitialDisplay();
-      }, 200);
+        centerOnMidPrice();
+      }, 100);
     }
-  }, [ladder, disabled, centerOnMidPrice, forceInitialDisplay, toast]);
+  }, [ladder, centerOnMidPrice, toast, tickLadder?.midPrice]);
 
   // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);

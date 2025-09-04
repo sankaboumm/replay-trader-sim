@@ -49,50 +49,20 @@ export function useInfiniteTickWindow(
     if (!tickLadder) return;
     const { midTick } = tickLadder;
 
-    // Vérifier si la fenêtre actuelle est correctement centrée sur le midTick
-    const isWindowCentered = (
-      lowTick !== null && 
-      highTick !== null && 
-      Math.abs(midTick - (lowTick + highTick) / 2) < 2 // Tolérance de 2 ticks
-    );
+    // Éviter la boucle infinie: ne réinitialiser que si c'est un nouveau midTick
+    const isNewMidTick = lastMidTickRef.current !== midTick;
+    const isFirstInit = lowTick === null || highTick === null;
 
-    console.log('🔧 useInfiniteTickWindow: Checking window centering', {
-      midTick,
-      lowTick,
-      highTick,
-      windowCenter: lowTick !== null && highTick !== null ? (lowTick + highTick) / 2 : null,
-      isWindowCentered,
-      lastMidTickRef: lastMidTickRef.current
-    });
-
-    // Réinitialisation nécessaire si:
-    // 1. Première initialisation (aucune fenêtre définie)
-    // 2. La fenêtre n'est pas centrée sur le midTick
-    const needsReset = (
-      lowTick == null || 
-      highTick == null || 
-      !isWindowCentered
-    );
-
-    if (needsReset) {
+    if (isNewMidTick || isFirstInit) {
       const half = Math.floor(initialWindow / 2);
       const newLowTick = midTick - half;
       const newHighTick = midTick + half;
       
-      console.log('🔧 useInfiniteTickWindow: Resetting window to center on midTick', {
-        midTick,
-        half,
-        newLowTick,
-        newHighTick,
-        previousCenter: lowTick !== null && highTick !== null ? (lowTick + highTick) / 2 : null
-      });
-      
       setLowTick(newLowTick);
       setHighTick(newHighTick);
+      lastMidTickRef.current = midTick;
     }
-
-    lastMidTickRef.current = midTick;
-  }, [tickLadder, initialWindow]); // Ne pas inclure lowTick/highTick pour éviter boucle infinie
+  }, [tickLadder?.midTick, initialWindow]); // CRITIQUE: Ne dépendre que du midTick pour éviter la boucle
 
   // Dictionnaire tick → niveau pour hydrater rapidement + tous les niveaux possibles
   const levelByTick = useMemo(() => {
