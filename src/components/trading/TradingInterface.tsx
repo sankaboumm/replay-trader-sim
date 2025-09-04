@@ -1,4 +1,4 @@
-import { useRef, useCallback } from 'react';
+import { useRef, useCallback, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { FileUpload } from './FileUpload';
 import { PlaybackControls } from './PlaybackControls';
@@ -6,9 +6,31 @@ import { PositionPanel } from './PositionPanel';
 import { DOMInfinite } from './DOMInfinite';
 import { TimeAndSales } from './TimeAndSales';
 import { useTradingEngine } from '@/hooks/useTradingEngine';
+import { useToast } from '@/hooks/use-toast';
+import { Info } from 'lucide-react';
 
 export function TradingInterface() {
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const logsRef = useRef<string[]>([]);
+  
+  // Capture des logs console
+  const originalConsoleLog = console.log;
+  console.log = (...args) => {
+    const message = args.map(arg => 
+      typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
+    ).join(' ');
+    
+    // Garde seulement les logs de trading (avec emojis)
+    if (message.includes('📊') || message.includes('🔄') || message.includes('💰') || message.includes('📝') || message.includes('🟡')) {
+      logsRef.current.push(`${new Date().toLocaleTimeString()}: ${message}`);
+      // Garde seulement les 50 derniers logs
+      if (logsRef.current.length > 50) {
+        logsRef.current = logsRef.current.slice(-50);
+      }
+    }
+    
+    originalConsoleLog(...args);
+  };
   const {
     marketData,
     position,
@@ -32,6 +54,31 @@ export function TradingInterface() {
     spreadTicks,
     setViewAnchorPrice,
   } = useTradingEngine();
+  const { toast } = useToast();
+
+  const showLogs = useCallback(() => {
+    const logs = logsRef.current.length > 0 
+      ? logsRef.current 
+      : [
+        "Aucun log de trading disponible.",
+        "Effectuez des trades pour voir les logs de debug.",
+        "",
+        `État actuel:`,
+        `Position: qty=${position.quantity}, avg=${position.averagePrice?.toFixed(2) || '0'}`,
+        `Prix actuel: ${currentPrice}`,
+        `Ordres en attente: ${orders.length}`,
+      ];
+    
+    toast({
+      title: "Debug Logs Trading",
+      description: (
+        <div className="text-xs font-mono whitespace-pre-wrap max-h-96 overflow-y-auto bg-muted p-2 rounded">
+          {logs.join('\n')}
+        </div>
+      ),
+      duration: 15000,
+    });
+  }, [logsRef, position, currentPrice, orders, toast]);
 
   const handleFileUpload = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -58,6 +105,15 @@ export function TradingInterface() {
         </div>
 
         <div className="flex items-center gap-4">
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={showLogs}
+            className="flex items-center gap-2"
+          >
+            <Info size={16} />
+            Debug Logs
+          </Button>
           <PlaybackControls
             isPlaying={isPlaying}
             speed={playbackSpeed}
