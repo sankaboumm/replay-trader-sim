@@ -501,7 +501,7 @@ export function useTradingEngine() {
     };
     console.log(`📝 Exécution immédiate ordre marché: ${JSON.stringify(ord)}`);
     executeLimitFill(ord, execPx);
-  }, [getBestBidAsk, currentPrice, executeLimitFill]);
+  }, [currentPrice, executeLimitFill]);
 
   // ---------- periodic UI flush while loading or playing ----------
   useEffect(() => {
