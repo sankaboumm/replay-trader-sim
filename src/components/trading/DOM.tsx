@@ -155,13 +155,6 @@ export const DOM = memo(function DOM({
               Math.abs(level.price - Math.round(position.averagePrice / 0.25) * 0.25) < 0.01;
             const isHighlighted = highlightedPrices.has(level.price);
             
-            // Debug log pour le prix moyen
-            if (position && position.quantity !== 0) {
-              const roundedAvg = Math.round(position.averagePrice / 0.25) * 0.25;
-              if (level.price === roundedAvg) {
-                console.log(`🟡 Prix moyen affiché: prix=${level.price}, position.averagePrice=${position.averagePrice}, arrondi=${roundedAvg}, isAveragePrice=${isAveragePrice}`);
-              }
-            }
             
             const buyOrders = getOrdersAtPrice(level.price, 'BUY');
             const sellOrders = getOrdersAtPrice(level.price, 'SELL');
