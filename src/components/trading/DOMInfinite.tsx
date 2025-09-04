@@ -176,7 +176,8 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [centerOnMidPrice]);
 
-  // Centrage automatique initial sur le midPrice 
+  // Centrage automatique initial sur le midPrice UNIQUEMENT lors du chargement
+
   useEffect(() => {
     const hasLadder = !!ladder;
     const hasLevels = !!(ladder?.levels);
@@ -185,21 +186,17 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const midPrice = tickLadder?.midPrice;
     const hasInitialCentered = hasInitialCenteredRef.current;
 
-    console.log('🔧 DOMInfinite: Conditions centrage', {
-      hasLadder,
-      hasLevels,
-      levelsCount,
-      hasMidPrice,
-      midPrice,
-      hasInitialCentered
-    });
+    // IMPORTANT: Ne pas repositionner automatiquement pendant la lecture (disabled = false)
+    if (!disabled) {
+      return;
+    }
 
     if (hasLadder && hasLevels && levelsCount > 0 && hasMidPrice && !hasInitialCentered) {
       hasInitialCenteredRef.current = true;
       
       toast({
         title: "🔄 Affichage DOM",
-        description: `Chargement du DOM avec ${levelsCount} niveaux`,
+        description: `DOM chargé avec ${levelsCount} niveaux à ${midPrice}`,
         duration: 2000
       });
       
@@ -207,10 +204,8 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       setTimeout(() => {
         forceInitialDisplay();
       }, 200);
-    } else {
-      console.log('🔧 DOMInfinite: CONDITIONS NON REMPLIES pour centrage automatique');
     }
-  }, [ladder, centerOnMidPrice, forceInitialDisplay]);
+  }, [ladder, disabled, centerOnMidPrice, forceInitialDisplay, toast]);
 
   // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);
@@ -232,7 +227,6 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       lastMidPriceRef.current = currentMidPrice;
     } else {
       // CRITIQUE: Reset quand pas de données (nouveau fichier en cours de chargement)
-      console.log('🔧 DOMInfinite: Reset flag centrage car pas de midPrice');
       hasInitialCenteredRef.current = false;
       lastMidPriceRef.current = null;
     }
