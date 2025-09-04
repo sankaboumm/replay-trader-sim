@@ -38,7 +38,7 @@ function formatSize(size?: number): string {
   return `${size}`;
 }
 
-export const DOM = memo(function DOM({
+export function DOM({
   tickLadder,
   currentPrice,
   trades = [],
@@ -155,6 +155,11 @@ export const DOM = memo(function DOM({
               Math.abs(level.price - Math.round(position.averagePrice / 0.25) * 0.25) < 0.01;
             const isHighlighted = highlightedPrices.has(level.price);
             
+            // Debug position uniquement pour le prix moyen détecté
+            if (position && position.quantity !== 0 && isAveragePrice) {
+              console.log(`🟡 DOM reçoit position: qty=${position.quantity}, avg=${position.averagePrice}, prix=${level.price}`);
+            }
+            
             
             const buyOrders = getOrdersAtPrice(level.price, 'BUY');
             const sellOrders = getOrdersAtPrice(level.price, 'SELL');
@@ -228,4 +233,4 @@ export const DOM = memo(function DOM({
       </div>
     </div>
   );
-});
+};
