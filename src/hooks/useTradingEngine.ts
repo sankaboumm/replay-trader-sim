@@ -400,12 +400,14 @@ export function useTradingEngine() {
       }
 
       // Cas 3: Sens opposé (fermeture partielle ou totale)
+      console.log(`📊 Réduction position: prevQty=${prevQty}, newQty=${newQty}, sign(prevQty)=${Math.sign(prevQty)}, sign(newQty)=${Math.sign(newQty)}`);
+      
       if (newQty === 0) {
         console.log(`📊 Fermeture totale: position à zéro`);
         return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
       } else if (Math.sign(newQty) === Math.sign(prevQty)) {
-        // Fermeture partielle, même sens restant
-        console.log(`📊 Fermeture partielle: prix moyen conservé = ${prevAvg}`);
+        // Fermeture partielle, même sens restant - GARDER le prix moyen original
+        console.log(`📊 Fermeture partielle: prix moyen conservé = ${prevAvg} (pas de changement)`);
         return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
       } else {
         // Inversion de position : nouvelle position dans le sens opposé
