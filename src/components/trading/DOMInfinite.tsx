@@ -2,7 +2,6 @@ import { memo, useEffect, useRef, useCallback } from "react";
 import { DOM } from "./DOM";
 import type { TickLadder as TickLadderType } from "@/lib/orderbook";
 import { useInfiniteTickWindow } from "@/hooks/useInfiniteTickWindow";
-import { useToast } from "@/hooks/use-toast";
 
 interface TradeLite {
   price: number;
@@ -41,7 +40,6 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
   const { tickLadder, currentPrice, disabled } = props;
   const wrapperRef = useRef<HTMLDivElement>(null);
   const hasInitialCenteredRef = useRef(false);
-  const { toast } = useToast();
 
   const { ladder, extendUp, extendDown, batchSize, resetAroundMid } = useInfiniteTickWindow(tickLadder, {
     initialWindow: tickLadder?.levels?.length ?? 101,
@@ -182,24 +180,17 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
     const hasLevels = !!(ladder?.levels);
     const levelsCount = ladder?.levels?.length || 0;
     const hasMidPrice = !!tickLadder?.midPrice;
-    const midPrice = tickLadder?.midPrice;
     const hasInitialCentered = hasInitialCenteredRef.current;
 
     if (hasLadder && hasLevels && levelsCount > 0 && hasMidPrice && !hasInitialCentered) {
       hasInitialCenteredRef.current = true;
-      
-      toast({
-        title: "🔄 Centrage DOM",
-        description: `DOM centré sur ${midPrice} avec ${levelsCount} niveaux`,
-        duration: 2000
-      });
       
       // Centrage immédiat et forcé
       setTimeout(() => {
         centerOnMidPrice();
       }, 100);
     }
-  }, [ladder, centerOnMidPrice, toast, tickLadder?.midPrice]);
+  }, [ladder, centerOnMidPrice, tickLadder?.midPrice]);
 
   // Reset du flag de centrage quand on change de fichier
   const lastMidPriceRef = useRef<number | null>(null);
@@ -210,11 +201,6 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       
       // Si c'est un nouveau fichier (midPrice change significativement)
       if (lastMidPrice !== null && Math.abs(currentMidPrice - lastMidPrice) > 50) {
-        toast({
-          title: "📁 Nouveau fichier détecté",
-          description: `Prix: ${lastMidPrice} → ${currentMidPrice}`,
-          duration: 2000
-        });
         hasInitialCenteredRef.current = false;
       }
       
@@ -224,7 +210,7 @@ export const DOMInfinite = memo(function DOMInfinite(props: DOMProps) {
       hasInitialCenteredRef.current = false;
       lastMidPriceRef.current = null;
     }
-  }, [tickLadder?.midPrice, toast]);
+  }, [tickLadder?.midPrice]);
 
   return (
     <div ref={wrapperRef} className="contents">
