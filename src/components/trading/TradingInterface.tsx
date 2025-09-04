@@ -16,9 +16,16 @@ export function TradingInterface() {
   // Capture des logs console
   const originalConsoleLog = console.log;
   console.log = (...args) => {
-    const message = args.map(arg => 
-      typeof arg === 'object' ? JSON.stringify(arg) : String(arg)
-    ).join(' ');
+    const message = args.map(arg => {
+      if (typeof arg === 'object') {
+        try {
+          return JSON.stringify(arg);
+        } catch (e) {
+          return String(arg);
+        }
+      }
+      return String(arg);
+    }).join(' ');
     
     // Garde seulement les logs de trading (avec emojis)
     if (message.includes('📊') || message.includes('🔄') || message.includes('💰') || message.includes('📝') || message.includes('🟡')) {
