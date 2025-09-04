@@ -150,13 +150,14 @@ export const DOM = memo(function DOM({
           levels.map((level) => {
             const volume = volumeByPrice.get(level.price) ?? 0;
             const isMid = Math.abs(level.price - currentPrice) < 1e-9;
-            // Augmenter la tolérance pour détecter le prix moyen (0.5 au lieu de 0.125)
-            const isAveragePrice = position && position.quantity !== 0 && Math.abs(level.price - position.averagePrice) < 0.5;
+            // Précision exacte pour ne capturer qu'une seule cellule (prix moyen arrondi au tick)
+            const isAveragePrice = position && position.quantity !== 0 && 
+              Math.abs(level.price - Math.round(position.averagePrice / 0.25) * 0.25) < 0.01;
             const isHighlighted = highlightedPrices.has(level.price);
             
             // Debug log pour le prix moyen
             if (position && position.quantity !== 0 && isAveragePrice) {
-              console.log(`🟡 Prix moyen détecté: ${level.price}, position: ${position.averagePrice}, diff: ${Math.abs(level.price - position.averagePrice)}`);
+              console.log(`🟡 Prix moyen détecté: ${level.price}, position: ${position.averagePrice}, arrondi: ${Math.round(position.averagePrice / 0.25) * 0.25}`);
             }
             
             const buyOrders = getOrdersAtPrice(level.price, 'BUY');
