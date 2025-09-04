@@ -488,9 +488,8 @@ export function useTradingEngine() {
   // MARKET = best bid/ask (BBO prioritaire) + exécution immédiate
   const placeMarketOrder = useCallback((side: 'BUY' | 'SELL', quantity: number = 1) => {
     console.log(`📝 Placement ordre marché: side=${side}, qty=${quantity}`);
-    const { bestBid, bestAsk } = getBestBidAsk();
-    const execPx = side === 'BUY' ? (bestBid ?? currentPrice) : (bestAsk ?? currentPrice);
-    console.log(`📝 Prix d'exécution marché: ${execPx} (bestBid=${bestBid}, bestAsk=${bestAsk})`);
+    const execPx = currentPrice;
+    console.log(`📝 Prix d'exécution marché: ${execPx} (currentPrice)`);
     if (execPx == null) return;
 
     const ord: Order = {
