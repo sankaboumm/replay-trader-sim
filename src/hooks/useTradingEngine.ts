@@ -227,10 +227,12 @@ export function useTradingEngine() {
             });
 
             if (!initialPriceSet) {
-              setCurrentPrice(toTick(price));
-              orderBookProcessor.setAnchorByPrice(price);
+              const initialPrice = toTick(price);
+              setCurrentPrice(initialPrice);
+              orderBookProcessor.setAnchorByPrice(initialPrice);
               initialPriceSet = true;
               samplePricesRef.current.push(price);
+              console.log(`🎯 Prix initial défini (TRADE): ${initialPrice} à partir de ${price}`);
               // Force la reconstruction du ladder avec l'ancre
               setForceUpdate(prev => prev + 1);
             }
@@ -258,6 +260,7 @@ export function useTradingEngine() {
               initialPriceSet = true;
               const p0 = (bp + ap) / 2;
               samplePricesRef.current.push(p0);
+              console.log(`🎯 Prix initial défini (BBO): ${mid} (mid de ${bp}/${ap})`);
               // Force la reconstruction du ladder avec l'ancre
               setForceUpdate(prev => prev + 1);
             }
@@ -297,10 +300,12 @@ export function useTradingEngine() {
               const bestAsk0 = askPrices.length ? Math.min(...askPrices) : undefined;
               if (bestBid0 && bestAsk0) {
                 const p0 = (toBidTick(bestBid0) + toAskTick(bestAsk0)) / 2;
-                setCurrentPrice(toTick(p0));
-                orderBookProcessor.setAnchorByPrice(p0);
+                const initialPrice = toTick(p0);
+                setCurrentPrice(initialPrice);
+                orderBookProcessor.setAnchorByPrice(initialPrice);
                 initialPriceSet = true;
                 samplePricesRef.current.push(p0);
+                console.log(`🎯 Prix initial défini: ${initialPrice} (mid de ${bestBid0}/${bestAsk0})`);
                 // Force la reconstruction du ladder avec l'ancre
                 setForceUpdate(prev => prev + 1);
               }
