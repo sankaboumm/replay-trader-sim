@@ -382,28 +382,36 @@ export function useTradingEngine() {
       const prevAvg = prevPos.averagePrice || 0; 
       const newQty = prevQty + sideDir * fillQty;
 
-      // Même sens ou ouverture
-      if (prevQty === 0 || Math.sign(prevQty) === sideDir) {
+      console.log(`📊 Calcul position: prevQty=${prevQty}, fillQty=${fillQty}, sideDir=${sideDir}, newQty=${newQty}`);
+
+      // Cas 1: Ouverture de position (quantité était 0)
+      if (prevQty === 0) {
+        console.log(`📊 Ouverture position: prix moyen = ${px}`);
+        return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
+      }
+
+      // Cas 2: Même sens (ajout à la position)
+      if (Math.sign(prevQty) === sideDir) {
         const absPrev = Math.abs(prevQty);
         const absNew = absPrev + fillQty;
-        const newAvg = absNew > 0 ? (prevAvg * absPrev + px * fillQty) / absNew : 0;
+        const newAvg = (prevAvg * absPrev + px * fillQty) / absNew;
+        console.log(`📊 Ajout position: (${prevAvg} * ${absPrev} + ${px} * ${fillQty}) / ${absNew} = ${newAvg}`);
         return { ...prevPos, quantity: newQty, averagePrice: newAvg, marketPrice: px };
       }
 
-      // Sens opposé : fermeture
-      const closeQty = Math.min(Math.abs(prevQty), fillQty);
-      const remainingQty = fillQty - closeQty;
-
-      if (remainingQty === 0 && newQty !== 0 && Math.sign(newQty) === Math.sign(prevQty)) {
-        return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
-      }
-
+      // Cas 3: Sens opposé (fermeture partielle ou totale)
       if (newQty === 0) {
         console.log(`📊 Fermeture totale: position à zéro`);
         return { ...prevPos, quantity: 0, averagePrice: 0, marketPrice: px };
+      } else if (Math.sign(newQty) === Math.sign(prevQty)) {
+        // Fermeture partielle, même sens restant
+        console.log(`📊 Fermeture partielle: prix moyen conservé = ${prevAvg}`);
+        return { ...prevPos, quantity: newQty, averagePrice: prevAvg, marketPrice: px };
+      } else {
+        // Inversion de position : nouvelle position dans le sens opposé
+        console.log(`📊 Inversion position: nouveau prix moyen = ${px}`);
+        return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
       }
-
-      return { ...prevPos, quantity: newQty, averagePrice: px, marketPrice: px };
     });
 
     // Ajouter le PnL réalisé au total de session
